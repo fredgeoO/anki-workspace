@@ -1,0 +1,84 @@
+<div style="text-align: center;"><span class="timer" id="s2" style="font-size: 16px"></span></div>
+<script>
+function countdown( elementName, minutes, seconds )
+{
+    var element, endTime, hours, mins, msLeft, time;
+    function twoDigits( n )
+    {
+        return (n <= 9 ? "0" + n : n);
+    }
+    function updateTimer()
+    {
+        msLeft = endTime - (+new Date);
+        if ( msLeft < 1000 ) {
+            element.innerHTML = "Time's Up!";
+        } else {
+            time = new Date( msLeft );
+            hours = time.getUTCHours();
+            mins = time.getUTCMinutes();
+            element.innerHTML = (hours ? hours + ':' + twoDigits( mins ) : mins) + ':' + twoDigits( time.getUTCSeconds() );
+            setTimeout( updateTimer, time.getUTCMilliseconds() + 500 );
+        }
+    }
+    element = document.getElementById( elementName );
+    endTime = (+new Date) + 1000 * (60*minutes + seconds) + 500;
+    updateTimer();
+}
+countdown("s2", 0, 5 );//2nd value is the minute, 3rd is the seconds
+</script>
+
+<div class="card">
+    <div class="header">
+        <span class="word"><span class="jp">{{kanji:Card}}</span></span>
+    </div>
+    {{#ConnectiveType1}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">①</span></span>
+    </div>{{/ConnectiveType1}}
+    {{#ConnectiveType2}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">②</span></span>
+    </div>{{/ConnectiveType2}}
+    {{#ConnectiveType3}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">③</span></span>
+    </div>{{/ConnectiveType3}}
+   
+    <hr />
+    <div class="content">
+        {{#Sentence1}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">①</span> <span class="jp">{{SentenceAudio1}}</span> <br />
+        </div>{{/Sentence1}}
+        {{#Sentence2}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">②</span> <span class="jp">{{SentenceAudio2}}</span> <br />
+        </div>{{/Sentence2}}
+        {{#Sentence3}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">③</span> <span class="jp">{{SentenceAudio3}}</span> <br />
+        </div>{{/Sentence3}}
+        {{#Sentence4}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">④</span> <span class="jp">{{SentenceAudio4}}</span> <br />
+        </div>{{/Sentence4}}
+        {{#Sentence5}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑤</span> <span class="jp">{{SentenceAudio5}}</span> <br />
+        </div>{{/Sentence5}}
+        {{#Sentence6}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑥</span> <span class="jp">{{SentenceAudio6}}</span> <br />
+        </div>{{/Sentence6}}
+        {{#Sentence7}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑦</span> <span class="jp">{{SentenceAudio7}}</span> <br />
+        </div>{{/Sentence7}}
+        {{#Sentence8}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑧</span> <span class="jp">{{SentenceAudio8}}</span> <br />
+        </div>{{/Sentence8}}
+        {{#Sentence9}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑨</span> <span class="jp">{{SentenceAudio9}}</span> <br />
+        </div>{{/Sentence9}}
+        {{#Sentence10}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑩</span> <span class="jp">{{SentenceAudio10}}</span> <br />
+        </div>{{/Sentence10}}
+        {{#Sentence11}}<div class="examplefront">
+            <span class="leader">[例]</span><span class="num">⑪</span> <span class="jp">{{SentenceAudio11}}</span> <br />
+        </div>{{/Sentence11}}
+    </div>
+
+
+</div>
+
+

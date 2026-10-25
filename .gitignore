@@ -1,0 +1,45 @@
+# =============================================================================
+# anki-workspace —— 仓库只收「源码 / 文档 / 技能 / 卡片模板 / 字幕」。
+#
+# 两类东西不进 git：
+#   ① 卡片资料与一切能由工作区重建的产物（data/ 的大部分、output/、快照、缓存）；
+#   ② 个人与机器相关的东西（备份盘路径、Anki 账户目录、API key、本地模型配置）。
+#
+# 目录里留下的只是「哪块被排除了」的说明，见 data/README.md。
+# =============================================================================
+
+# ---------- 数据区：整目录排除，只留模板与插件源码 ----------
+/data/*
+!/data/README.md
+!/data/card_templates/
+!/data/anki_addon/
+
+#   模板目录只留 HTML 源码：applied_templates.json 是「模板应用到哪些笔记」的转储
+/data/card_templates/applied_templates.json
+#   插件只留源码：.ankiaddon 是打包产物
+/data/anki_addon/*.ankiaddon
+
+# ---------- 生成物 ----------
+/output/
+/core6000-analysis/
+/archive/
+/temp/
+
+# ---------- 个人学习数据（分析报告含自身的复习量、弱词、词汇量）----------
+/docs/reports/
+
+# ---------- 收藏导出（= 卡片资料，可由 anki_api.Snapshot 重建）----------
+/code/analysis/anki_analyze/*.tsv
+/code/analysis/anki_analyze/*.txt
+/code/analysis/anki_analyze/texts/
+
+# ---------- 机器相关 ----------
+/.dsh/acl-recovery/
+/.dsh/local-llm.json
+__pycache__/
+*.py[cod]
+
+# ---------- 编辑器 / 系统 ----------
+.DS_Store
+Thumbs.db
+desktop.ini

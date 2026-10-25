@@ -1,0 +1,183 @@
+<div style="text-align: center;"><span class="timer" id="s2" style="font-size: 16px"></span></div>
+<script>
+function countdown( elementName, minutes, seconds )
+{
+    var element, endTime, hours, mins, msLeft, time;
+    function twoDigits( n )
+    {
+        return (n <= 9 ? "0" + n : n);
+    }
+    function updateTimer()
+    {
+        msLeft = endTime - (+new Date);
+        if ( msLeft < 1000 ) {
+            element.innerHTML = "Time's Up!";
+        } else {
+            time = new Date( msLeft );
+            hours = time.getUTCHours();
+            mins = time.getUTCMinutes();
+            element.innerHTML = (hours ? hours + ':' + twoDigits( mins ) : mins) + ':' + twoDigits( time.getUTCSeconds() );
+            setTimeout( updateTimer, time.getUTCMilliseconds() + 500 );
+        }
+    }
+    element = document.getElementById( elementName );
+    endTime = (+new Date) + 1000 * (60*minutes + seconds) + 500;
+    updateTimer();
+}
+countdown("s2", 0, 5 );//2nd value is the minute, 3rd is the seconds
+</script>
+
+<div class="card">
+    <div class="examplesentences"><div>
+    <div class="sentenceexample"><span class="leader">[例]</span>①<span class="num"></span><span class="jp">{{furigana:Sentence5}}</span></div>
+    <div class="sentenceexamplenote"><span class="leader">[中]</span>①<span class="num"></span><span class="jp">{{furigana:CN5}}</span></div></div><div class="right-side">{{SentenceAudio5}}</div></div>
+    <hr /><div style='font-family: "Arial"; font-size: 17px;'>{{AIConclusion}}</div>
+    </div>
+    <div class="header">
+        <span class="word"><span class="jp">{{furigana:Card}}</span></span>
+        <span class="bracket"><span class="jp">{{furigana:Bracket}}</span></span>
+        <span class="star">{{Star}}</span>
+        {{#WrittenForm}}<span class="wfs">🆆</span>{{/WrittenForm}}
+        {{#FormalForm}}<span class="wfs">🅵</span>{{/FormalForm}}
+        {{#SpokenForm}}<span class="wfs">🆂</span>{{/SpokenForm}}
+    </div>
+    {{#ConnectiveType1}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">①</span></span>
+        <span class="connectiveNote"> <span class="jp">{{furigana:ConnectiveType1}}</span> </span>
+    </div>{{/ConnectiveType1}}
+    {{#ConnectiveType2}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">②</span></span>
+        <span class="connectiveNote"> <span class="jp">{{furigana:ConnectiveType2}}</span> </span>
+    </div>{{/ConnectiveType2}}
+    {{#ConnectiveType3}}<div class="footer">
+        <span class="connectiveTag">{{Connective}} <span class="num">③</span></span>
+        <span class="connectiveNote"> <span class="jp">{{furigana:ConnectiveType3}}</span> </span>
+    </div>{{/ConnectiveType3}}
+  
+    <hr />
+    <div class="content">
+<span id="s3">
+        {{#MeaningJP}}<div class="glossary">
+            <span class="num">[日]</span> <span class="jp">{{furigana:MeaningJP}}</span> <br />
+        </div>{{/MeaningJP}}
+</span>
+
+<span id="s5">
+        {{#MeaningCN}}<div class="glossary">
+            <span class="num">[中]</span> <span class="sourcechinese"><span class="jp">{{furigana:MeaningCN}}</span></span><br />
+        </div>{{/MeaningCN}}
+</span>
+
+</span>
+<span id="s7">
+        {{#MeaningJP}}<div class="glossary">
+            <span class="num">[日]</span> <span class="jp">{{furigana:MeaningJP}}</span> <br />
+        </div>{{/MeaningJP}}
+</span>
+    </div>
+<span id="s3">
+    <hr />
+    <div class="notes">
+        {{#JNote1}}<div class="jnote">
+            <span class="num">[ア]</span> <span class="jp">{{furigana:JNote1}}</span> <br />
+        </div>{{/JNote1}}
+        {{#JNote2}}<div class="jnote">
+            <span class="num">[イ]</span> <span class="jp">{{furigana:JNote2}}</span> <br />
+        </div>{{/JNote2}}
+        {{#JNote3}}<div class="jnote">
+            <span class="num">[ウ]</span> <span class="jp">{{furigana:JNote3}}</span> <br />
+        </div>{{/JNote3}}
+        {{#JNote4}}<div class="jnote">
+            <span class="num">[エ]</span> <span class="jp">{{furigana:JNote4}}</span> <br />
+        </div>{{/JNote4}}
+        {{#JNote5}}<div class="jnote">
+            <span class="num">[オ]</span> <span class="jp">{{furigana:JNote5}}</span> <br />
+        </div>{{/JNote5}}
+        {{#JNote6}}<div class="jnote">
+            <span class="num">[カ]</span> <span class="jp">{{furigana:JNote6}}</span> <br />
+        </div>{{/JNote6}}
+        {{#JNote7}}<div class="jnote">
+            <span class="num">[キ]</span> <span class="jp">{{furigana:JNote7}}</span> <br />
+        </div>{{/JNote7}}
+    </div>
+</span>
+
+<span id="s5">
+    <hr />
+    <div class="notes">
+        {{#CNote1}}<div class="cnote">
+            <span class="num">[一]</span> <span class="jp">{{furigana:CNote1}}</span> <br />
+        </div>{{/CNote1}}
+        {{#CNote2}}<div class="cnote">
+            <span class="num">[二]</span> <span class="jp">{{furigana:CNote2}}</span> <br />
+        </div>{{/CNote2}}
+        {{#CNote3}}<div class="cnote">
+            <span class="num">[三]</span> <span class="jp">{{furigana:CNote3}}</span> <br />
+        </div>{{/CNote3}}
+        {{#CNote4}}<div class="cnote">
+            <span class="num">[四]</span> <span class="jp">{{furigana:CNote4}}</span> <br />
+        </div>{{/CNote4}}
+        {{#CNote5}}<div class="cnote">
+            <span class="num">[五]</span> <span class="jp">{{furigana:CNote5}}</span> <br />
+        </div>{{/CNote5}}
+        {{#CNote6}}<div class="cnote">
+            <span class="num">[六]</span> <span class="jp">{{furigana:CNote6}}</span> <br />
+        </div>{{/CNote6}}
+        {{#CNote7}}<div class="cnote">
+            <span class="num">[七]</span> <span class="jp">{{furigana:CNote7}}</span> <br />
+        </div>{{/CNote7}}
+    </div>
+</span>
+
+<span id="s7">
+    <hr />
+    <div class="notes">
+        {{#JNote1}}<div class="jnote">
+            <span class="num">[ア]</span> <span class="jp">{{furigana:JNote1}}</span> <br />
+        </div>{{/JNote1}}
+        {{#JNote2}}<div class="jnote">
+            <span class="num">[イ]</span> <span class="jp">{{furigana:JNote2}}</span> <br />
+        </div>{{/JNote2}}
+        {{#JNote3}}<div class="jnote">
+            <span class="num">[ウ]</span> <span class="jp">{{furigana:JNote3}}</span> <br />
+        </div>{{/JNote3}}
+        {{#JNote4}}<div class="jnote">
+            <span class="num">[エ]</span> <span class="jp">{{furigana:JNote4}}</span> <br />
+        </div>{{/JNote4}}
+        {{#JNote5}}<div class="jnote">
+            <span class="num">[オ]</span> <span class="jp">{{furigana:JNote5}}</span> <br />
+        </div>{{/JNote5}}
+        {{#JNote6}}<div class="jnote">
+            <span class="num">[カ]</span> <span class="jp">{{furigana:JNote6}}</span> <br />
+        </div>{{/JNote6}}
+        {{#JNote7}}<div class="jnote">
+            <span class="num">[キ]</span> <span class="jp">{{furigana:JNote7}}</span> <br />
+        </div>{{/JNote7}}
+    </div>
+</span>
+    {{#Image1}}<div class="image">
+        <hr />
+        {{Image1}}
+    </div>{{/Image1}}
+
+    {{#Image2}}<div class="image">
+        <hr />
+        {{Image2}}
+    </div>{{/Image2}}
+
+    {{#Image3}}<div class="image">
+        <hr />
+        {{Image3}}
+    </div>{{/Image3}}
+
+    {{#Image4}}<div class="image">
+        <hr />
+        {{Image4}}
+    </div>{{/Image4}}
+
+    {{#Image5}}<div class="image">
+        <hr />
+        {{Image5}}
+    </div>{{/Image5}}
+
+</div>
