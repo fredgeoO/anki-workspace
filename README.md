@@ -3,7 +3,7 @@
 > 状态：active ｜ 最后核实：2026-10-26
 
 一个「日语学习 × Anki」自动化工作区：把「看动画 → 做卡 → 复习 → 查漏」串成可重跑的脚本，
-而不是每次手工整理。当前收藏约 **3.7 万张卡 / 25 个牌组**，所有入口都在 `code/cli.py`。
+而不是每次手工整理。当前收藏 **39,820 张卡 / 26 个牌组**，所有入口都在 `code/cli.py`。
 
 本文件是**项目说明书**：是什么、怎么跑、怎么测、目录长什么样、改动时守什么规矩。
 **Agent 的行为契约在 [AGENTS.md](AGENTS.md)**——角色与边界、硬性禁令、验证命令、失败与求助条件
@@ -252,3 +252,32 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | [archive/experiments/README.md](archive/experiments/README.md) | 归档实验索引（**未入库**） |
 | [subtitles/README.md](subtitles/README.md) | 字幕目录的命名约定与 `anki/` 子目录说明 |
 | [data/README.md](data/README.md) | `data/` 各子目录是什么、哪些能重建、为什么不入库 |
+
+## 13. 整库下载
+
+完整收藏打包成 `.apkg` 放在 Release 里——**`.apkg` 不进 git 历史**（单个 1.6 GB，远超仓库的文件上限）：
+
+**[deck-2026-10-26](https://github.com/fredgeoO/anki-workspace/releases/tag/deck-2026-10-26)**
+
+| 附件 | 内容 | 卡数 | 大小 |
+|---|---|---|---|
+| `anki-workspace-deck-1-vocab.apkg` | `0-词汇`（素材生词 / 高频 6000 / 考级 / 专有 / 复习） | 25,921 | 1.61 GB |
+| `anki-workspace-deck-2-grammar.apkg` | `1-语法`（N5–N1，每级 解释 + 例句） | 3,160 | 0.21 GB |
+| `anki-workspace-deck-3-examples.apkg` | `2-例句`（动画例句卡） | 10,739 | 0.92 GB |
+
+三个包各导一次即可：牌组名带完整路径（`0-日本语学习::0-词汇` …），导入后自动挂回 `0-日本语学习` 下。
+
+**不含复习历史**：导出时 `includeSched=false`，`due / ivl / factor / type / queue / reps / lapses` 全部清零、
+`revlog` 为空，所有卡按新卡导入——既不会覆盖你自己的进度，也不暴露作者的学习记录。
+音频（`Word Audio` / `Sentence Audio`）随包导入媒体库。
+
+要重新打一份（改过卡之后）：
+
+```powershell
+# Anki 开着；deck 名照抄，path 用绝对路径；includeSched=false 就是不导出调度历史
+$body = '{"action":"exportPackage","version":6,"params":{"deck":"0-日本语学习::0-词汇","path":"<绝对路径>\\1-vocab.apkg","includeSched":false}}'
+Invoke-RestMethod http://127.0.0.1:8765 -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($body)) `
+  -ContentType 'application/json; charset=utf-8'
+```
+
+Release 单个附件上限 2 GiB，所以按三个分支拆包；媒体继续长就继续按子牌组拆。

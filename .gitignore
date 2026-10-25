@@ -32,6 +32,9 @@
 /code/analysis/anki_analyze/*.tsv
 /code/analysis/anki_analyze/*.txt
 /code/analysis/anki_analyze/texts/
+#   .apkg 走 GitHub Release 附件（2 GB 级文件不进 git 历史）
+*.apkg
+*.apkg.part*
 
 # ---------- 机器相关 ----------
 /.dsh/acl-recovery/
