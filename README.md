@@ -29,6 +29,19 @@
 | 词汇分析 | 字幕语料 + 现有卡组 | 覆盖率、新词表、挖掘窗口建议、跨作品通用性判定 |
 | 收集类 | 一段文字 / 一集字幕 | 专有名词卡（`3-专有词汇`，不进队列）、`复习::<名称>` 标签 |
 
+### 一张生成出来的卡
+
+<p align="center"><img src="docs/images/sentence-card-example.png" alt="一张带画面、振假名与讲解的例句卡" width="420"></p>
+
+这是一张 `2-例句` 卡：上方是台词对应的动画画面（带中文字幕），下方是流水线生成的内容——
+日语原句的汉字逐处标了振假名（`Sentence HTML`），接着是 `AINote` 的四节：中文翻译、
+核心词汇（词形 + 读音 + 词性 + 释义）、语法要点、动词变形解析。图里「〜と違う」「〜から」
+「〜ちゃう」三个语法点和 `迷っちゃって` 的变形链，就是「语法要点」与「动词变形解析」两节的内容。
+这两样由阶段 2 的 `pipeline.py gen` 生成（见 §5）。
+
+**画面与字幕是素材，讲解文字才是工作区生成的。** 流水线要做的，就是把一集字幕变成一批
+这样的卡，再进入生词挖掘、复习和弱项分析。
+
 三条贯穿全项目的原则：
 
 - **流水线不碰学习调度**：新卡学哪张、先学哪张由笔记字段 `JitenAnimeRank` 和 `cards.due` 决定，
@@ -96,7 +109,7 @@ anki-workspace/
 │  ├─ analysis/             分析区：today_weak、weak_*、vocab_cover/、anki_analyze/（离线孤岛）
 │  ├─ tests/                回归测试（10 个独立脚本，见 §7）
 │  └─ oneshot/              单次执行区：用完即弃的探针与一次性修复，不维护
-├─ docs/                    手册与档案（architecture / pipeline-guide / deprecated / decisions / reports）
+├─ docs/                    手册与档案（architecture / pipeline-guide / deprecated / decisions / images / reports）
 ├─ data/                    输入与中间产物（snapshots、pipeline、vocab、core6000、immersion、
 │                           vocab_cover、pylibs≈316 MB、freq、plans、evidence、dict/JMdict≈552 MB）
 ├─ output/                  生成物（daily 讲义、audio、vocab_cover、i1）
