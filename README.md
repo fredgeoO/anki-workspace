@@ -226,7 +226,7 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | [docs/jp-card-agent-instruction.md](docs/jp-card-agent-instruction.md) / [mine-agent-instruction.md](docs/mine-agent-instruction.md) | 阶段二 / 阶段四的提示词规范 |
 | [docs/japanese-word-example-teaching.md](docs/japanese-word-example-teaching.md) | 单词例句教学口径（提示词来源） |
 | [docs/troubleshooting/](docs/troubleshooting/README.md) | 排障与犯错经验：流水线坑表、事故复盘、本地模型防错 |
-| [docs/reports/](docs/reports/) | 分析报告（含个人学习数据，**本地保留、未入库**） |
+| `docs/reports/` | 分析报告（含个人学习数据，**本地保留、未入库**） |
 | [archive/experiments/README.md](archive/experiments/README.md) | 归档实验索引（**未入库**） |
 | [subtitles/README.md](subtitles/README.md) | 字幕目录的命名约定与 `anki/` 子目录说明 |
 | [data/README.md](data/README.md) | `data/` 各子目录是什么、哪些能重建、为什么不入库 |
