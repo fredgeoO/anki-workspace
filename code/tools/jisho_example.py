@@ -31,10 +31,12 @@ Jreibun 两个人工语料库，句子、英文翻译、出处链接、部分振
 * ``2``：Jisho 有响应，但过滤后没有可用候选（**不要退回模型造句**）；
 * ``1``：网络/解析/依赖错误。
 
-依赖：``data/pylibs`` 里的 requests、lxml；``data/pylibs`` 里的 SudachiPy 用于
-分词匹配与振假名兜底；``data/dict/jmdictpy/jmdict.db`` 用于否决被 Jisho 截断的
-读音（``私達 → わたし``），词典不可用时自动降级。Jisho 的 robots.txt 要求
-Crawl-delay: 40，本脚本**一次调用只抓一页**（最多 20 条），不要拿它循环刷词。
+依赖：``data/pylibs`` 里的 requests；解析 Jisho 页面用 lxml（装了就用），
+**没装就用 ``code/tools/minihtml.py``**——本工作区的 ``data/pylibs`` 实测没有 lxml，
+所以默认走 minihtml（只实现本文件用到的几种 xpath，行为对不上会显式 TypeError/NotImplementedError）。
+``data/pylibs`` 里的 SudachiPy 用于分词匹配与振假名兜底；``data/dict/jmdictpy/jmdict.db``
+用于否决被 Jisho 截断的读音（``私達 → わたし``），词典不可用时自动降级。Jisho 的 robots.txt
+要求 Crawl-delay: 40，本脚本**一次调用只抓一页**（最多 20 条），不要拿它循环刷词。
 """
 from __future__ import annotations
 
@@ -62,10 +64,18 @@ import ruby_engine as RE     # noqa: E402  振假名渲染/校验的唯一实现
 
 try:
     import requests
-    from lxml import html as LH
 except ImportError as _exc:  # pragma: no cover - 环境缺库时给出可操作提示
     print('❌ 缺少依赖（%s）。请确认 data/pylibs 里有 requests 与 lxml。' % _exc)
     raise SystemExit(1)
+
+# 环境里有 lxml 就用 lxml；没有（data/pylibs 实测没装，也不许 pip install）就用
+# code/tools/minihtml.py —— 只实现本文件用到的几种 xpath/text_content 语义。
+try:
+    from lxml import html as LH              # noqa: F401
+    HTML_BACKEND = 'lxml'
+except ImportError:
+    import minihtml as LH                    # noqa: F401
+    HTML_BACKEND = 'minihtml'
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
