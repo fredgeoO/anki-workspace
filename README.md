@@ -256,7 +256,24 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | [subtitles/README.md](subtitles/README.md) | 字幕目录的命名约定与 `anki/` 子目录说明 |
 | [data/README.md](data/README.md) | `data/` 各子目录是什么、哪些能重建、为什么不入库 |
 
-## 13. 整库下载
+## 13. 牌组版权与署名（第三方牌组）
+
+### `2-考级词汇` —— 【egg rolls】JLPT N1–N5 一万词 v3.5
+
+- 原作者：**egg rolls**（仓库 [5mdld/anki-jlpt-decks](https://github.com/5mdld/anki-jlpt-decks)）。
+- 许可：**[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans)**。
+
+### `1-高频日语单词 6000` —— Japanese Core 6000
+
+- 来源：Japanese Core 6000 词表（公开资源），本工作区据此建卡。
+- 若对外分发含此牌组的收藏，请同样保留词表出处与原始许可声明。
+
+> 字幕、动画画面等素材的版权另见 [subtitles/README.md](subtitles/README.md)；Jiten 动画词频表为
+> CC BY-SA 4.0（见 [data/freq/README.md](data/freq/README.md)）。
+
+---
+
+## 14. 整库下载
 
 完整收藏打包成 `.apkg` 放在 Release 里——**`.apkg` 不进 git 历史**（单个 1.6 GB，远超仓库的文件上限）：
 
