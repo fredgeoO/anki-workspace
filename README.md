@@ -110,7 +110,7 @@ anki-workspace/
 │  │                        proper / immersionkit / filter_subtitle
 │  ├─ tools/                工具区：doctor、temp 清理、edge-TTS、音频自检、备份、字幕打标、jisho 例句
 │  ├─ analysis/             分析区：today_weak、weak_*、vocab_cover/、anki_analyze/（离线孤岛）
-│  ├─ tests/                回归测试（10 个独立脚本，见 §7）
+│  ├─ tests/                回归测试（11 个独立脚本，见 §7）
 │  └─ oneshot/              单次执行区：用完即弃的探针与一次性修复，不维护
 ├─ docs/                    手册与档案（architecture / pipeline-guide / deprecated / decisions / images / reports）
 ├─ data/                    输入与中间产物（snapshots、pipeline、vocab、core6000、immersion、
@@ -170,6 +170,7 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | `test_mine_patch.py` | 阶段四 `merge-fix` 的前缀回退（2026-10-12 事故） |
 | `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性 |
 | `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
+| `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
 | `test_jiten_rank.py` | `JitenAnimeRank` 查表与 6 位补零（文本序 = 数值序） |
 | `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
 | `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |

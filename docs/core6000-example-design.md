@@ -1,6 +1,6 @@
 # Core6000 例句补全（例句② + 振假名 + 合并讲解 + 配音）设计契约
 
-> 状态：active ｜ 最后核实：2026-10-10
+> 状态：active ｜ 最后核实：2026-10-26
 
 本文件是 `code/execution/core6000_example.py` 与 `code/execution/core6000_example_prompt.md`
 的**唯一接口契约**。实现者按本文件写代码，改接口先改本文件。
@@ -28,8 +28,15 @@
 | `Word` / `Transliteration` / `Meaning` / `Part of Speech` / `Index` / 音调字段 | **一个字都不动** |
 
 **核心原则**：原句的信息一个字都不丢（技能规则 1/2）。原句相关的 ① 讲解
-**直接沿用卡里已有的 AINote 文本**，不交给模型改写；模型只负责产出
-「新例句 + 新例句振假名 + 新例句相关的 ② 讲解」。
+**直接沿用卡里已有的 AINote 文本**，不交给模型改写。
+
+**新例句必须来自真实语料，不是模型造句**（2026-10-26 起）：`gen` 先用
+`code/tools/jisho_example.py` 抓 jisho.org 的 Sentence 搜索结果（Tatoeba / Jreibun），
+按「振假名结构合格 / 含目标词 / 长度 6–45 字 / 与第一句相似度 < 0.72」挑一条，
+把 `jp` + `ruby` **钉死**写进 payload 的 `sentence_source`；模型只负责
+`cn2` / `new_word_gloss` / `grammar2` / `conjugation2` / `context2` / `contrast`。
+模型若改写了那句，脚本按 Jisho 原句写回并记 `sentence_overridden` 警告；
+Jisho 零候选时**这张卡失败**（不退回造句；`--allow-model-sentence` 是显式降级开关）。
 
 ---
 
@@ -53,6 +60,7 @@ AINote                 6000 张全部非空；其中只有 2 张含 ①
 ```
 $PY code/execution/core6000_example.py scan   [TARGET…] [--only SCOPE]
 $PY code/execution/core6000_example.py gen    TARGET… [--restart] [--per-batch 1]
+                                              [--refresh-jisho] [--allow-model-sentence]
 $PY code/execution/core6000_example.py tts    TARGET… [--force]
 $PY code/execution/core6000_example.py apply  TARGET… [--commit]
 $PY code/execution/core6000_example.py revert --commit [--backup FILE]
@@ -77,7 +85,7 @@ $PY code/execution/core6000_example.py status
 **绝不重复追加第二句或第二个 `[sound:]`**；`--force` 才重做。
 
 * `--only SCOPE`，可重复或逗号分隔，**实现默认是 `missing-sentence`、`missing-ruby`**（不是 `all`）：
-  * `missing-sentence` —— `Sentence` 只有 1 块（要造新句）
+  * `missing-sentence` —— `Sentence` 只有 1 块（从 **Jisho** 取真实新句，不是造句）
   * `missing-ruby` —— `Sentence HTML` 有汉字但没振假名 / 为空
   * `not-merged` —— 已有 2 句，但 AINote 里没有 ①② 合并（需要模型重写 ①，见 §5.3；**默认不参与**）
   * `all` = 上面三项的并集
@@ -126,11 +134,15 @@ $PY code/execution/core6000_example.py status
    一个字都不写（见 §5.4 的判定表）。所以 `apply` 演练里只看到 `Sentence HTML` 一个 `≠`。
    这是修 bug：早先这类卡会被整篇重渲染 —— `AINote` 里已有的 ①② 讲解变成
    `① 旧正文 + ② 新正文` 的冗余，`<ul><li>` 排版被换成 `<p>`，还套出 `<div><div>` / `<p><p>`。
-5. **`gen` 有两条新警告**（只进 `out.json` 的 `gate.warnings` / `meta` / 报告，**不拦卡**）：
+5. **`gen` 的警告**（只进 `out.json` 的 `gate.warnings` / `meta` / 报告，**不拦卡**）：
    * `target_reading_mismatch`：新句里出现了目标词，而它在 `new_sentence_ruby` 里被注的读音
      和卡上 `reading` 对不上（抽不出读音就不报，宁可漏报）。
    * `target_gloss_missing`：`new_word_gloss` 里没有目标词那一行，② 的义项行只能用卡上
      `Meaning` 兜底、看不出新句实际用的义项。
+   * `sentence_overridden`（2026-10-26 加）：模型改写了 `sentence_source` 给的 Jisho 句子，
+     脚本已按 Jisho 原句写回。
+   * `contrast_format`（2026-10-26 加）：`contrast` 没写成「①是…，②是…」。
+     注意 `norm_entry` **不对 `contrast` 剥开头 ①②**（那是内容，剥了会变成「是礼貌体…」）。
 6. **闸门 6–9 是字段级**：只检查这次真的要写的字段（§5.4）。已有 2 句的卡不写 `AINote`，
    所以闸门 7/8 对它不适用 —— 拿卡上**旧** AINote 去卡一张本来能修好振假名的卡是误伤。
    闸门 5b、1–5 的严格程度一个字没变。
@@ -171,6 +183,14 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
      "ruby": "その<ruby>質問<rt>しつもん</rt></ruby>の…"}
   ],
   "need_sentence1_ruby": false,
+  "sentence_source": {
+    "jp": "ここは初心者が練習するのに適当な場所だ。",
+    "ruby": "ここは<ruby>初心者<rt>しょしんしゃ</rt></ruby>が<ruby>練習<rt>れんしゅう</rt></ruby>するのに<ruby>適当<rt>てきとう</rt></ruby>な<ruby>場所<rt>ばしょ</rt></ruby>だ。",
+    "en": "This is a suitable place for beginners to practice.",
+    "source": "Tatoeba",
+    "url": "https://jisho.org/sentences/…",
+    "note": "这一句是从 jisho.org 的真人语料里取来的，只能逐字使用，不许改写。"
+  },
   "existing_note": {
     "中文翻译": "找不到那个问题的合适答案。",
     "核心词汇": "<ruby>質問<rt>しつもん</rt></ruby> (名词)：问题。<br>…",
@@ -182,6 +202,11 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
 ```
 
 * `existing_sentences` 只放已有的例句（通常 1 条）。
+* **`sentence_source`（2026-10-26 起，`missing-sentence` 范围必有）**：脚本从 Jisho 挑定的
+  真实例句。`jp` / `ruby` 是硬给定的，模型只许**逐字照抄**；`en` 仅供理解参考；
+  `source` / `url` 是语料出处（Tatoeba / Jreibun + Jisho 句子详情页），写进
+  `<noteId>_in.json` 供追溯，也用于报告。模型交回的 `new_sentence` 若与 `jp` 不一致，
+  脚本**按 `jp` 覆盖**并记 `sentence_overridden` 警告。
 * `need_sentence1_ruby=true` 时，`existing_sentences[0].ruby` 为空/不可用，
   模型必须补出 `sentence1_ruby`。
 * 原卡**已有两条例句**时，payload 额外带两个键：`sentence2_is_existing`（恒为 `true`，

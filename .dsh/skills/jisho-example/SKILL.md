@@ -84,8 +84,11 @@ $PY = "python"
 - 做讲解/翻译：可以用模型，但 AINote 里引用的日语句子必须逐字复制工具输出；不要重渲染句子。
 - 写卡：交给对应的卡技能。比如例句卡 → `jp-anki-generate`；core6000 第二例句 →
   `jp-anki-core6000-example`。这些技能各自有演练/`--commit`/回读/备份要求，照它们的来。
-- **注意**：`core6000_example.py` 目前仍由模型产出新句，尚未接 Jisho。不要声称“已经用 jisho
-  补进卡了”；本技能只保证你手上这句来自 Jisho。
+- **core6000 第二例句已经接了 Jisho**（2026-10-26）：`core6000_example.py gen` 自己调本工具
+  抓句、挑句，把句子与振假名钉进 payload（`sentence_source`），模型只写 ② 讲解；
+  Jisho 零候选时那张卡失败、**不退回造句**（要退回得显式 `--allow-model-sentence`，且要先问用户）。
+  所以这两个技能同时加载时，别重复抓句、也别自己再调一次 `cli.py jisho`。
+- 本技能只保证你手上这句来自 Jisho；句子**落进卡里**的那一步由卡技能负责。
 
 ## 五、失败处理
 

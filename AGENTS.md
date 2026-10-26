@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（10 个独立脚本，纯离线，全部几秒）：
+改过代码还要跑回归测试（11 个独立脚本，纯离线，全部几秒）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -192,7 +192,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
 6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
 7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   10 个都 0 才算完；只改文档就不用。
+   11 个都 0 才算完；只改文档就不用。
 
 `docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
 

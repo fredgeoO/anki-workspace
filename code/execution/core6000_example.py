@@ -12,7 +12,12 @@
 
 `Word / Transliteration / Meaning / Part of Speech / Index / Pitch Accent*` **一个字都不动**，
 不加标签、不动 deck、不动 due。**原句的信息一个字都不丢**：AINote 的 ① 直接用卡里已有的
-正文，不交给模型改写；模型只负责「新例句 + 新句振假名 + 新句的 ② 讲解」。
+正文，不交给模型改写。**新例句的句子本身来自 Jisho（真实语料），不是模型写的**：
+gen 先用 `code/tools/jisho_example.py` 抓 jisho.org 的 Sentence 搜索结果（Tatoeba / Jreibun），
+按「振假名结构合格 / 真含目标词 / 长度进闸门 / 与第一句不像」挑一条，把句子与振假名
+**钉死**写进 payload（`sentence_source`），模型只负责中文翻译与 ② 的讲解；
+模型若改写了那句，脚本按 Jisho 原句写回并记一条 `sentence_overridden` 警告。
+Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回必须显式 `--allow-model-sentence`）。
 已有振假名也不会被模型重写（能按句切开就用卡里的）。
 
     契约文档（唯一接口契约，改接口先改它）：docs/core6000-example-design.md
@@ -25,7 +30,8 @@
     $WS = "<工作区根>"
     $CE = "$WS\\code\\execution\\core6000_example.py"
 
-    & $PY $CE gen   --words "徹夜,適当,残り"      # 直连本地模型 → data/core6000/gen/<noteId>_out.json
+    # 新句来自 Jisho（真实语料），模型只写讲解
+    & $PY $CE gen   --words "徹夜,適当,残り"      # Jisho 取新句 → 本地模型写 ② → data/core6000/gen/<noteId>_out.json
     & $PY $CE tts   --words "徹夜,適当,残り"      # edge-TTS → output/audio/core6000/（不碰 Anki）
     & $PY $CE apply --words "徹夜,適当,残り"      # 演练：打印 5 个字段前后对照
     #   ★ 唯一的人看闸门：演练输出的前后对照 + Sentence HTML（2026-10-06 起不再要求听音频确认）
@@ -35,6 +41,10 @@
     # 「只针对我记不住的」入口：直接吃今天/近几天的弱项
     & $PY $CE gen --from-weak --days 3 --rating again
     #   内部跑 code/analysis/today_weak.py --plain --days 3 --rating again，取它的 stdout 词表
+
+    # Jisho 相关开关（gen）
+    & $PY $CE gen --words "徹夜" --refresh-jisho         # 忽略缓存，重新抓 Jisho 一页
+    & $PY $CE gen --words "徹夜" --allow-model-sentence  # Jisho 零候选时退回模型造句（默认不退回）
 
 目标选择器（按优先级取**第一个**给出的；gen/tts/apply 必须有其一）
 --------------------------------------------------------------
@@ -48,7 +58,7 @@
 
 范围 `--only`（默认**不含** not-merged，见契约 §5.3）
 -----------------------------------------------------
-    missing-sentence  Sentence 只有 1 块 → 模型造第 2 句
+    missing-sentence  Sentence 只有 1 块 → 从 **Jisho** 取第 2 句（真实语料，不是造句）
     missing-ruby      Sentence HTML 有汉字但没有振假名 / 为空 → 模型补振假名
                       （已有 2 句的卡：第 1 句走 `sentence1_ruby`，第 2 句缺/坏振假名走 `sentence2_ruby`）
     not-merged        已有 2 句但 AINote 里没有 ①② 合并 → 契约 §5.3 要求**① 也由模型产出**
@@ -83,7 +93,8 @@
     plan_<日期>.json         本次要做的清单 + 渲染所需的每张卡明细（= 断点续跑清单）
     report_<日期>.md         人看的报告（scan/gen/tts/apply 都会刷新它）
     word_index.json          词形索引缓存（--words / --from-weak 用）
-    gen/<noteId>_in.json     发给模型的那张卡（追溯）
+    jisho/<noteId>.json      Jisho 例句候选（含振假名、出处链接、过滤统计；重跑/gen 重试都读它）
+    gen/<noteId>_in.json     发给模型的那张卡 + 本次选定的 sentence_source（追溯）
     gen/<noteId>_out.json    模型产出（**断点续跑的最小单位**）
     gen/<noteId>_meta.json   usage / 耗时 / 闸门结论
     metrics_<日期>.json      token 账本
@@ -109,13 +120,19 @@
    的既有数据（`する` 的第二句「…サッカーをしている」本来就不含「する」），拿闸门 1 卡它是误伤。
 6. **3 句以上的卡跳过**（全库 1 张）：闸门 6 要求恰好 2 块，脚本没有安全的自动处置方式。
 7. 有人开着 Anki 浏览器看这些卡时，`--commit` 的字段不会刷新（先关掉浏览器 / 切走再切回）。
+8. **Jisho 是外部依赖**：一页最多 20 条、robots.txt 要求 crawl-delay 40s，所以
+   **一张卡只抓一页**并落 `data/core6000/jisho/<noteId>.json`；重跑 gen / 重试都读缓存
+   （`--refresh-jisho` 才重抓）。零候选**不退回模型造句**——宁可这张卡失败、点名换词，
+   也不往库里塞一句没人说过的话。`data/pylibs` 里没有 lxml，`jisho_example` 会自动用
+   `code/tools/minihtml.py`（标准库实现的等价解析）。
 
 只用 Python 标准库（+ 复用 code/execution/today_new.py、code/tools/edge_tts_min.py、
-code/common/paths.py、code/analysis/today_weak.py）；不 pip install。
+code/tools/jisho_example.py、code/common/paths.py、code/analysis/today_weak.py）；不 pip install。
 AnkiConnect 必须在 127.0.0.1:8765，本地模型默认 http://127.0.0.1:8080/v1（NInfer；Responses API：/v1/responses）。
 """
 import argparse
 import datetime as dt
+import difflib
 import glob
 import json
 import os
@@ -185,6 +202,14 @@ AUDIO_BPS = 48000             # edge-tts 输出 audio-24khz-48kbitrate-mono-mp3 
 SENT_MIN, SENT_MAX = 6, 45    # 闸门 2：新句长度（去空白）
 GATE_KEY_LEN = 12             # 闸门 8：原文首 12 字
 NOTE_CHUNK = 200              # notesInfo 批量
+
+# ---- 例句源：Jisho（真实语料），不是模型造句 --------------------------------
+# 新句一律来自 jisho.org 的 Sentence 搜索（Tatoeba / Jreibun 人工语料），
+# 由 code/tools/jisho_example.py 抓取 + 渲染振假名；模型只写讲解（cn2/grammar2/…），
+# 不许改句子。`--allow-model-sentence` 才退回旧行为（模型造句）。
+JISHO_DIR = os.path.join(DATA_DIR, 'jisho')    # 按 noteId 缓存的候选（尊重 Jisho crawl-delay）
+JISHO_MIN_SIMILARITY = 0.72    # 与第一句的相似度**上限**：再像就是换皮，换下一条
+JISHO_SOURCE_FIELD = 'sentence_source'   # payload 里给模型看的键名
 
 # 板块名归一化（只用于内部对齐；渲染时仍用原卡的标签文字，见契约 §5.2）
 CANON_ALIASES = (
@@ -1326,8 +1351,11 @@ def norm_entry(raw):
         if isinstance(v, (list, tuple)):
             v = '；'.join(str(x) for x in v if str(x).strip())
         v = '' if v is None else str(v).strip()
-        # 模型有时会自己带上「① / ②」前缀，渲染时我们还要再加一次 → 先去重
-        v = re.sub(r'^\s*[①②]\s*', '', v).strip()
+        # 模型有时会自己带上「① / ②」前缀，渲染时我们还要再加一次 → 先去重。
+        # **contrast 例外**：它本身就是「①是…，②是…」的两句对比，那个 ① 是内容，
+        # 剥掉就变成「是礼貌体…」（2026-10-26 实测真事）。
+        if k != 'contrast':
+            v = re.sub(r'^\s*[①②]\s*', '', v).strip()
         out[k] = v
     glosses = []
     items = raw.get('new_word_gloss') if isinstance(raw, dict) else None
@@ -1382,6 +1410,134 @@ def target_forms(card):
             forms.add(stem)
     forms.discard('')
     return forms
+
+
+# ============================================================================
+# 例句源：Jisho（真实语料）。**新句不是模型写的**
+# ============================================================================
+def load_jisho():
+    """惰性导入 code/tools/jisho_example.py；导入失败返回 (None, 原因)。"""
+    try:
+        import jisho_example as JX
+        return JX, ''
+    except Exception as exc:                       # 缺 requests / 语法变了 / 路径问题
+        return None, '%s: %s' % (type(exc).__name__, exc)
+
+
+def jisho_cache_path(note_id):
+    return os.path.join(JISHO_DIR, '%s.json' % note_id)
+
+
+def jisho_fetch(card, args):
+    """抓 Jisho 例句候选（含振假名渲染），按 noteId 缓存。
+
+    返回 ``(candidates, reason)``：``reason`` 非空表示没抓到（网络/依赖/零候选）。
+    Jisho 的 robots.txt 要求 crawl-delay 40s，所以**一张卡只抓一页并落盘**，
+    重跑 gen / 重试闸门都读缓存。
+    """
+    path = jisho_cache_path(card['id'])
+    if not getattr(args, 'refresh_jisho', False):
+        cached = read_json(path)
+        if isinstance(cached, dict) and cached.get('candidates') is not None \
+                and cached.get('word') == card['word']:
+            return cached['candidates'], ''
+    JX, why = load_jisho()
+    if JX is None:
+        return [], 'jisho_example 不可用（%s）' % why
+    ns = argparse.Namespace(min_chars=SENT_MIN, max_chars=SENT_MAX, exact=False)
+    try:
+        content = JX.fetch_page(JX.search_url(card['word']),
+                                getattr(args, 'jisho_timeout', 30.0) or 30.0)
+        page = JX.parse_page(content)
+    except Exception as exc:
+        return [], '抓 Jisho 失败：%s' % exc
+    if not page['entries']:
+        return [], 'Jisho 没有返回例句（0 条或页面结构变了）'
+    try:
+        lex = JX.build_lexicon()
+    except Exception as exc:
+        return [], '初始化 Sudachi/ruby_engine 失败：%s' % exc
+    lookup = JX.build_jmdict(not getattr(args, 'no_dict', False))
+    matched, dropped = JX.filter_entries(page['entries'], card['word'], card['reading'], lex, ns)
+    out = []
+    for c in matched:
+        html, issues = JX.render_ruby(c['ja'], c['annotations'], lex, lookup)
+        out.append({'jp': c['ja'], 'en': c.get('en') or '', 'source': c.get('source') or '',
+                    'url': c.get('url') or '', 'match': c.get('match') or '',
+                    'ruby': html, 'ruby_ok': not issues, 'ruby_issues': issues})
+    write_json(path, {'noteId': card['id'], 'word': card['word'],
+                      'reading': card['reading'], 'fetched_at': dt.datetime.now().isoformat(
+                          timespec='seconds'),
+                      'query_url': JX.search_url(card['word']),
+                      'total_found': page['total'], 'dropped': dict(dropped),
+                      'candidates': out})
+    if not out:
+        return [], 'Jisho 有 %d 条但过滤后 0 条可用（%s）' % (
+            len(page['entries']), ' / '.join('%s %d' % kv for kv in dropped.items()) or '无')
+    return out, ''
+
+
+def jisho_similarity(a, b):
+    """两句的字符相似度（0–1）；用来挡「只换主语」的换皮句。"""
+    return difflib.SequenceMatcher(None, flatten(a), flatten(b)).ratio()
+
+
+def word_written_form(word):
+    """词形去掉末尾送假名后的「书写骨架」：`思い込む` → `思い込`，`適当` → `適当`。
+
+    用来在真实语料里判「这句写的是不是卡片上的那个词形」：`思い込んでいる` 命中
+    `思い込`，而只写假名的 `思いこんで` 不命中。纯假名词或骨架太短（`あまり`）返回 ''，
+    调用方据此关掉这条偏好。
+    """
+    if not word:
+        return ''
+    key = re.sub(r'[\u3041-\u3096\u30fc]+$', '', word.strip())
+    return key if len(key) >= 2 else ''
+
+
+def pick_jisho(card, args):
+    """给这张卡挑一条**真实**例句：``{jp, ruby, en, source, url, match}`` 或 ``None``。
+
+    只认：振假名结构合格 + 真含目标词 + 长度进闸门区间 + 与第一句相似度 < 阈值。
+    候选本身已由 jisho_example 按 exact>compound>phrase、句长、语料来源排过序；
+    这里先挑「**目标词写法一字不差**出现」的（`思い込む` 卡优先要 `思い込んで`，
+    而不是只写成假名的 `思いこんで`），一条都没有才退而接受活用形/假名写法。
+    """
+    cands, why = jisho_fetch(card, args)
+    if not cands:
+        return None, why
+    first = card['sentences'][0]['jp'] if card['sentences'] else ''
+    forms = target_forms(card)
+    key = word_written_form(card['word'] or '')
+    for strict in ((True, False) if key else (False,)):
+        skipped = []
+        for c in cands:
+            jp = c['jp']
+            n_chars = len(RE_WS.sub('', jp))
+            if not c.get('ruby_ok'):
+                skipped.append('ruby')
+                continue
+            if strict:
+                if key not in jp:
+                    skipped.append('kana-form')
+                    continue
+            elif not any(f in jp for f in forms):
+                skipped.append('no-target')
+                continue
+            if not (SENT_MIN <= n_chars <= SENT_MAX):
+                skipped.append('length')
+                continue
+            if first and jisho_similarity(jp, first) >= JISHO_MIN_SIMILARITY:
+                skipped.append('too-similar')
+                continue
+            return {'jp': jp, 'ruby': c['ruby'], 'en': c.get('en') or '',
+                    'source': c.get('source') or '', 'url': c.get('url') or '',
+                    'match': c.get('match') or ''}, ''
+    seen = {}
+    for s in skipped:
+        seen[s] = seen.get(s, 0) + 1
+    return None, 'Jisho 的 %d 条候选都不合适（%s）' % (
+        len(cands), ' / '.join('%s %d' % kv for kv in seen.items()))
 
 
 def check_sentence_ruby(plain_text, ruby_html, label):
@@ -1470,6 +1626,10 @@ def target_word_warnings(card, entry):
     if word and not any(g['w'] == word for g in entry['new_word_gloss']):
         out.append('target_gloss_missing：new_word_gloss 里没有目标词「%s」那一行，'
                    '② 的义项行只能用卡上 Meaning 兜底' % word)
+    contrast = entry.get('contrast') or ''
+    if contrast and not ('①' in contrast and '②' in contrast):
+        out.append('contrast_format：contrast 要求写成「①是…，②是…」，'
+                   '现在是「%s」' % one_line(contrast, 40))
     return out
 
 
@@ -1908,13 +2068,60 @@ def read_out(note_id):
     return norm_entry(entry) if isinstance(entry, dict) else None
 
 
+def pin_sentence_source(entry, pick):
+    """把 Jisho 选定的句子与振假名**钉进** entry，返回警告列表。
+
+    模型改写过的句子留不下来：`new_sentence` / `new_sentence_ruby` 一律被 Jisho 值覆盖，
+    只记一条 `sentence_overridden` 警告（人看一眼，不拦卡）。
+    """
+    if not pick:
+        return []
+    warn = []
+    if flatten(entry.get('new_sentence') or '') != flatten(pick['jp']):
+        warn.append('sentence_overridden：模型改写了 Jisho 的句子'
+                    '（已按 Jisho 原句写回：%s）' % one_line(pick['jp'], 30))
+    entry['new_sentence'] = pick['jp']
+    entry['new_sentence_ruby'] = pick['ruby']
+    return warn
+
+
 def gen_one(card, system_prompt, cfg, args, scopes=None):
-    """跑一张卡：返回 (entry, warnings, problems, rows, raw)。"""
+    """跑一张卡：返回 (entry, warnings, problems, rows, raw)。
+
+    新句来自 **Jisho**（真实语料），模型只写 ② 的讲解。拿到回复后
+    `new_sentence` / `new_sentence_ruby` 一律**被 Jisho 值覆盖**（模型改了也留不下），
+    闸门 1–4 再拿覆盖后的句子判一次 —— 这既验模型的讲解对齐的是这一句，
+    也验这条 Jisho 句子本身合格（含目标词 / 长度 / 振假名结构）。
+    """
     payload = build_payload(card)
+    pick, pick_why = None, ''
+    if card['n_sent'] == 1:
+        pick, pick_why = pick_jisho(card, args)
+        if pick:
+            payload[JISHO_SOURCE_FIELD] = {
+                'jp': pick['jp'],
+                'ruby': pick['ruby'],
+                'en': pick['en'],
+                'source': pick['source'],
+                'url': pick['url'],
+                'note': '这一句是从 jisho.org 的真人语料里取来的，只能逐字使用，不许改写。',
+            }
+            print('  Jisho 新句（%s）：%s' % (pick['source'] or '?', pick['jp']), file=sys.stderr)
+        elif not getattr(args, 'allow_model_sentence', False):
+            print('  ❌ 没有可用的 Jisho 例句：%s' % (pick_why or '未知原因'), file=sys.stderr)
+            print('     不退回模型造句（要退回请显式加 --allow-model-sentence）。',
+                  file=sys.stderr)
+            write_json(gen_paths(card['id'])['out'],
+                       {'noteId': card['id'], 'date': dt.date.today().isoformat(),
+                        'entries': {}, 'gate': {'ok': False,
+                                                'problems': ['jisho 零候选：%s' % pick_why],
+                                                'warnings': []}})
+            return None, [], ['jisho 没有可用例句：%s' % (pick_why or '')], [], ''
     paths = gen_paths(card['id'])
     write_json(paths['in'], {'noteId': card['id'], 'date': dt.date.today().isoformat(),
                              'word': card['word'], 'scopes': card['scopes'],
-                             'need_new': card['need_new'], 'payload': payload})
+                             'need_new': card['need_new'], 'sentence_source': pick,
+                             'payload': payload})
     rows, nudge, problems, warn, raw = [], None, [], [], ''
     tries = 1 + max(0, getattr(args, 'retries', 1) or 0)
     for attempt in range(1, tries + 1):
@@ -1941,7 +2148,10 @@ def gen_one(card, system_prompt, cfg, args, scopes=None):
                 problems = ['回复不是可用的 JSON：%s' % why]
                 nudge = why
             else:
-                problems, warn = gate_gen(card, entry, scopes)
+                if pick:
+                    warn.extend(pin_sentence_source(entry, pick))
+                problems, warn2 = gate_gen(card, entry, scopes)
+                warn.extend(warn2)
                 if not problems:
                     row['ok'] = True
                     return entry, warn, [], rows, raw
@@ -2602,6 +2812,17 @@ def add_llm_args(sp):
     return sp
 
 
+def add_jisho_args(sp):
+    sp.add_argument('--allow-model-sentence', action='store_true',
+                    help='Jisho 零候选时允许退回模型造句（默认**不退回**：宁可跳过这张卡）')
+    sp.add_argument('--refresh-jisho', action='store_true',
+                    help='忽略 data/core6000/jisho/<noteId>.json 缓存，重新抓 Jisho 一页')
+    sp.add_argument('--jisho-timeout', type=float, default=30.0, help='Jisho HTTP 超时秒数')
+    sp.add_argument('--no-dict', action='store_true',
+                    help='振假名渲染时不拿 JMdict 否决 Jisho 被截断的读音')
+    return sp
+
+
 def add_target_args(sp):
     sp.add_argument('--note-ids', default=None, help='点名的 noteId，逗号分隔')
     sp.add_argument('--words', default=None, help='按词形选中，逗号/空格分隔（比 Word，退回 Transliteration）')
@@ -2634,9 +2855,10 @@ def main():
     sp.add_argument('--force', action='store_true', help='把 already_ok 的卡也算进待做')
     sp.set_defaults(func=cmd_scan)
 
-    sp = sub.add_parser('gen', help='调本地模型生成新句/振假名/② 讲解（闸门 1-5，逐张落盘）')
+    sp = sub.add_parser('gen', help='Jisho 取真实新句 + 本地模型写 ② 讲解（闸门 1-5，逐张落盘）')
     add_target_args(sp)
     add_llm_args(sp)
+    add_jisho_args(sp)
     sp.add_argument('--restart', action='store_true', help='忽略已有产出，重生成')
     sp.add_argument('--force', action='store_true', help='already_ok 的卡也重做')
     sp.add_argument('--per-batch', type=int, default=1,
