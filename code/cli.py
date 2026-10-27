@@ -18,6 +18,7 @@
     python code/cli.py daily stats                  # 今日新卡库存 / 模型分布
     python code/cli.py daily plan                   # 今天该讲哪些卡
     python code/cli.py daily gen                    # 生成讲义（直连本地模型）
+    python code/cli.py today-new "字幕.srt" --n 30  # 今日 N 个生词（默认演练，--commit 真写）
     python code/cli.py pipeline prepare             # 阶段 0-2
     python code/cli.py pipeline triage --query "tag:待标记"
     python code/cli.py cards gen --note-id 123      # 单卡/数张：AINote + Sentence HTML（默认演练）
@@ -95,6 +96,7 @@ GROUPS = {
     'temp':      os.path.join(WSP.TOOLS, 'temp_clean.py'),
     'backup':    os.path.join(WSP.TOOLS, 'backup_anki.py'),
     'tagfreq':   os.path.join(WSP.TOOLS, 'tag_freq_stop.py'),
+    'today-new': os.path.join(WSP.TOOLS, 'today_new_words.py'),
 }
 
 # 词汇分析：**只暴露这 4 个入口**，其余 ~20 个脚本仍可直接调用（不从这里走）

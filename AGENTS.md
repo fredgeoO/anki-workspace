@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（11 个独立脚本，纯离线，全部几秒）：
+改过代码还要跑回归测试（12 个独立脚本，纯离线，全部几秒）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -100,6 +100,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | 给一个词找**真实**例句（jisho，不造句） | `jisho-example` |
 | 专有名词收集 → `3-专有词汇`（不进队列） | `jp-anki-proper-noun` |
 | 字幕/文字里没学过的词打 `复习::<名称>` | `jp-anki-subtitle-tag` |
+| 每天从文字/字幕挑 N 个今天要学的生词（`今天学习生词`，按 Jiten 升序） | `jp-anki-today-new` |
 | 把短上下文脏活外包给本机模型（省 token） | `local-llm` |
 | **主对话上下文吃紧 / 长流程只做调度与验收** | `context-offload` |
 | **词义/读音/词性/近义拿不准，要先澄清语义** | `jmdict-lookup` |
@@ -124,7 +125,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | `code/common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
 | `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |
 | `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `core6000_example.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` |
-| `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `proper_extract.py` `jisho_example.py` |
+| `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `proper_extract.py` `jisho_example.py` |
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
 | `code/tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
@@ -193,7 +194,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
 6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
 7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   11 个都 0 才算完；只改文档就不用。
+   12 个都 0 才算完；只改文档就不用。
 
 `docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
 

@@ -108,9 +108,9 @@ anki-workspace/
 │  ├─ execution/            执行区：episode / pipeline / mine / mine_audio / today_new /
 │  │                        cards / activate / core6000_example / ainote_enrich /
 │  │                        proper / immersionkit / filter_subtitle
-│  ├─ tools/                工具区：doctor、temp 清理、edge-TTS、音频自检、备份、字幕打标、jisho 例句
+│  ├─ tools/                工具区：doctor、temp 清理、edge-TTS、音频自检、备份、字幕打标、每日生词、jisho 例句
 │  ├─ analysis/             分析区：today_weak、weak_*、vocab_cover/、anki_analyze/（离线孤岛）
-│  ├─ tests/                回归测试（11 个独立脚本，见 §7）
+│  ├─ tests/                回归测试（12 个独立脚本，见 §7）
 │  └─ oneshot/              单次执行区：用完即弃的探针与一次性修复，不维护
 ├─ docs/                    手册与档案（architecture / pipeline-guide / deprecated / decisions / images / reports）
 ├─ data/                    输入与中间产物（snapshots、pipeline、vocab、core6000、immersion、
@@ -121,8 +121,9 @@ anki-workspace/
 ├─ temp/                    ★ 唯一的一次性文件区（临时脚本 / dump / 日志）
 ├─ archive/experiments/     一次性的实验与旧证据（见其 README.md）
 └─ .dsh/skills/             技能（一技能一任务：triage / generate / leech / activate / mine / audio /
-                            check-ruby / jiten-rank / proper-noun / subtitle-tag / daily-lesson /
-                            daily-weak / core6000-example / jisho-example / jmdict-lookup / local-llm）
+                            check-ruby / jiten-rank / proper-noun / subtitle-tag / today-new /
+                            daily-lesson / daily-weak / core6000-example / jisho-example /
+                            jmdict-lookup / local-llm）
 ```
 
 ## 5. 一次字幕流水线
@@ -150,6 +151,7 @@ episode.py ──> pipeline.py（阶段 0-2）──> mine.py（阶段 4）─�
 
 proper.py        ──> data/vocab/proper/<作品>_<集>/（专名卡，不进队列）
 today_new.py     ──> output/daily/{cards_*.json, lessons/*, lesson_*.md}（直连本地模型）
+today_new_words  ──> data/daily_new/ + output/daily/today_new_words.md（每天 N 个「今天学习生词」）
 core6000_example ──> 5 个字段 + output/audio/core6000/*.mp3
 ainote_enrich    ──> 只写 AINote（旧值备份 data/ainote/backup_*.json）
 analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_cover/*.png
@@ -157,8 +159,8 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 
 ## 7. 测试
 
-10 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
-2026-10-26 复核全部通过。跑法：
+12 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
+2026-10-28 复核全部通过。跑法：
 
 ```powershell
 & $PY "$WS\code\tests\test_llm_out.py"     # 换一个文件名就是另一组
@@ -174,6 +176,7 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | `test_jiten_rank.py` | `JitenAnimeRank` 查表与 6 位补零（文本序 = 数值序） |
 | `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
 | `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |
+| `test_today_new_words.py` | 每日生词挑选：Jiten 升序、无排名垫底、上限 N、标签差集 |
 | `test_lesson_render.py` | 每日讲义口径：词形/读音、词性校正、同词合并、接续脏数据、计数自洽、讲解机械错 |
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
 
