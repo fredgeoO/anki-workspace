@@ -2091,9 +2091,17 @@ def render_lesson(manifest, lesson, dinfo=None):
         if pos_fixed:
             hard = [w for w in pos_fixed if w not in {x for x, _p in pos_fixed_dict}]
             note = '> 词性说明：%s 的词性已按语言事实校正' % '、'.join(pos_fixed)
-            if hard:
-                note += ('（`ん`／`もん`＝终助词，'
-                         '`あっ`／`え`／`うっ`／`んっ`／`あー`／`よし`＝感叹词）')
+            # 只列今天这批卡里实际走了硬编码兜底表的词；
+            # 别把 INTERJECTION_WORDS 全表（如「よし」）抄进脚注——卡里没有它，列出来就是误导
+            interj = sorted({w for w in hard if w in INTERJECTION_WORDS})
+            finp = sorted({w for w in hard if w in FINAL_PARTICLE_WORDS})
+            bits = []
+            if finp:
+                bits.append('`%s`＝终助词' % '／'.join(finp))
+            if interj:
+                bits.append('`%s`＝感叹词' % '／'.join(interj))
+            if bits:
+                note += '（%s）' % '，'.join(bits)
             if pos_fixed_dict:
                 note += '；其中 %s 由 JMdict 判定（词典词性：%s）' % (
                     '、'.join(w for w, _p in pos_fixed_dict),

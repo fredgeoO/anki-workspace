@@ -87,6 +87,7 @@ GROUPS = {
     'proper':    os.path.join(EXEC, 'proper.py'),
     'audio':     os.path.join(EXEC, 'mine_audio.py'),
     'core6000':  os.path.join(EXEC, 'core6000_example.py'),
+    'meaning':   os.path.join(EXEC, 'core6000_meaning.py'),
     'ainote':    os.path.join(EXEC, 'ainote_enrich.py'),
     'jisho':     os.path.join(WSP.TOOLS, 'jisho_example.py'),
     'immersion': os.path.join(EXEC, 'immersionkit.py'),

@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-10-26
+> 状态：active ｜ 最后核实：2026-10-27
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -88,6 +88,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 |---|---|
 | 清理一集的卡 / 入库前先筛字幕 | `jp-anki-triage` |
 | 给一张或几张卡生成讲解 + 振假名 | `jp-anki-generate` |
+| 处理 `tag:leech` 的难卡（诊断 + 改写卡背 + 记忆钩子 + 干扰组建议） | `jp-anki-leech` |
 | 把生词排到新卡队列前面（只改新卡 `due`） | `jp-anki-activate` |
 | 从例句挖素材生词 → `0-素材生词` | `jp-anki-mine` |
 | 给生词卡配音 / 修读错的 mp3 | `jp-anki-audio` |

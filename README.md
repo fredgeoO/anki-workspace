@@ -120,7 +120,7 @@ anki-workspace/
 ├─ core6000-analysis/       独立子项目：core6000 听辨卡分析（自带脚本与 docx 报告）
 ├─ temp/                    ★ 唯一的一次性文件区（临时脚本 / dump / 日志）
 ├─ archive/experiments/     一次性的实验与旧证据（见其 README.md）
-└─ .dsh/skills/             技能（一技能一任务：triage / generate / activate / mine / audio /
+└─ .dsh/skills/             技能（一技能一任务：triage / generate / leech / activate / mine / audio /
                             check-ruby / jiten-rank / proper-noun / subtitle-tag / daily-lesson /
                             daily-weak / core6000-example / jisho-example / jmdict-lookup / local-llm）
 ```
