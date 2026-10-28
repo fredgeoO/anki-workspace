@@ -21,7 +21,7 @@
     jp-anki-today-new  从当天字幕挑 N 个词 → 打上 tag「今天学习生词」（全量替换）
     today_new.py       只认这个 tag：tag 里有词就讲，没有就什么都不生成
 
-排序取当天 ``data/daily_new/<日期>/picked.json`` 里的入选顺序（Jiten 升序），
+排序取当天 ``data/daily_new/<日期>/picked.json`` 里的入选顺序（A→B→D 分池顺序），
 没有这份记录时按「级别 → 牌组 → 词形」兜底。
 
 为什么直连而不是派子代理
@@ -806,10 +806,14 @@ def picked_order(date):
         return {}
     order = {}
     for i, w in enumerate(data.get('picked') or []):
-        try:
-            order[int(w['noteId'])] = i
-        except (KeyError, TypeError, ValueError):
-            continue
+        # 2026-10-28 起一个词可能对应多张笔记（听辨/辨意各一张）：`notes` 是全集，
+        # 旧记录只有 `noteId`，两种都认。
+        ids = w.get('notes') or ([w.get('noteId')] if w.get('noteId') else [])
+        for nid in ids:
+            try:
+                order[int(nid)] = i
+            except (TypeError, ValueError):
+                continue
     return order
 
 
