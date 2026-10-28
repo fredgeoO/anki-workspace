@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-10-27
+> 状态：active ｜ 最后核实：2026-10-28
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -94,7 +94,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | 给生词卡配音 / 修读错的 mp3 | `jp-anki-audio` |
 | 校验振假名读音（对字幕自带注音） | `jp-anki-check-ruby` |
 | 按 `需更新JAR` 回填 `JitenAnimeRank` | `jp-anki-jiten-rank` |
-| 每日讲义（学新卡前讲一遍今日新卡） | `jp-anki-daily-lesson` |
+| 每日讲义（把 tag `今天学习生词` 里的词讲一遍；没有 tag 就不生成） | `jp-anki-daily-lesson` |
 | 弱项分析 / 复习负载报告 | `jp-anki-daily-weak` |
 | 点名 core6000 词补第二条例句 | `jp-anki-core6000-example` |
 | 给一个词找**真实**例句（jisho，不造句） | `jisho-example` |

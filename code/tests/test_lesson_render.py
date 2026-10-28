@@ -69,12 +69,12 @@ def grammar_sentence_card(nid, word, pos_raw, ruby, cn, points):
             'light': {'jp_ruby': '', 'cn': cn, 'points': points, 'source': ''}}
 
 
-def manifest_of(cards, date='2026-10-24'):
+def manifest_of(cards, date='2026-10-24', mode=None):
     def n(pred):
         return sum(c.get('n_cards') or 1 for c in cards if pred(c))
 
-    return {
-        'version': 2, 'date': date, 'generated_at': '2026-10-24T06:00:00',
+    m = {
+        'version': 3 if mode else 2, 'date': date, 'generated_at': '2026-10-24T06:00:00',
         'counts': {'total': n(lambda c: True), 'entries': len(cards),
                    'vocab': n(lambda c: c['kind'] == 'vocab'),
                    'grammar': n(lambda c: c['kind'] == 'grammar'),
@@ -89,6 +89,10 @@ def manifest_of(cards, date='2026-10-24'):
         ],
         'cards': cards,
     }
+    if mode:
+        m['mode'] = mode
+        m['tag'] = TN.TAG_TODAY
+    return m
 
 
 LESSON = {'date': '2026-10-24', 'entries': {}, 'intro': ''}
@@ -226,8 +230,45 @@ def main():
         '1': {'teach': {'one_line': '程度。', 'core': '书面。', 'examples': [
             {'jp': '百円程度で足りる。', 'cn': '一百日元左右就够了。'}]}}}, 'intro': ''})
     ok('## 词表' in t and '## 语法' not in t and '## 例句卡' not in t, '只有词汇时不渲染空节')
-    ok('1 条讲解（词汇 1 · 语法 0 · 例句卡 0 组 / 0 句）' in t, '空节计数显示 0')
+    ok('共 1 张卡｜1 条讲解（词汇 1 条）' in t, '只有词汇时开头用紧凑口径')
     ok(TN.check_render(t, only_vocab) == [], '只有词汇时闸门也通过')
+
+    section('10. 按 tag 取词（2026-10-28 简化后）')
+    q = TN.query_for({'deck': '0-日本语学习::0-词汇::0-素材生词',
+                      'model': 'Japanese Vocabulary'})
+    ok(q == 'deck:"0-日本语学习::0-词汇::0-素材生词" note:"Japanese Vocabulary" '
+            'tag:"今天学习生词" -is:suspended', '查询 = deck + 模型 + tag（不再 is:new）')
+    ok('is:new' not in q and 'is:buried' not in q, '不再按新卡队列过滤')
+
+    cards = [vocab(11, 'ば'), vocab(12, 'あ'), vocab(13, 'ぱ')]
+    got = TN.sort_cards(cards, {12: 0, 11: 1})
+    ok([c['word'] for c in got] == ['あ', 'ば', 'ぱ'], '按 picked.json 的选词顺序排，不认识的排最后')
+    got2 = TN.sort_cards(cards, {})
+    ok([c['word'] for c in got2] == ['あ', 'ば', 'ぱ'], '没有选词记录时按级别/牌组/词形兜底')
+    ok(TN.picked_order('1999-01-01') == {}, '没有 picked.json 时返回空 dict（不崩）')
+
+    tag_m = manifest_of([vocab(1, '程度', reading='ていど')], mode='tag')
+    t2 = TN.render_lesson(tag_m, {'date': tag_m['date'], 'entries': {
+        '1': {'teach': {'one_line': '程度。', 'core': '书面。', 'examples': [
+            {'jp': '百円程度で足りる。', 'cn': '一百日元左右就够了。'}]}}}, 'intro': ''})
+    ok('tag `今天学习生词`' in t2, '开头写明词来自哪个 tag')
+    ok('tag:「今天学习生词」' in t2, '来源表写明取词口径是 tag')
+    ok('没有这个 tag 的日子不生成讲义' in t2, '口径说明写清没有 tag 就不生成')
+    ok('上限' not in t2, 'tag 模式下不再出现「上限」列')
+    ok(TN.check_render(t2, tag_m) == [], 'tag 模式渲染闸门通过')
+
+    # 没有 tag：collect 必须返回空清单（gen/merge 见到它就跳过）
+    import types
+    orig = TN.AK.find_notes
+    TN.AK.find_notes = lambda q: []
+    try:
+        empty = TN.collect(types.SimpleNamespace(date='1999-01-01', deck=None))
+    finally:
+        TN.AK.find_notes = orig
+    ok(empty['cards'] == [] and empty['counts']['total'] == 0 and empty['mode'] == 'tag',
+       '没有 tag → collect 返回空清单（不拿新卡队列补）')
+    ok(len(empty['decks']) == 3 and all(d['tagged'] == 0 for d in empty['decks']),
+       '三个词汇卡组都查了，命中 0')
 
     print()
     if FAILED:

@@ -1,8 +1,12 @@
-# 今日新卡 → 每日讲义（`today_new.py` 使用说明）
+# 今天学习生词 → 每日讲义（`today_new.py` 使用说明）
 
-> 状态：active ｜ 最后核实：2026-10-25
+> 状态：active ｜ 最后核实：2026-10-28
 
-**一句话**：每天早上学新卡**之前**，把「今日新卡」取出来，交给本地模型逐张写讲解，合并成一份带振假名的 Markdown 讲义。
+**一句话**：每天早上学今天这批生词**之前**，把 tag `今天学习生词` 里的词取出来，交给本地模型逐张写讲解，合并成一份带振假名的 Markdown 讲义。
+
+**选词不在这里**：哪天学哪些词由 `jp-anki-today-new`（`code\tools\today_new_words.py`）决定——
+从当天字幕/文字里挑 N 个词、打上 tag `今天学习生词`、每次全量替换。本脚本**只认这个 tag**：
+tag 里有词就讲，没有就什么都不生成（`plan` 落一份空清单，`gen`/`merge` 直接跳过）。
 
 **铁律**：这条链路**只读 Anki，从不写库**；唯一会写的目录是 `output/daily/`。做坏了删文件重跑即可。
 
@@ -20,16 +24,19 @@ $WS = "<工作区根>"
 $PY = "python"
 $TN = "$WS\code\execution\today_new.py"
 
-& $PY $TN stats      # ① 有卡才继续
-& $PY $TN plan       # ② 取卡 + 预取 JMdict（事实挂到每张词汇卡；之后不再查库）
+# 0) 选词（另一条日常任务）：从当天字幕挑 N 个词，打 tag「今天学习生词」
+& $PY "$WS\code\tools\today_new_words.py" "字幕.srt" --n 30 --commit
+
+& $PY $TN stats      # ① 看 tag 今天命中几个词；0 就收工
+& $PY $TN plan       # ② 按 tag 取词 + 预取 JMdict（事实挂到每张词汇卡；之后不再查库）
 & $PY $TN check      # ③ 复核词典（默认复用预取结果；--refresh-dict 才重查）
 & $PY $TN gen        # ④ 直连本地模型 → 闸门 → 写讲义（模型输入自带 dict 事实）
 ```
 
-**四个检查点**（不满足就停或重跑 `gen`，不要改取卡口径）：
+**四个检查点**（不满足就停或重跑 `gen`，不要改取词口径）：
 
-1. `stats` 里「新卡池」列至少一个非 0——全 0 说明今天没有新卡，收工。
-2. `plan` 末行是「合计 N 张卡 / M 条讲解」且 N > 0；否则队列为空、不落盘。
+1. `stats` 的「tag 命中」合计 > 0；全 0 说明今天还没选词，先去 `jp-anki-today-new`，不要拿新卡队列补。
+2. `plan` 末行是「合计 N 个词」且 N > 0；否则 tag 为空、不生成。
    同时 `dict_<日期>.json` 应存在，`cards_<日期>.json` 的词汇卡应带 `dict` 字段。
 3. `gen` 末行是 `merge：讲义已生成 → …\lesson_<日期>.md`；
    若看到「未通过闸门」，按 stderr 点名的 noteId 重跑 `gen`（只补缺的请求）。
@@ -58,26 +65,38 @@ $TN = "$WS\code\execution\today_new.py"
 
 ---
 
-## 2. 「今天的新卡」到底怎么算（最容易误解，先读这段）
+## 2. 「今天的词」到底怎么算（最容易误解，先读这段）
 
-- **学习单元 = deck + 笔记模型**，共 5 个：
+**口径只有一条：全库 tag `今天学习生词` 命中的词汇笔记。** 不按 `is:new`、不按 `new.perDay`、
+不按 `card.due` 再筛一遍——tag 就是今天要学的全部。
 
-| # | 单元（deck） | 笔记模型 | 上限来源 | 排序 | 调模型？ |
-|---|---|---|---|---|---|
-| 1 | `0-词汇::2-考级词汇` | `eggrolls-JLPT10k-v3.5` | 实读 `deckConfig` | `due`（队列位置） | 是 |
-| 2 | `0-词汇::1-高频日语单词 6000` | `Japanese Vocabulary` | 实读 `deckConfig` | `due` | 是 |
-| 3 | `0-词汇::0-素材生词` | `Japanese Vocabulary` | 实读 `deckConfig` | `due` | 是 |
-| 4 | `1-语法`（整棵子树 = 1 个单元） | `どんなときどう使う日本語表現文型Note` | 实读（父 deck） | 牌组树 + 树内 `due` | 是（子 deck 名以「例句」结尾的卡只轻量呈现） |
-| 5 | `2-例句` | `Basic` | 实读 `deckConfig` | `due` | 否（卡自带 AINote/CNote） |
+三个词汇卡组各查一次笔记（实现见 `today_new.py::query_for`）：
 
-- 查询串固定为 `deck:"<单元 deck>" is:new -is:suspended -is:buried`，有模型就再加 `note:"<模型>"`。
-- **上限优先级**：`--limit` > `PER_DECK_LIMIT` > `getDeckConfig → new.perDay`（实读）> 代码里的 `per_day` 兜底。
-  `stats` 的「上限来源」一列会写明这次用的是哪一档。
-- **只取今天队列里的前 N 张，不是整个 deck**。素材生词有几千张新卡，每天也只取 `new.perDay` 张。
-- **卡数 ≠ 讲解条数**：同一笔记的多张卡（语法例句模板 Card 02–05）只出 1 条讲解；讲义表头两个数都会打印。
-- **语法整棵树算一个单元**：每棵子 deck 各按自己的日上限出卡，再由父 deck 上限截断——这样才和 Anki 首页显示的数字一致。
-- 词汇/例句单元按 `card.due`（= Anki 里的队列位置）取卡，所以**讲义顺序 = 当天实际学习顺序**。
-- 不按「AINote 非空」跳过卡（core6000 与素材生词的讲解就是每天现讲的，不是「已讲过」）。
+| # | 卡组（deck） | 笔记模型 | 查询串 | 调模型？ |
+|---|---|---|---|---|
+| 1 | `0-词汇::2-考级词汇` | `eggrolls-JLPT10k-v3.5` | `deck:"…" note:"…" tag:"今天学习生词" -is:suspended` | 是 |
+| 2 | `0-词汇::1-高频日语单词 6000` | `Japanese Vocabulary` | 同上 | 是 |
+| 3 | `0-词汇::0-素材生词` | `Japanese Vocabulary` | 同上 | 是 |
+
+- **一个笔记 = 一条讲义条目**。这三个词汇模型的笔记都只有 1 张卡，所以「张卡」＝「笔记」，
+  讲义开头的 `共 N 张卡｜M 条讲解（词汇 M 条）` 里 N = M = tag 命中数。
+- **不截断、不补位**：tag 里有 30 个词就讲 30 个；素材生词有几千个新卡也不影响（tag 只挑了当天要学的）。
+- **顺序**：读当天 `data\daily_new\<日期>\picked.json` 里 `picked[]` 的顺序
+  （= `JitenAnimeRank` 升序 = `jp-anki-today-new` 的选词顺序）。没有这份记录（例如手动打的 tag）
+  时按「级别 → 牌组 → 词形」兜底。**不再用 `card.due`**：词被收进筛选牌组后 `due` 是筛选牌组的位置，没有意义。
+- **牌组只用来标级别**：词可能被临时收进筛选牌组（如 `4-今天词汇`），
+  Anki 的 `deck:` 搜索仍按原卡组命中，讲义按 `noteId` 取字段，不受当前所在牌组影响。
+- **语法 / 例句单元已移出每日讲义**（2026-10-28）：它们没有「今天学哪些」的清单。
+  渲染层保留旧版分支，`merge --date <旧日期>` 还能渲染旧 manifest；新讲义只有词汇一节。
+- **没有 tag 就不生成**：`plan` 打印「今天没有 tag…→ 不生成讲义」并落一份空清单（防止 `gen`/`merge`
+  捡到之前那天的数据）；`gen` / `merge` / `check` 看到空清单直接跳过，退出码 0。
+- **隔天保护**：`gen`/`merge`/`check` 默认只认今天的 `cards_latest.json`；是昨天那份就直接报错退出，
+  要重看旧日期必须显式 `--date <日期>`。
+- **tag 换批保护**：`gen` 开跑前会核对清单里的词是否还带着 tag「今天学习生词」——选完词之后又换批/清空了
+  （比如中途再跑一次 `today-new`），就拒绝拿旧清单生成（`--allow-stale-tag` 可放行）。
+
+想换一批词 / 清空今天的词：走 `jp-anki-today-new`（`--clear --commit` / `--revert --commit`），
+然后重跑 `plan`。不要手改讲义、不要手删 tag。
 
 ---
 
@@ -133,10 +152,11 @@ stderr 末尾再集中报一次（`check_quality`）：
 | 检查 | 讲义里的表现 |
 |---|---|
 | 词形/读音对不上（`こ` / `あそこ`） | 读音显示 `—`，词条下 `⚠️ 卡片读音字段写…` |
-| 语法接续是脏数据（`動どう 詞しのＮ`） | 接续显示 `—`，并提示补跑 `gen` |
 | 讲解机械错（`大约…左右`、`比「X」更常用`、句子没写完、例句没用上目标词） | 不拦；stderr 点名 |
-| 例句卡 AINote 错（核心词不在句中 / 要点没写完 / 觉得+一定） | 例句卡下 `⚠️` 行 |
 | 同词形平/片假名重复、词性标错 | 直接合并/校正，并在文末「词性说明」交代 |
+
+> 旧版还有「语法接续脏数据」「例句卡 AINote（核心词不在句中 / 要点没写完）」两类检查；
+> 语法/例句单元已移出每日讲义（2026-10-28），只有 `merge --date <旧日期>` 渲染旧 manifest 时才会出现。
 
 **JMdict 词典层（2026-10-25 起：一次预取，之后不查库）**
 
@@ -172,17 +192,16 @@ stderr 末尾再集中报一次（`check_quality`）：
 > 同词形的纯假名条目（`うっ`/`ウッ`）合并后，讲解条数会比笔记数少。
 
 
-
 ---
 
 ## 6. 子命令与常用参数
 
 | 命令 | 作用 | 调模型 |
 |---|---|---|
-| `stats` | 只看库存：各单元新卡池、上限、上限来源 | 否 |
-| `plan` | 取今日新卡 + **预取 JMdict 事实** → 落盘 `cards_*.json`（词汇卡带 `dict`）+ `split_*.json` | 否 |
+| `stats` | 只看库存：tag「今天学习生词」在各词汇卡组命中多少条笔记 | 否 |
+| `plan` | 按 tag 取今天要讲的词 + **预取 JMdict 事实** → 落盘 `cards_*.json`（词汇卡带 `dict`）+ `split_*.json`；没有 tag 就落空清单 | 否 |
 | `check` / `dict` | **预取/复核 JMdict**：词形/读音/词性 + 义项/语域 → `dict_*.json`（默认复用缓存） | 否 |
-| `gen` | **生成 → 闸门 → 渲染讲义**（默认结束自动 `merge`） | **是** |
+| `gen` | **生成 → 闸门 → 渲染讲义**（默认结束自动 `merge`）；空清单直接跳过 | **是** |
 | `merge` | 合并已有 `NN_out.json` → 闸门 → 渲染 | 否 |
 | `apply` | 用一整份 `lessons/lesson_*.json` 渲染（人工贴模型那条路） | 否 |
 | `models` | 探端点：api key / 模型 id / 是否已加载 | 否 |
@@ -192,10 +211,8 @@ stderr 末尾再集中报一次（`check_quality`）：
 
 | 参数 | 用在 | 说明 |
 |---|---|---|
-| `--dry-run` | `plan` | 只打印取到哪些卡，不落盘 |
-| `--limit N` | `plan` / `stats` | 每个单元最多取 N 张（覆盖实读上限） |
-| `--only vocab` / `--only grammar` | `plan` | 只取一类卡 |
-| `--deck "1-语法"` | `plan` | 只取匹配单元（从头前缀匹配，逗号分隔） |
+| `--dry-run` | `plan` | 只打印取到哪些词，不落盘 |
+| `--deck "0-素材生词"` | `plan` | 只取匹配的词汇卡组（从头前缀匹配，逗号分隔） |
 | `--per-batch N` | `plan` / `gen` | 每请求几张卡（默认 1；`0` = 一次全给） |
 | `--only-words "词,词"` | `gen` | 只处理这些卡（词形或 note id） |
 | `--restart[=词,词]` | `gen` | 全部 / 只这些词重来 |
@@ -215,7 +232,7 @@ stderr 末尾再集中报一次（`check_quality`）：
 
 | 文件 | 内容 |
 |---|---|
-| `output\daily\cards_<日期>.json` | 当天这批卡的原始数据（manifest，含 query、上限来源、每张卡字段；**词汇卡带 `dict` 词典事实**） |
+| `output\daily\cards_<日期>.json` | 当天这批词的原始数据（manifest，含 `mode: tag`、`tag`、query、每张卡字段；**词汇卡带 `dict` 词典事实**；没有 tag 时是一份空清单） |
 | `output\daily\cards_latest.json` | 同上的最近一次副本 |
 | `output\daily\lessons\split_<日期>.json` | 请求清单（请求号、卡 id、路径、指纹、模型名） |
 | `output\daily\lessons\dict_<日期>.json` | **JMdict 预取结果**：每张词汇卡的读音候选/词性/问题清单/`facts`，顶层 `meta`（指纹/词典版本/缓存版本）是复用凭据 |
@@ -233,7 +250,9 @@ stderr 末尾再集中报一次（`check_quality`）：
 | 现象 | 原因 / 处理 |
 |---|---|
 | `连不上 AnkiConnect` | Anki 没开或 AnkiConnect 插件没启用 |
-| `今天没有可讲的新卡…不落盘` | 新卡都学完了。用 `stats` 确认 |
+| `今天没有 tag:「今天学习生词」的词 → 不生成讲义` | 今天还没选词（或 tag 被清空）。先跑 `jp-anki-today-new … --commit` 再 `plan` |
+| `卡片数据是 2026-… 的，不是今天（2026-…）` | `cards_latest.json` 是上一天的，脚本拒绝拿旧清单生成。重跑 `plan`；要重看旧日期就显式 `--date` |
+| `卡片数据里有 N 个词已不在 tag:「今天学习生词」里` | 选完词后 tag 被换批/清空了（或中途又跑了 `today-new`）。重跑 `plan` 按当前 tag 取词；确要照旧清单生成就加 `gen --allow-stale-tag` |
 | `连不上端点 http://127.0.0.1:8080/v1` | 本地推理服务没起。起 NInfer 后 `models` 再试 |
 | `端点返回 HTTP 401/403` | api key 不对或没提供。检查 `~/.dsh/local-llm.json`（NInfer 默认不校验） |
 | `端点返回 HTTP 404` | `base_url` / 模型名 / 路由不对（脚本打 `<base_url>/responses`） |
@@ -251,14 +270,16 @@ stderr 末尾再集中报一次（`check_quality`）：
 | `📖 JMdict 不可用：…` | `jmdictpy` 没装或词典库没建。装法见 `jmdict-lookup` 技能（`install_workspace_wheels.py jmdictpy` → `jmdict.py build`）；不影响讲义 |
 | `check` 退出码 1 / 2 | 1 = 有硬错（读音），2 = 只有建议/提示。按报告回 Anki 改字段，或 `--no-dict` 跳过 |
 | 讲义里词性被改写成「感叹词／终助词」 | 卡片 `Part of Speech` 标错了。讲义按语言事实显示，建议回改卡片 |
-| 语法接续显示 `—` | 该卡的接续字段是脏数据（汉字夹注音）。`gen --only-words "<句型>" --restart` 让模型重写 `structure` |
+| 讲义里出现 `## 语法` / `## 例句卡` 节 | 渲染的是旧版 manifest（`--date` 指错了）。重跑 `plan` |
 
 ---
 
 ## 9. 与其它链路的关系
 
+- **选词**：`jp-anki-today-new`（`code\tools\today_new_words.py`）负责从当天字幕挑 N 个词、
+  打 tag `今天学习生词`（全量替换）。讲义只消费这个 tag；两条任务各管一半，不要互相兜底。
 - 与 `pipeline.py`（一集素材 → 例句卡）共用同一套 deck 结构；改 deck 时两处都要同步
   （`today_new.py` 的 `DECKS` 与 `pipeline.py` 的 `CFG`）。
-- **素材生词**由 `mine.py` 挖掘入库（`0-素材生词`，与 core6000 同模板）；本链路只负责把
-  它**今天队列里的那部分**讲成讲义。卡片质量取决于挖掘结果；不想要某张卡就在 Anki 里 suspend/删除，不要改脚本口径。
+- **素材生词**由 `mine.py` 挖掘入库（`0-素材生词`，与 core6000 同模板）；本链路只负责讲
+  tag 选中的那部分。卡片质量取决于挖掘结果；不想要某张卡就在 Anki 里 suspend/删除，不要改脚本口径。
 - 弱项分析用 `code\analysis\today_weak.py`，不在这条链路里。

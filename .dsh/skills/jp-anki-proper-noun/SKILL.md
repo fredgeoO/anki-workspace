@@ -127,7 +127,7 @@ TTS 也读这个字段。
    （牌组选项 → 新卡/天 = 0，或浏览器全选挂起）。
 2. **不改 `jp-anki-mine` 的判据/提示词**；不改现有三个笔记类型。
 3. **不回溯旧例句卡**：提取源是字幕文件（按集手动跑），不是历史卡片。
-4. **不进 `episode.py` / `cli.py episode` 默认链路**，也不进每日讲义（`today_new.STUDY_UNITS`）。
+4. **不进 `episode.py` / `cli.py episode` 默认链路**，也不进每日讲义（`today_new.DECKS` 只认三个词汇卡组）。
 5. 卡面以代码为准：模板/CSS 在 `proper.py` 的 `MODEL_SPEC` 常量里，
    `model --check` 报漂移时默认**只报告不覆盖**，要覆盖必须 `--force-templates`。
 6. 同一件事只校验一次：`verify` 是唯一校验点，`write` 复用 `verified.json`。

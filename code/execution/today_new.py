@@ -1,14 +1,28 @@
 # -*- coding: utf-8 -*-
-"""今日新卡 → 日语讲义（每日任务：取卡 → 直连本地模型生成 → 合并渲染）
+"""今天学习生词 → 日语讲义（每日任务：取卡 → 直连本地模型生成 → 合并渲染）
 
-每天早上学新卡**之前**跑的一条固定链路：
+每天早上学今天这批生词**之前**跑的一条固定链路：
 
-    1. plan    取今天的新卡（词汇 + 语法），落盘 cards_<日期>.json
+    1. plan    取今天要讲的词：全库 tag「今天学习生词」命中的词汇笔记
+               （由 jp-anki-today-new 从当天字幕选出、全量替换）
+               → 落盘 cards_<日期>.json；**没有这个 tag 就不生成讲义**
     2. gen     **直连本地模型**（OpenAI Responses API：/v1/responses）逐张或逐批生成讲解，
                落盘 lessons/cards/NN_out.json + metrics，然后自动合并渲染讲义
     3. merge   只做「合并已有产出 → 闸门 → 渲染」（不调模型）
        apply   同 merge；也可用来合并人工写好的一整份 lesson_*.json
        models  只探一次端点：列出可用模型 + 验 api key
+
+为什么按 tag 取词（2026-10-28）
+------------------------------
+以前的口径是「按牌组 new.perDay 从新卡队列里分发今日新卡」，和「今天到底学哪些词」
+是两套逻辑：讲义可能讲到用户今天并不打算学的词。现在统一成——**选词归选词、
+讲义只讲 tag**：
+
+    jp-anki-today-new  从当天字幕挑 N 个词 → 打上 tag「今天学习生词」（全量替换）
+    today_new.py       只认这个 tag：tag 里有词就讲，没有就什么都不生成
+
+排序取当天 ``data/daily_new/<日期>/picked.json`` 里的入选顺序（Jiten 升序），
+没有这份记录时按「级别 → 牌组 → 词形」兜底。
 
 为什么直连而不是派子代理
 ------------------------
@@ -47,10 +61,10 @@ token 账本每次都落盘（`lessons/metrics_<日期>.json`）并打印，方�
     $TN = "$WS\\code\\execution\\today_new.py"
 
     & $PY $TN models                    # 探端点：api key 对不对、模型名是什么、ctx 多大
-    & $PY $TN stats                     # 只看库存：各单元还有多少新卡
-    & $PY $TN plan --dry-run            # 看一眼今天取到哪些卡（只读，不落盘）
+    & $PY $TN stats                     # 只看库存：tag 今天命中了多少个词
+    & $PY $TN plan --dry-run            # 看一眼今天取到哪些词（只读，不落盘）
 
-    & $PY $TN plan                      # 取卡 + 预取 JMdict 事实 → 落盘
+    & $PY $TN plan                      # 按 tag 取词 + 预取 JMdict 事实 → 落盘
     & $PY $TN check                     # 预取/复核词典（词形/读音/词性 + 义项/语域；不调模型）
     & $PY $TN gen                       # 直连本地模型逐张生成 → 闸门 → 讲义（默认 --per-batch 1）
     & $PY $TN gen --per-batch 3         # 一次给模型 3 张（省 system 前缀，但输出更长）
@@ -62,7 +76,8 @@ token 账本每次都落盘（`lessons/metrics_<日期>.json`）并打印，方�
 
 产出（全部在 output/daily/ 下）
 ------------------------------
-    cards_<日期>.json           今天这批卡的原始数据（= manifest；词汇卡自带 `dict` 事实）
+    cards_<日期>.json           今天这批词的原始数据（= manifest；词汇卡自带 `dict` 事实；
+                                **没有 tag 时落一份空清单**，让 gen/merge 明确地什么都不做）
     cards_latest.json           最近一次的副本
     lessons/cards/NN_out.json   第 NN 个请求的产出（**断点续跑的最小单位**）
     lessons/cards/NN_in.json    第 NN 个请求实际发出去的卡片数据（含 `dict`，可单独交接）
@@ -265,16 +280,12 @@ LLM_TOP_P = 0.9
 # ============================================================================
 # 配置区：换收藏结构时改这里
 #
-#   一个「学习单元」= deck + 模型过滤。字段名逐单元指定（不同模型字段名不同）。
-#       deck     学习单元所在的 deck（AnkiConnect 会连带子 deck，所以写父 deck 即可）
+#   一个「词汇卡组」= deck + 模型过滤。字段名逐单元指定（不同模型字段名不同）。
+#       deck     卡组路径（AnkiConnect 会连带子 deck，所以写父 deck 即可）
 #       model    笔记模型名；写 '' 表示不按模型过滤
-#       kind     vocab / grammar
+#       kind     vocab（讲义只讲词汇；语法/例句单元已移出，见下）
 #       level    默认识别到的级别（eggrolls 会用标签细化到具体 N 级）
-#       per_day  上限兜底值（实读 getDeckConfig 失败时才用）
-#       skip_taught  这个字段非空 = 这张卡已经讲过，跳过（'' = 不过滤）
-#       sort     position（按卡在队列里的位置）| index（按笔记 Index 字段）
-#                | tree（先按牌组树顺序，树内再按队列位置——父 deck 单元用）
-#       light_deck_suffix  卡所在 deck 以它结尾 = 只做轻量呈现（不调模型）
+#       level_from_tag  级别写在 eggrolls 标签里（考级词汇扁平化后唯一来源）
 #       fields   取值模板，{N} 表示例句序号 1..3
 #
 #   ⚠️ 改 vocab 的 deck 结构时，也要同步改 code/execution/pipeline.py 的 CFG。
@@ -285,50 +296,32 @@ EGGROLL_FIELDS = dict(w1='VocabKanji', read='VocabFurigana', pos='VocabPoS',
 CORE_FIELDS = dict(w1='Word', read='Transliteration', pos='Part of Speech',
                    mean='Meaning', sent='Sentence', trans='Sentence Translation',
                    audio='Word Audio', sent_audio='Sentence Audio')
+# 语法/例句单元已移出每日讲义（2026-10-28：讲义只讲 tag「今天学习生词」里的词）。
+# 字段模板与渲染分支保留着，`merge --date <旧日期>` 还能渲染当时带语法/例句的 manifest。
 GRAMMAR_FIELDS = dict(w1='Card', pos='ConnectiveType1', mean='MeaningCN',
                       mean_jp='MeaningJP', sent='Sentence{N}', trans='CN{N}',
                       audio='SentenceAudio{N}', note='CNote{N}', extra='AIConclusion')
-# 视频例句卡（Basic 模型）：卡片自带 AINote 讲解 + 振假名 HTML + 原声，
-# 讲义只做轻量呈现（句子 + 中文 + 要点一行），**不发给模型**。
 SENTENCE_FIELDS = dict(w1='Sentence', ruby='Sentence HTML', note='AINote',
                        source='Source', audio='Sentence Audio')
 
 DECKS = [
-    # ---- 词汇：考级词汇（学习单元 = 父 deck「2-考级词汇」，上限 8）----
+    # ---- 考级词汇（eggrolls 模板，级别在标签里）----
     dict(deck='0-日本语学习::0-词汇::2-考级词汇', model='eggrolls-JLPT10k-v3.5',
-         kind='vocab', level='考级', per_day=8, skip_taught='', sort='position',
-         level_from_tag=True, fields=EGGROLL_FIELDS),
-    # ---- 词汇：词频词（学习单元 = 父 deck「6000」，上限 7）----
-    # ⚠️ 这 3598 张卡的 AINote 字段**早就被批量填满**（3598/3598 非空），
-    # 拿它当「已讲过」的判据会让这个单元天天取到 0 张 —— 所以这里不过滤。
-    # 排序也改成队列位置（= Anki 里实际会先出现的词），不再按 Index 词频序。
+         kind='vocab', level='考级', level_from_tag=True, fields=EGGROLL_FIELDS),
+    # ---- 词频词（core6000，Japanese Vocabulary 模板）----
     dict(deck='0-日本语学习::0-词汇::1-高频日语单词 6000', model='Japanese Vocabulary',
-         kind='vocab', level='Core6000', per_day=7, skip_taught='',
-         sort='position', fields=CORE_FIELDS),
-    # ---- 词汇：素材生词（mine.py 建的第 3 个词汇 deck，与 core6000 同模板）----
-    # 上限实读 deckConfig「素材生词」（当前 new.perDay=13，兜底只写同值）；
-    # 卡按队列位置（card.due = JitenAnimeRank 序）取，讲义顺序 = 当天实际学习顺序。
-    # 同样**不按 AINote 过滤**：这批卡的讲解正是每天早上现讲的，不是「已讲过」。
+         kind='vocab', level='Core6000', fields=CORE_FIELDS),
+    # ---- 素材生词（mine.py 建的第 3 个词汇 deck，与 core6000 同模板）----
     dict(deck='0-日本语学习::0-词汇::0-素材生词', model='Japanese Vocabulary',
-         kind='vocab', level='素材生词', per_day=13, skip_taught='',
-         sort='position', fields=CORE_FIELDS),
-    # ---- 语法：整个「1-语法」子树算**一个**学习单元，上限取父 deck 自己的
-    #      deckConfig（当前 5）。子 deck 各自的日上限会先各自出卡、再由父上限
-    #      截断，只有这样才能和 Anki 首页显示的今日新卡数对上。
-    #      取卡顺序 = 牌组树顺序（3-N3 → 4-N2 → 5-N1），树内按队列位置。
-    #      子 deck 里「…例句」的卡只做轻量呈现（卡片自带 AIConclusion），不调模型。
-    dict(deck='0-日本语学习::1-语法', model='どんなときどう使う日本語表現文型Note',
-         kind='grammar', level='N3', per_day=5, skip_taught='', sort='tree',
-         level_from_deck=True, light_deck_suffix='例句', fields=GRAMMAR_FIELDS),
-    # ---- 例句：视频原声例句卡（Basic 模型），上限实读 deckConfig，轻量呈现 ----
-    dict(deck='0-日本语学习::2-例句', model='Basic',
-         kind='sentence', level='例句', per_day=10, skip_taught='',
-         sort='position', fields=SENTENCE_FIELDS),
+         kind='vocab', level='素材生词', fields=CORE_FIELDS),
 ]
 
-# 按 deck 路径覆盖上限（留空表示不覆盖）。例：
-#   PER_DECK_LIMIT = {'0-日本语学习::0-词汇::2-考级词汇': 15}
-PER_DECK_LIMIT = {}
+# 今天的词由 jp-anki-today-new（code/tools/today_new_words.py）打在笔记上。
+# 没有这个 tag 的日子，讲义不生成。
+TAG_TODAY = '今天学习生词'
+# 选词顺序（JitenAnimeRank 升序）落在 data/daily_new/<日期>/picked.json；
+# 有这份记录就按它排讲义，没有就按级别/牌组兜底。
+PICKED_DIR = os.path.join(WSP.DATA, 'daily_new')
 
 MAX_SENTENCES = 3          # 每张卡最多取几条例句
 NOTE_CHUNK = 200           # notesInfo 的批量大小
@@ -339,6 +332,7 @@ LESSON_BACKUP = True       # 写讲义前把已有讲义改名为 .bak
 # 调大（如 3）能省掉重复的 system 前缀，但单次输出变长、被截断和漏卡的概率上升。
 # 想要"一次讲完全部"就 --per-batch 0（0 / 负数 = 不分批）。
 PER_BATCH = 1
+
 
 # eggrolls 标签里带着真实级别，用它细化 level。
 # 形如 `eggrolls-JLPT10k-v3.5::4-N2::N2高频`（N3/N2/N1）或 `…::1-N5`（N5/N4，没有频段），
@@ -783,176 +777,114 @@ def make_card(note, cfg, pos, deck=None):
 
 
 # ============================================================================
-# 队列：今天的新卡
+# 取词：全库 tag「今天学习生词」
 # ============================================================================
-_DECK_LIMIT_CACHE = {}
+def query_for(cfg):
+    """某个词汇卡组里今天要讲的笔记：deck + 模型 + tag。
 
-
-def deck_new_limit_raw(deck):
-    """某个 deck 自己的每日新卡上限（deckConfig）。读不到就当 0（这个 deck 不出卡）。"""
-    if deck not in _DECK_LIMIT_CACHE:
-        _DECK_LIMIT_CACHE[deck] = AK.deck_new_per_day(deck)
-    return _DECK_LIMIT_CACHE[deck]
-
-
-def deck_new_limit(cfg, cli_limit):
-    """这个学习单元今天放几张新卡。优先级：
-    --limit > PER_DECK_LIMIT > getDeckConfig(实读) > 配置 per_day 兜底
+    注意这里是**笔记**查询（findNotes），不按 `is:new` 过滤：词是先由
+    jp-anki-today-new 从当天字幕选好、打上 tag 的；讲义只管讲，不再按
+    新卡队列/日上限另算一遍。
     """
-    if cli_limit:
-        return int(cli_limit), '命令行 --limit'
-    if cfg['deck'] in PER_DECK_LIMIT:
-        return int(PER_DECK_LIMIT[cfg['deck']]), 'PER_DECK_LIMIT'
-    try:
-        conf = AK.deck_config(cfg['deck'])
-        per_day = int(conf['new']['perDay'])
-        _DECK_LIMIT_CACHE[cfg['deck']] = per_day
-        if per_day:
-            return per_day, 'deckConfig「%s」' % conf.get('name', '')
-    except Exception:
-        pass
-    return int(cfg.get('per_day') or 0), '配置兜底 per_day'
-
-
-def query_for(cfg, skip_taught=True):
-    q = 'deck:"%s" is:new -is:suspended -is:buried' % cfg['deck']
+    q = 'deck:"%s"' % cfg['deck']
     if cfg.get('model'):
         q += ' note:"%s"' % cfg['model']
-    if skip_taught and cfg.get('skip_taught'):
-        q += ' -%s:_*' % cfg['skip_taught']
-    return q
+    return q + ' tag:"%s" -is:suspended' % TAG_TODAY
 
 
-def pick_queue(cfg, limit, skip_taught=True):
-    """返回 (cards, stats)：按 Anki 队列顺序取前 limit 张新卡，再按笔记合并成讲义条目。
+def picked_order(date):
+    """当天选词顺序：{noteId: 名次}（picked.json 里的 Jiten 升序）。
 
-    队列顺序 = card.due（新卡的 due 就是它在队列里的位置）；sort='index' 的单元
-    改用笔记里的 Index 字段；sort='tree' 的单元先按牌组树顺序、树内再按队列位置
-    （父 deck 单元专用：Anki 从父 deck 收集新卡就是这个顺序）。
-
-    ⚠️ 先取满 limit 张**卡**、再合并笔记。同一笔记的多张卡（例如语法例句卡的
-    4 个卡模板）只出 1 条讲义条目，但 4 张卡照样计入今日张数——Anki 首页显示的
-    「今天 30 张」是卡数，不是笔记数。
+    读不到（没跑过 today_new_words、或手动打的 tag）就返回 {}，
+    排序退回「级别 → 牌组 → 词形」。
     """
-    query = query_for(cfg, skip_taught)
-    cids = AK.find_cards(query)
-    stats = {'deck': cfg['deck'], 'model': cfg.get('model', ''), 'level': cfg['level'],
-             'kind': cfg['kind'], 'query': query, 'new_cards_total': len(cids),
-             'limit': limit, 'taken': 0, 'taken_notes': 0, 'skipped': 0,
-             'limit_source': ''}
-    if not cids or not limit:
-        stats['limit_source'] = '队列为空或上限为 0'
-        return [], stats
-
-    infos = AK.cards_info(cids, chunk=500)
-
-    if cfg.get('sort') == 'index':
-        # 排序键是笔记里的 Index（词频序），不是卡位置
-        note_ids = list({int(i['note']) for i in infos})
-        idx_of = {}
-        for n in AK.notes_info(note_ids, chunk=NOTE_CHUNK):
-            idx_of[int(n['noteId'])] = as_int(value_of(n.get('fields', {}), 'Index'), 10 ** 9)
-        infos.sort(key=lambda i: (idx_of.get(int(i['note']), 10 ** 9), i['cardId']))
-    elif cfg.get('sort') == 'tree':
-        # 父 deck 单元：Anki 从父 deck 收集新卡时**每棵子 deck 各按自己的日上限出卡**
-        # （解释 deck 1 张、例句 deck 4 张……），再被父 deck 的上限截断。
-        # 所以这里先按牌组树顺序排，再逐 deck 限制，最后取单元总上限。
-        per_deck = {}
-        for name in AK.deck_names():
-            if name == cfg['deck'] or name.startswith(cfg['deck'] + '::'):
-                per_deck[name] = deck_new_limit_raw(name)
-        infos.sort(key=lambda i: (i.get('deckName') or '', as_int(i.get('due')), i['cardId']))
-        kept, used = [], {}
-        for info in infos:
-            deck_name = info.get('deckName') or cfg['deck']
-            if used.get(deck_name, 0) >= per_deck.get(deck_name, 0):
-                continue
-            used[deck_name] = used.get(deck_name, 0) + 1
-            kept.append(info)
-            if len(kept) >= int(limit):
-                break
-        infos = kept
-    else:
-        infos.sort(key=lambda i: (as_int(i.get('due')), i['cardId']))
-
-    taken = infos[:int(limit)]
-    picked, n_cards, ords, seen = [], {}, {}, set()
-    for info in taken:
-        nid = int(info['note'])
-        n_cards[nid] = n_cards.get(nid, 0) + 1
-        # 卡模板序号：语法例句卡的模板就是「第 N 句例句」的展示卡（ord=1 → 第①句）
-        ords.setdefault(nid, []).append(as_int(info.get('ord')))
-        if nid in seen:
+    path = os.path.join(PICKED_DIR, date, 'picked.json')
+    try:
+        with open(path, encoding='utf-8') as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    order = {}
+    for i, w in enumerate(data.get('picked') or []):
+        try:
+            order[int(w['noteId'])] = i
+        except (KeyError, TypeError, ValueError):
             continue
-        seen.add(nid)
-        picked.append((nid, as_int(info.get('due')), info.get('deckName') or cfg['deck']))
-    stats['taken'] = len(taken)
-    stats['taken_notes'] = len(picked)
-    stats['skipped'] = max(0, len(cids) - len(taken))
+    return order
 
-    by_id = AK.notes_map([nid for nid, _, _ in picked], chunk=NOTE_CHUNK)
 
+LEVEL_ORDER = {'N5': 0, 'N4': 1, 'N3': 2, 'N2': 3, 'N1': 4,
+               'Core6000': 5, '素材生词': 6}
+
+
+def sort_cards(cards, order=None):
+    """按 picked.json 的选词顺序排；不在记录里的排最后，再按级别/牌组/词形兜底。"""
+    order = order or {}
+    return sorted(cards, key=lambda c: (order.get(c['id'], len(order) + 1),
+                                        LEVEL_ORDER.get(c['level'], 9),
+                                        c['deck'], c['word']))
+
+
+def pick_tagged(cfg):
+    """取一个词汇卡组里今天要讲的笔记 → (cards, stats)。
+
+    每个笔记就是一条讲义条目（这三个词汇模型的笔记都只有 1 张卡，
+    所以 笔记数 = 卡片数）。卡当前在哪个 deck 不重要——词可能被临时
+    收进筛选牌组；讲义按 noteId 取字段，牌组只用来标级别。
+    """
+    query = query_for(cfg)
+    nids = [int(x) for x in AK.find_notes(query)]
+    stats = {'deck': cfg['deck'], 'model': cfg.get('model', ''), 'level': cfg['level'],
+             'kind': cfg['kind'], 'query': query, 'tagged': len(nids),
+             'taken': 0, 'taken_notes': 0, 'skipped': 0}
+    if not nids:
+        return [], stats
+    by_id = AK.notes_map(nids, chunk=NOTE_CHUNK)
     cards = []
-    for nid, pos, deck in picked:
+    for nid in nids:
         note = by_id.get(nid)
         if not note:
             continue
-        card = make_card(note, cfg, pos, deck)
+        card = make_card(note, cfg, 0)
         if card:
             card['tags'] = note.get('tags', []) or []
-            card['n_cards'] = n_cards.get(nid, 1)
-            card['card_ords'] = sorted(set(ords.get(nid) or []))
+            card['n_cards'] = 1
+            card['card_ords'] = [0]
             cards.append(card)
+    stats['taken'] = len(cards)
+    stats['taken_notes'] = len(cards)
+    stats['skipped'] = max(0, len(nids) - len(cards))
     return cards, stats
 
 
 def collect(opts):
-    """按配置取今天全部新卡。opts 来自命令行。"""
+    """按 tag 取今天全部要讲的词。opts 来自命令行。"""
     groups = DECKS
-    if opts.only == 'vocab':
-        groups = [g for g in DECKS if g['kind'] == 'vocab']
-    elif opts.only == 'grammar':
-        groups = [g for g in DECKS if g['kind'] == 'grammar']
     if getattr(opts, 'deck', None):
         want = [p.strip() for p in opts.deck.split(',') if p.strip()]
-        groups = [g for g in groups if any(g['deck'] == w or g['deck'].startswith(w) for w in want)]
+        groups = [g for g in groups
+                  if any(g['deck'] == w or g['deck'].startswith(w) for w in want)]
         if not groups:
-            raise SystemExit('--deck 没有匹配到配置单元（前缀匹配，必须从头匹配）。可用：\n  ' +
-                             '\n  '.join(g['deck'] for g in DECKS) +
-                             '\n例：--deck "1-语法::5-N1"')
+            raise SystemExit('--deck 没有匹配到词汇卡组（前缀匹配，必须从头匹配）。可用：\n  ' +
+                             '\n  '.join(g['deck'] for g in DECKS))
 
+    order = picked_order(opts.date)
     cards, stats = [], []
     for cfg in groups:
-        limit, src = deck_new_limit(cfg, opts.limit)
-        got, st = pick_queue(cfg, limit, skip_taught=not opts.include_taught)
-        st['limit_source'] = src
-        st['taken_notes'] = len(got)      # 讲义条目数（同一笔记的多张卡算 1 条）
+        got, st = pick_tagged(cfg)
         cards.extend(got)
         stats.append(st)
+    cards = sort_cards(cards, order)
 
-    # 排序：先词汇后语法/例句，级别从低到高，同级按 deck 与队列位置
-    lv_order = {'N5': 0, 'N4': 1, 'N3': 2, 'N2': 3, 'N1': 4, 'Core6000': 5,
-                '素材生词': 6}
-    kind_order = {'vocab': 0, 'grammar': 1, 'sentence': 2}
-    cards.sort(key=lambda c: (kind_order.get(c['kind'], 9), lv_order.get(c['level'], 9),
-                              c['deck'], c['queue_pos']))
-
-    def card_count(pred):
-        """按**卡**计数（同一笔记的多张卡各算一张），和 Anki 首页的口径一致。"""
-        return sum(c.get('n_cards') or 1 for c in cards if pred(c))
-
+    n = len(cards)
     manifest = {
-        'version': 2,
+        'version': 3,
+        'mode': 'tag',
+        'tag': TAG_TODAY,
         'date': opts.date,
         'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
         'system_prompt': SYSTEM_PROMPT_FILE,
-        'counts': {
-            'total': card_count(lambda c: True),
-            'entries': len(cards),
-            'vocab': card_count(lambda c: c['kind'] == 'vocab'),
-            'grammar': card_count(lambda c: c['kind'] == 'grammar'),
-            'sentence': card_count(lambda c: c['kind'] == 'sentence'),
-        },
+        'counts': {'total': n, 'entries': n, 'vocab': n, 'grammar': 0, 'sentence': 0},
         'decks': stats,
         'cards': cards,
     }
@@ -1973,19 +1905,27 @@ def render_lesson(manifest, lesson, dinfo=None):
     parts = []
     A = parts.append
 
-    A('# 今日新卡讲义 · %s' % date)
+    A('# 今日讲义 · %s' % date)
     A('')
-    A('共 %d 张卡（词汇 %d / 语法 %d / 例句 %d）｜%d 条讲解'
-      '（词汇 %d · 语法 %d · 例句卡 %d 组 / %d 句）｜生成于 %s'
-      % (counts['total'], counts['vocab'], counts['grammar'], counts.get('sentence', 0),
-         n_entries, n_v, n_g, len(light), n_sent, manifest['generated_at']))
+    if manifest.get('mode') == 'tag':
+        A('> 今天的 %d 个词来自 tag `%s`（由 `jp-anki-today-new` 从当天字幕选出、'
+          '全量替换；没有这个 tag 的日子不生成讲义）。' % (len(vocab), TAG_TODAY))
+        A('')
+    if grammar or light:
+        A('共 %d 张卡（词汇 %d / 语法 %d / 例句 %d）｜%d 条讲解'
+          '（词汇 %d · 语法 %d · 例句卡 %d 组 / %d 句）｜生成于 %s'
+          % (counts['total'], counts['vocab'], counts['grammar'], counts.get('sentence', 0),
+             n_entries, n_v, n_g, len(light), n_sent, manifest['generated_at']))
+    else:
+        A('共 %d 张卡｜%d 条讲解（词汇 %d 条）｜生成于 %s'
+          % (counts['total'], n_entries, n_v, manifest['generated_at']))
     A('')
     if lesson and lesson.get('intro'):
         A(lesson['intro'])
         A('')
 
     # ---- 导航：先扫一遍 ----
-    A('## 今日新卡一览')
+    A('## 今日一览')
     A('')
     if vgroups:
         A('**词汇 %d 条 / %d 张卡**' % (n_v, n_v_cards))
@@ -2027,8 +1967,8 @@ def render_lesson(manifest, lesson, dinfo=None):
             A('| %d | %s | %s | %s |'
               % (i, cell(c['word']), cell(c.get('meaning') or ''), cell(c.get('n_cards') or 1)))
         A('')
-    A('> 口径：「张卡」按卡数（同一笔记的多张卡各算一张）；「条讲解」按讲义条目'
-      '（同词形的平/片假名条目已合并）。以上三个小标题加起来 = 开头的「%d 条讲解」。' % n_entries)
+    A('> 口径：「张卡」按卡数；「条讲解」按讲义条目'
+      '（同词形的平/片假名条目已合并）。以上各节小标题加起来 = 开头的「%d 条讲解」。' % n_entries)
     A('')
 
     # ---- 正文：词表 ----
@@ -2169,19 +2109,41 @@ def render_lesson(manifest, lesson, dinfo=None):
     A('')
     A('## 本讲义的卡片来源')
     A('')
-    A('| 卡型 | 学习单元（deck） | 模型 | 今日取卡（张） | 笔记（条） | 上限 | 上限来源 |')
-    A('|---|---|---|---|---|---|---|')
+    tag_mode = manifest.get('mode') == 'tag'
+    if tag_mode:
+        A('| 卡型 | 词汇卡组（deck） | 模型 | 今日取词（张） | 笔记（条） | 来源 |')
+        A('|---|---|---|---|---|---|')
+    else:
+        A('| 卡型 | 学习单元（deck） | 模型 | 今日取卡（张） | 笔记（条） | 上限 | 上限来源 |')
+        A('|---|---|---|---|---|---|---|')
     for st in manifest['decks']:
-        A('| %s | %s | %s | %d | %d | %s | %s |'
-          % ({'vocab': '词汇', 'grammar': '语法', 'sentence': '例句'}.get(st['kind'], st['kind']),
-             cell(st['deck'].replace('0-日本语学习::', '')), cell(st.get('model') or ''),
-             st['taken'], st.get('taken_notes', st['taken']), st['limit'],
-             cell(st.get('limit_source', ''))))
-    A('| 合计 | — | — | %d | %d | — | — |' % (counts['total'], n_notes))
+        if tag_mode:
+            A('| %s | %s | %s | %d | %d | tag:「%s」 |'
+              % ({'vocab': '词汇', 'grammar': '语法', 'sentence': '例句'}.get(st['kind'],
+                                                                              st['kind']),
+                 cell(st['deck'].replace('0-日本语学习::', '')), cell(st.get('model') or ''),
+                 st['taken'], st.get('taken_notes', st['taken']), TAG_TODAY))
+        else:
+            A('| %s | %s | %s | %d | %d | %s | %s |'
+              % ({'vocab': '词汇', 'grammar': '语法', 'sentence': '例句'}.get(st['kind'],
+                                                                              st['kind']),
+                 cell(st['deck'].replace('0-日本语学习::', '')), cell(st.get('model') or ''),
+                 st['taken'], st.get('taken_notes', st['taken']), st.get('limit', '—'),
+                 cell(st.get('limit_source', ''))))
+    if tag_mode:
+        A('| 合计 | — | — | %d | %d | — |' % (counts['total'], n_notes))
+    else:
+        A('| 合计 | — | — | %d | %d | — | — |' % (counts['total'], n_notes))
     A('')
-    A('> 本讲义 %d 条讲解 = 词汇 %d 条（%d 张卡，同词形合并 %d 条）＋ 语法 %d 条 ＋ 例句卡 %d 组。'
-      % (n_entries, n_v, n_v_cards, n_merged, n_g, len(light)))
-    A('> 取卡口径 = Anki 首页的今日新卡队列（父 deck 的日上限生效，同一笔记的多张卡算 1 条笔记）。')
+    if tag_mode:
+        A('> 本讲义 %d 条讲解 = 词汇 %d 条（%d 张卡，同词形合并 %d 条）。'
+          % (n_entries, n_v, n_v_cards, n_merged))
+        A('> 取词口径 = 全库 tag:「%s」——词由 `jp-anki-today-new` 从当天字幕选出并全量替换；'
+          '没有这个 tag 的日子不生成讲义。' % TAG_TODAY)
+    else:
+        A('> 本讲义 %d 条讲解 = 词汇 %d 条（%d 张卡，同词形合并 %d 条）＋ 语法 %d 条 ＋ 例句卡 %d 组。'
+          % (n_entries, n_v, n_v_cards, n_merged, n_g, len(light)))
+        A('> 取卡口径 = 旧版「Anki 今日新卡队列」（按 deck 日上限；2026-10-28 起不再使用）。')
     A('> 退路：讲义只是文本，删掉重跑即可；本脚本从不写 Anki。')
     A('')
     return '\n'.join(parts)
@@ -2585,7 +2547,17 @@ def reuse_request_numbers(manifest, cards, per_batch, only_words, split_path):
 def cmd_gen(args):
     manifest = load_manifest(args, allow_plan=False)
     if not manifest['cards']:
-        raise SystemExit('卡片数据里没有卡；先跑 plan。')
+        print('今天没有 tag:「%s」的词 → 跳过，不调模型、不生成讲义。' % TAG_TODAY)
+        return 0
+    # 清单里的词必须仍然带着今天的 tag：tag 被换批/清空后，旧清单不再有效
+    if not getattr(args, 'allow_stale_tag', False):
+        live = {int(x) for x in AK.find_notes('tag:"%s"' % TAG_TODAY)}
+        stale = [c for c in manifest['cards'] if int(c['id']) not in live]
+        if stale:
+            raise SystemExit(
+                '卡片数据里有 %d 个词已不在 tag:「%s」里（可能换过一批或清空了）。\n'
+                '重跑 plan 按当前 tag 取词；要照旧清单生成就加 --allow-stale-tag。'
+                % (len(stale), TAG_TODAY))
     # 词典在发请求之前就查完：事实随卡进模型输入；命中缓存则一次库都不开
     _dinfo, rep, _computed = ensure_dict(args, manifest)
     attach_dict(manifest, rep)
@@ -2727,6 +2699,9 @@ def cmd_gen(args):
 def cmd_merge(args):
     """合并已有产出 → 闸门 → 渲染讲义。"""
     manifest = load_manifest(args, allow_plan=True)
+    if not manifest['cards']:
+        print('今天没有 tag:「%s」的词 → 跳过，不生成讲义。' % TAG_TODAY)
+        return 0
     p = dated_paths(manifest['date'])
     meta = None
     if os.path.exists(p['split']):
@@ -2898,24 +2873,23 @@ def cmd_prompt(args):
 
 
 def cmd_stats(args):
-    """只看库存：每个学习单元还有多少新卡、上限多少、已讲过多少。"""
-    print('%-40s %-24s %8s %6s %8s  %s'
-          % ('学习单元（deck）', '模型', '新卡池', '上限', '已讲过', '上限来源'))
-    print('-' * 108)
+    """只看库存：tag「今天学习生词」今天在各个词汇卡组里命中多少条笔记。"""
+    print('%-40s %-24s %8s' % ('词汇卡组（deck）', '模型', 'tag 命中'))
+    print('-' * 78)
+    total = 0
     for cfg in DECKS:
-        base = 'deck:"%s" is:new -is:suspended -is:buried' % cfg['deck']
-        if cfg.get('model'):
-            base += ' note:"%s"' % cfg['model']
         try:
-            total = len(AK.find_cards(base))
-            left = len(AK.find_cards(query_for(cfg, True)))
+            n = len(AK.find_notes(query_for(cfg)))
         except AnkiError as e:
-            print('%-40s  ERR %s' % (cfg['deck'], e))
+            print('%-40s  ERR %s' % (cfg['deck'].replace('0-日本语学习::', ''), e))
             continue
-        limit, src = deck_new_limit(cfg, args.limit)
-        print('%-40s %-24s %8d %6d %8d  %s'
-              % (cfg['deck'].replace('0-日本语学习::', ''), cfg.get('model') or '—',
-                 total, limit, total - left, src))
+        total += n
+        print('%-40s %-24s %8d'
+              % (cfg['deck'].replace('0-日本语学习::', ''), cfg.get('model') or '—', n))
+    print('-' * 78)
+    print('合计 %d 个笔记（tag:「%s」）' % (total, TAG_TODAY))
+    if not total:
+        print('（今天还没选词：先跑 jp-anki-today-new 从字幕挑词、打标签。）')
     return 0
 
 
@@ -2926,25 +2900,32 @@ def cmd_plan(args):
     manifest = collect(args)
     p = dated_paths(manifest['date'])
 
-    print('今天的新卡（%s）' % manifest['date'])
-    print('=' * 96)
-    print('%-40s %-24s %5s %6s %7s  %s'
-          % ('学习单元（deck）', '模型', '上限', '取卡', '新卡池', '上限来源'))
-    print('-' * 96)
+    print('今天学习生词（%s）' % manifest['date'])
+    print('=' * 78)
+    print('%-40s %-24s %8s' % ('词汇卡组（deck）', '模型', 'tag 命中'))
+    print('-' * 78)
     for st in manifest['decks']:
-        print('%-40s %-24s %5s %6d %7d  %s'
+        print('%-40s %-24s %8d'
               % (st['deck'].replace('0-日本语学习::', ''), st.get('model') or '—',
-                 st['limit'], st['taken'], st['new_cards_total'], st.get('limit_source', '')))
-    print('-' * 96)
+                 st['tagged']))
+    print('-' * 78)
     cnt = manifest['counts']
-    print('合计 %d 张卡 / %d 条讲解（词汇 %d / 语法 %d / 例句 %d）'
-          % (cnt['total'], cnt.get('entries', len(manifest['cards'])), cnt['vocab'],
-             cnt['grammar'], cnt.get('sentence', 0)))
+    print('合计 %d 个词' % cnt['total'])
     print()
     for c in manifest['cards']:
-        print('  [%-8s %-5s] %-16s %-12s %s'
-              % (c['kind'], c['level'] or '—', c['word'], c['reading'] or '—',
-                 c['meaning'] or ''))
+        print('  [%-5s] %-16s %-12s %s'
+              % (c['level'] or '—', c['word'], c['reading'] or '—', c['meaning'] or ''))
+
+    # 没有 tag 就什么都不生成：落一份空清单，免得 gen/merge 捡到之前那天的数据。
+    if not manifest['cards']:
+        print()
+        print('今天没有 tag:「%s」的词 → 不生成讲义（不调模型、不落请求）。' % TAG_TODAY)
+        print('（先跑 jp-anki-today-new 从当天的字幕/文字里选词；清空 tag 时也一样。）')
+        if not args.dry_run:
+            write_json(p['cards'], manifest)
+            write_json(p['cards_latest'], manifest)
+            print('已落一份空清单：%s（gen / merge 看到它会直接跳过）' % p['cards'])
+        return 0
 
     # 词典在这一步就查完：事实挂进每张词汇卡的 `dict`（随后落进 cards / NN_in），
     # gen / merge 只读这份结果，不再打开词典库。--dry-run 只查不落盘。
@@ -2957,15 +2938,10 @@ def cmd_plan(args):
         print()
         print('--dry-run：没有落盘。去掉它就会写 %s' % p['cards'])
         return 0
-    if not manifest['cards']:
-        print()
-        print('今天没有可讲的新卡（可能都学完了，或者都被 skip_taught 过滤掉了）。不落盘。',
-              file=sys.stderr)
-        return 0
 
     write_json(p['cards'], manifest)
     write_json(p['cards_latest'], manifest)
-    # 只给「需要模型讲解」的卡切请求：例句卡自带讲解，不占请求
+    # 只给「需要模型讲解」的卡切请求：示例/例句卡自带讲解，不占请求
     plan_manifest = dict(manifest)
     plan_manifest['cards'] = [c for c in manifest['cards'] if c.get('style') != 'light']
     reqs = plan_requests(plan_manifest, args.per_batch)
@@ -2995,6 +2971,9 @@ def cmd_check(args):
     3 = 词典不可用（jmdictpy 没装或库没建）。
     """
     manifest = load_manifest(args, allow_plan=True)
+    if not manifest['cards']:
+        print('今天没有 tag:「%s」的词 → 没有要核的词。' % TAG_TODAY)
+        return 0
     if getattr(args, 'no_dict', False):
         raise SystemExit('--no-dict 与 check 一起用没有意义。')
     _dinfo, rep, _computed = ensure_dict(args, manifest)
@@ -3017,11 +2996,17 @@ def cmd_check(args):
 
 
 def load_manifest(args, allow_plan=True):
+    """读当天的 cards_*.json。
+
+    默认只认**今天**的清单：隔天直接跑 gen/merge 会捡到昨天那批词，
+    等于把旧讲义当今天的发出去。要重看旧日期就显式 `--date <日期>`。
+    """
     cands = []
     if getattr(args, 'cards', None):
         cands.append(args.cards)
     if getattr(args, 'date', None):
         cands.append(dated_paths(args.date)['cards'])
+    explicit = bool(getattr(args, 'cards', None) or getattr(args, 'date', None))
     cands.append(os.path.join(OUTDIR, 'cards_latest.json'))
     for path in cands:
         if path and os.path.exists(path):
@@ -3032,6 +3017,18 @@ def load_manifest(args, allow_plan=True):
                 raise SystemExit('卡片数据读不出来（%s）：%s' % (path, e))
             if not getattr(args, 'quiet', False):
                 print('读取卡片数据：%s' % path, file=sys.stderr)
+            today = dt.date.today().isoformat()
+            if not explicit and str(manifest.get('date')) != today:
+                raise SystemExit(
+                    '卡片数据是 %s 的，不是今天（%s）。\n'
+                    '今天没有 tag:「%s」？先跑 plan（没有词时它会落一份空清单）；'
+                    '要重看旧日期就显式加 --date %s。'
+                    % (manifest.get('date'), today, TAG_TODAY, manifest.get('date')))
+            if not explicit and manifest.get('mode') != 'tag':
+                raise SystemExit(
+                    '卡片数据是旧口径（按新卡队列取的）：%s。\n'
+                    '现在只按 tag:「%s」取词——重跑 plan 覆盖它（没有 tag 会落空清单，不会生成讲义）。'
+                    % (path, TAG_TODAY))
             return manifest
     raise SystemExit('找不到卡片数据。先跑一次：\n  python today_new.py plan')
 
@@ -3070,22 +3067,17 @@ def add_gen_args(sp):
 
 def main():
     ap = argparse.ArgumentParser(
-        description='取 Anki 今日新卡（词汇 + 语法）→ 直连本地模型生成讲解 → 渲染成一份讲义。',
+        description='取 tag「%s」里的词 → 直连本地模型生成讲解 → 渲染成一份讲义。'
+                    % TAG_TODAY,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='详见文件头的用法说明，以及 docs/today_new-使用说明.md')
     sub = ap.add_subparsers(dest='cmd')
 
-    sp = sub.add_parser('plan', help='取今天的新卡并落盘（只读 Anki）')
+    sp = sub.add_parser('plan', help='按 tag 取今天要讲的词并落盘（只读 Anki）')
     sp.add_argument('--date', default=dt.date.today().isoformat(),
                     help='把这天当成「今天」（用于文件名与 manifest，默认系统日期）')
-    sp.add_argument('--limit', type=int, default=None,
-                    help='每个学习单元最多取几张新卡（覆盖 getDeckConfig 与 PER_DECK_LIMIT）')
-    sp.add_argument('--only', choices=['vocab', 'grammar'], default=None,
-                    help='只取一类卡（默认两类都取）')
     sp.add_argument('--deck', default=None,
-                    help='只取这些单元（逗号分隔，从头前缀匹配），如 "1-语法::5-N1"')
-    sp.add_argument('--include-taught', action='store_true',
-                    help='不跳过已经讲过（AINote/AIConclusion 非空）的卡')
+                    help='只取这些词汇卡组（逗号分隔，从头前缀匹配），如 "0-素材生词"')
     sp.add_argument('--per-batch', type=int, default=PER_BATCH,
                     help='每个请求塞几张卡（默认 %d；0 = 一次全给）' % PER_BATCH)
     sp.add_argument('--dry-run', action='store_true', help='只打印，不落盘')
@@ -3109,6 +3101,8 @@ def main():
                     help='只处理这些卡（词形或 note id，逗号分隔）')
     sp.add_argument('--no-merge', action='store_true', help='只生成，不渲染讲义')
     sp.add_argument('--intro', default=None, help='手写今日总览（覆盖讲义的 intro）')
+    sp.add_argument('--allow-stale-tag', action='store_true',
+                    help='清单里的词已不在 tag「%s」里也照样生成（默认拒绝：先重跑 plan）' % TAG_TODAY)
     sp.set_defaults(func=cmd_gen)
 
     sp = sub.add_parser('merge', help='合并已有产出 → 闸门 → 渲染讲义（不调模型）')
@@ -3136,8 +3130,7 @@ def main():
     sp.add_argument('--stdout', action='store_true', help='打到标准输出')
     sp.set_defaults(func=cmd_prompt)
 
-    sp = sub.add_parser('stats', help='只看库存：各单元的新卡数、上限、已讲过多少')
-    sp.add_argument('--limit', type=int, default=None)
+    sp = sub.add_parser('stats', help='只看库存：tag 今天在各个词汇卡组里命中多少条')
     sp.add_argument('--quiet', action='store_true', help=argparse.SUPPRESS)
     sp.set_defaults(func=cmd_stats)
 

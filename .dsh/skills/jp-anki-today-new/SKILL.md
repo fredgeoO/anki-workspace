@@ -94,7 +94,7 @@ Get-Content draft.txt -Encoding UTF8 | & $PY $PICK - --commit
 产物（commit 后写）：
 
 - `output/daily/today_new_words.md` —— 给人看的稳定路径报告（每次 commit 覆盖）
-- `data/daily_new/<日期>/picked.json` —— 机器可读：候选/入选/剔除/差集
+- `data/daily_new/<日期>/picked.json` —— 机器可读：候选/入选/剔除/差集（`picked[]` 的顺序就是每日讲义的排序：Jiten 升序）
 - `data/daily_new/state.json` —— 回退记录（运行前 / 运行后 noteId）
 
 ## 四、机械规则（脚本已做，别在提示词里重算）

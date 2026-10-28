@@ -1,6 +1,6 @@
 # 架构与内部约定（architecture）
 
-> 状态：active ｜ 最后核实：2026-10-20
+> 状态：active ｜ 最后核实：2026-10-28
 
 **这是什么**：工作区的细节层 —— 代码怎么分区、六条约定怎么落地、各子系统的口径与踩坑。
 **为什么存在**：根 README 只讲入口与规矩；改代码、加脚本、排查「为什么这样设计」时看这里。
@@ -28,7 +28,7 @@
 | 目录 | 脚本 |
 |---|---|
 | `code/`（根） | `cli.py` —— 统一入口（`python code/cli.py <组> <子命令>`；薄分发器 + `vocab reorder-jiten` preset） |
-| `code/execution/` | `filter_subtitle.py`（入库前的字幕前置筛选）、`pipeline.py`（阶段 0-2）、`cards.py`（**按张**生成 AINote + Sentence HTML：单卡/数张也能跑，不依赖批次）、`activate.py`（阶段 3）、`mine.py`（阶段 4）、`proper.py`（**专有名词收集**：字幕 → `3-专有词汇`，含 `model/scan/split/gen/verify/write/audio/add`，**不进学习队列**，见 [proper-noun-使用说明](proper-noun-使用说明.md)）、`mine_audio.py`（阶段 5）、`today_new.py`（每日讲义：今日新卡 → 切批 → 合并讲解）、`core6000_example.py`（**按需**补例句②：给用户点名的 core6000 词补第二条例句 + 振假名 + 合并讲解 + edge-TTS 配音）、`ainote_enrich.py`（**高频**：加强某张词汇卡的 AINote 讲解 + 补「语感」，本地模型生成 6 节、只写 AINote、写前备份）、`immersionkit.py`（**按词表**从 ImmersionKit 抓对白例句：选词 → 选句 → 本地模型讲解 → 剧照/原声落地 → 例句卡 + 素材生词卡，默认全程演练） |
+| `code/execution/` | `filter_subtitle.py`（入库前的字幕前置筛选）、`pipeline.py`（阶段 0-2）、`cards.py`（**按张**生成 AINote + Sentence HTML：单卡/数张也能跑，不依赖批次）、`activate.py`（阶段 3）、`mine.py`（阶段 4）、`proper.py`（**专有名词收集**：字幕 → `3-专有词汇`，含 `model/scan/split/gen/verify/write/audio/add`，**不进学习队列**，见 [proper-noun-使用说明](proper-noun-使用说明.md)）、`mine_audio.py`（阶段 5）、`today_new.py`（每日讲义：取 tag `今天学习生词` → 切批 → 合并讲解；没有 tag 不生成）、`core6000_example.py`（**按需**补例句②：给用户点名的 core6000 词补第二条例句 + 振假名 + 合并讲解 + edge-TTS 配音）、`ainote_enrich.py`（**高频**：加强某张词汇卡的 AINote 讲解 + 补「语感」，本地模型生成 6 节、只写 AINote、写前备份）、`immersionkit.py`（**按词表**从 ImmersionKit 抓对白例句：选词 → 选句 → 本地模型讲解 → 剧照/原声落地 → 例句卡 + 素材生词卡，默认全程演练） |
 | `code/tools/` | `doctor.py`（**开工体检**：三件自审 + 废弃符号 + 快照卫生 + 文档状态行 + preflight）、`edge_tts_min.py`（纯标准库 TTS 客户端）、`check_audio.py`（音频自检）、`fix_word_audio.py`（**单词音频读错修复**：`Transliteration` + `Word Audio` 同名覆盖，带 ruby 比对/旧值断言，见 pipeline-guide §8.6）、`audit_mine_outputs.py`（独立复核）、`proper_extract.py`（**专有名词抽取的原子能力**：一段文字 + 背景 → 专名清单，Anki 无关、可单跑、`--no-model` 只跑预扫）、`review_shortlist.py`（判弃块复核短名单）、`backup_anki.py`（备份：工作区 + 收藏库 + 媒体 + 插件 → G: 盘，含校验与 manifest，见 [docs/backup-sop.md](backup-sop.md)）、`temp_clean.py`（`cli.py temp`：一次性文件区 `temp/` 的查看 / 清空，先打印清单再删） |
 | `code/common/` | `anki_api.py`（**Anki 读写唯一接口**：AnkiConnect 传输 + 类型化读写 + 学习记录 + 离线快照 + 防回退自审）、`immersion_api.py`（**ImmersionKit 只读客户端**：搜索/媒体 + 例句清洗/筛选 + 振假名转 `Sentence HTML`，带磁盘缓存；不碰 Anki）、`paths.py`（路径唯一来源）、`check_cards.py`（例句卡自检）、`check_ruby.py`（振假名读音自检）、`check_mine.py`（生词卡自检）、`check_proper.py`（**专有名词卡自检**：判定产出 + 写入载荷两层，`Intro`/`Categories`/`Source` 的机械规则）、`textio.py`（**文本 I/O 与编码的唯一入口**：import 即接管 stdio 为 UTF-8、GBK/BOM/CP932 解码、JSON 安全读、子进程文本模式，含 `check` / `read` / `decode` / `audit` CLI）、`ps-utf8.ps1`（**PowerShell 侧补丁**，用法见 §6.5） |
 | `code/analysis/` | `today_weak.py`（今天/近 N 天答得不好的卡 → 单词名/语法名）、`analyze_revlog.py`（自评按钮校准）、`weak_words_2d_live.py` + `make_weak_list.py`（弱词清单）、`anki_revlog_analysis.py`（每牌组复习量/单卡耗时）、`planning/`、`vocab_cover/`（字幕覆盖率与词汇量：§4；外部词频表排序：§5）、`anki_analyze/`（离线诊断孤岛，见 §7） |

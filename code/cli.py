@@ -15,9 +15,9 @@
 
     python code/cli.py episode --tag "动画::<作品名>::<季>::第NN集" --input-tag 待标记
                                     # ★ 每集主线一条命令跑完阶段 2–5（默认演练，--commit 真写）
-    python code/cli.py daily stats                  # 今日新卡库存 / 模型分布
-    python code/cli.py daily plan                   # 今天该讲哪些卡
-    python code/cli.py daily gen                    # 生成讲义（直连本地模型）
+    python code/cli.py daily stats                  # tag「今天学习生词」今天命中多少
+    python code/cli.py daily plan                   # 按 tag 取今天要讲的词
+    python code/cli.py daily gen                    # 生成讲义（直连本地模型；没有 tag 就跳过）
     python code/cli.py today-new "字幕.srt" --n 30  # 今日 N 个生词（默认演练，--commit 真写）
     python code/cli.py pipeline prepare             # 阶段 0-2
     python code/cli.py pipeline triage --query "tag:待标记"
@@ -297,7 +297,7 @@ def _print_help():
     print()
     print('  doctor    开工体检（强制门禁）      doctor --skip-anki / --tag "动画::…"')
     print('  episode   ★ 每集主线驱动（阶段 2-5） --tag "动画::…" --input-tag 待标记')
-    print('  daily     今日讲义链路              stats | models | plan | check | gen | merge | prompt')
+    print('  daily     每日讲义（tag 今天学习生词）  stats | models | plan | check | gen | merge | prompt')
     print('  pipeline  阶段 0-2                  prepare | triage | apply | split | verify | write')
     print('  cards     按张生成 AINote+HTML      gen | write（默认演练，--commit 真写）')
     print('  activate  全局重排 / 历史回退      plan | apply | revert')
