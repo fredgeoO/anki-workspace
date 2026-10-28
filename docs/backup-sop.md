@@ -1,6 +1,6 @@
 # 备份 SOP：anki-workspace + Anki 学习资料
 
-> 状态：active ｜ 最后核实：2026-10-10
+> 状态：active ｜ 最后核实：2026-10-28
 
 **这是什么**：备份与恢复的唯一权威流程（工作区 + Anki 收藏库/媒体/插件 → G: 盘）。
 **为什么存在**：备份做错比不做更糟（收藏库带 -wal 时副本不一致、旧备份先删就没了），
@@ -346,3 +346,26 @@ python -X utf8 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb'
 > 之后改动的 `docs\backup-sop.md`、`README.md`、`code\tools\backup_anki.py` 单独同步进备份，
 > `manifest.json` 里 workspace 的字节数按同步后的实际值重算（文件数不变，仍 3600）。
 > 下次按 §0 一条命令走完，就不存在这种收尾补同步。
+
+---
+
+## 9. 重打 Release `.apkg`（对外发布导出，不是备份）
+
+> 本节**不是备份流程**：备份走「退出 Anki + robocopy + SHA256 校验」（§0–§6）；
+> 发布导出在 **Anki 开着** 时用 AnkiConnect `exportPackage` 出 `.apkg` 给外人导入
+> （README §14「整库下载」）。注意：`exportPackage` 一次性导出**整个收藏**可能让
+> Anki 直接退出（见 [pipeline-pitfalls](troubleshooting/pipeline-pitfalls.md) 末行），
+> 所以按三个子牌组拆着导。
+
+改过卡之后要重新打三个包：deck 名照抄、`path` 用绝对路径，
+
+```powershell
+# Anki 开着；includeSched=false = 不导出调度历史（due/ivl/factor/type/queue/reps/lapses 全清零）
+$body = '{"action":"exportPackage","version":6,"params":{"deck":"0-日本语学习::0-词汇","path":"<绝对路径>\\1-vocab.apkg","includeSched":false}}'
+Invoke-RestMethod http://127.0.0.1:8765 -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($body)) `
+  -ContentType 'application/json; charset=utf-8'
+```
+
+另外两个同法换 deck 名与文件名：`0-日本语学习::1-语法` → `2-grammar.apkg`、
+`0-日本语学习::2-例句` → `3-examples.apkg`。导完替换 GitHub Release 附件
+（单附件上限 2 GiB，故按子牌组拆包）。
