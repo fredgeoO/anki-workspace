@@ -104,6 +104,31 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 （`jp-anki-activate`）。设计与取舍见
 [ADR 2026-10-29](docs/decisions/2026-10-29-今日选词打分与义项核验.md)。
 
+### 拿任意文本/字幕量一量：覆盖率与生词分析
+
+流水线之外还有一条**随时可跑的体检链**：输入任意 `.srt/.ass/.vtt`、`.txt`、一段话或标准输入，
+就能回答「这段文字我认识多少、还差哪些词」。词汇状态来自 AnkiConnect 现场快照
+（`collect_vocab.py` 抽成 `data/vocab_cover/vocab_state.json`），换素材不用动卡组。
+
+| 想知道什么 | 命令 | 产物 |
+|---|---|---|
+| 这段文字我懂多少 | `cli.py vocab cover <文件>`（也吃 `--text` / `--stdin`） | 三个分母的覆盖率、句子级可懂度、新词预览 |
+| 新词具体是哪些 | `cli.py vocab newwords <文件或目录> --mine-only` | 读音 / 词性 / 首例句 / Jiten 档位，可导 TSV、Markdown、JSON |
+| 出一份学习用生词报告 | `cli.py vocab report <文件或目录>` | 固定章节的 Markdown + JSON（规模 / 分档 / 题材词 / 值得挖 / 不用记） |
+| 每季只挖前 N 集值不值 | `cli.py vocab mine_window --k 3` | 覆盖占比、效率、边际效率、窗口外高价值词 |
+| 全部字幕的整体水位 | `python code\analysis\vocab_cover\report_build.py` | 自动刷新快照 + `metrics.json` + 5 张图 + Markdown |
+| 卡组贴不贴动漫词频榜 | `jiten_fit.py` / `rank_buckets.py`（`vocab_cover` 下） | 榜→卡组覆盖、卡组→榜名次、每千词已学占比 |
+| 学哪些、还差多少、每天放几张 | `study_plan.py` / `mature_eta.py` / `study_time_budget.py`（`vocab_cover` 下） | 学习顺序收益、全成熟 ETA、新卡时间预算 |
+
+**口径**：三个分母差别很大，报告里必须写清——**含语法词**（全部词元，助词/助动词按「你懂」计）、
+**词汇词**（去掉语法词与符号）、**需背实词**（再去掉专有名词、感动词、数词，这才是词汇量的分母）。
+「已学」= 刷过至少 1 次，「已成熟」= 复习卡且间隔 ≥ 21 天；分词走 SudachiPy，Jiten 名次按
+「出现在多少部作品里」排，不按单部重复次数。新词也分两档：卡组外的 `oov` 与有卡没学的 `untackled`。
+
+产物落在 `docs/reports/`（本地保留、未入库），图表在 `output/vocab_cover/`——
+`字幕覆盖率与词汇量报告.md`、`挖掘窗口分析.md`、`Jiten动漫词库贴合度.md`、`词汇三卡组配比.md`
+都是这条链跑出来的。报告数字随快照漂移，引用时以文件头的生成时间为准。
+
 回到全局，三条贯穿全项目的原则（完整口径见 AGENTS.md §3）：**流水线不碰学习调度**（新卡顺序由 `JitenAnimeRank`
 与 `cards.due` 决定）、**机械判断归代码、语义判断归模型**（结构 / 逐字一致 / 回读由 `code/common/`
 检查器判）、**生成默认直连本地模型**（local-llm 技能）。
