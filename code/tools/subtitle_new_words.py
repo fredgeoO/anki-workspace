@@ -366,14 +366,21 @@ def word_reading(word):
     return ''.join(m.reading for m in ms).strip()
 
 
-def is_content_token(t):
-    if t.pos0 not in CONTENT_POS:
+def is_content_token(t, extra_pos=()):
+    """内容词判定。``extra_pos`` 额外放行某些词性（如 ``('助詞', '感動詞')``）。
+
+    放开助词时**必须同时放开单字假名**：``ね`` / ``よ`` / ``か`` / ``の`` 都是
+    一个字、纯假名，会被下面那条「单字非汉字」规则直接丢掉。
+    """
+    allowed = tuple(CONTENT_POS) + tuple(extra_pos or ())
+    if t.pos0 not in allowed:
         return False
     if t.pos0 == '名詞' and t.pos1 in DROP_NOUN_POS1:
         return False
     if not t.base or DIGIT_PUNCT.match(t.base):
         return False
-    if len(t.base) == 1 and not KANJI.search(t.base):
+    is_extra = bool(extra_pos) and t.pos0 in tuple(extra_pos)
+    if not is_extra and len(t.base) == 1 and not KANJI.search(t.base):
         return False
     if len(t.base) > MAX_WORD_LEN:
         return False
@@ -538,6 +545,8 @@ class Hit:
     reading: str = ''
     proper: bool = False
     name_like: bool = False
+    pos0: str = ''
+    pos1: str = ''
 
 
 def _dedupe_hits(hits):
@@ -556,14 +565,14 @@ def _dedupe_hits(hits):
 
 
 def find_hits(text, index, include_names=False, include_phrases=False,
-              proper_out=None):
+              proper_out=None, extra_pos=()):
     toks = tokenize(text)
     hits = []
     # 1) 单词素：只用词典形 / 规范形，**不用表面形**
     #    （否则 `出`（base=出る）会把一张坏卡「出」也匹配出来；
     #     假名词写成汉字的情况由 kana2words 兜底。）
     for t in toks:
-        if not is_content_token(t):
+        if not is_content_token(t, extra_pos=extra_pos):
             continue
         if t.pos1 == '固有名詞':
             # 同一个词可能一处标专名、一处标普通名词；只要有一处是专名，
@@ -587,7 +596,8 @@ def find_hits(text, index, include_names=False, include_phrases=False,
                 words = cands
         for w in words:
             hits.append(Hit(w, t.begin, t.end, t.surface,
-                            reading=t.reading, proper=(t.pos1 == '固有名詞')))
+                            reading=t.reading, proper=(t.pos1 == '固有名詞'),
+                            pos0=t.pos0, pos1=t.pos1))
 
     # 2) 连续词素拼起来的复合词（魔神 + 族 → 魔神族）。
     #    只允许内容词 / 词缀参与，避免 `た`+`ん` → `たん`、`ん`+`な` → `んな` 这类假阳性。
