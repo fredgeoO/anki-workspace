@@ -98,7 +98,7 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 「已学」= 刷过至少 1 次，「已成熟」= 复习卡且间隔 ≥ 21 天；分词走 SudachiPy，Jiten 名次按
 「出现在多少部作品里」排，不按单部重复次数。新词也分两档：卡组外的 `oov` 与有卡没学的 `untackled`。
 
-产物落在 `docs/reports/`（本地保留、未入库），图表在 `output/vocab_cover/`——
+产物落在 `docs/reports/`（除 `sample/` 里已脱敏的样板外，本地产物不入库），图表在 `output/vocab_cover/`——
 `字幕覆盖率与词汇量报告.md`、`挖掘窗口分析.md`、`Jiten动漫词库贴合度.md`、`词汇三卡组配比.md`
 都是这条链跑出来的。报告数字随快照漂移，引用时以文件头的生成时间为准。
 字段级口径与数据链细节见 [architecture.md §4-5](architecture.md)。
@@ -131,7 +131,7 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 
 ## 6. 仓库边界与数据安全
 
-- git 只跟踪「源码 / 文档 / 技能 / 模板 / 字幕」；`data/`、`output/`、`docs/reports/`
+- git 只跟踪「源码 / 文档 / 技能 / 模板 / 字幕」；`data/`、`output/`、`docs/reports/`（`sample/` 除外）
   都不入库——**卡片资料没有 git 可退，唯一退路是备份**。清单见 [data/README.md](../data/README.md)。
 - 写库脚本一律「默认演练、`--commit` 才真写」；改动前打印数量与清单，写后回读
   `AK.verify_note_fields`。工程约定见 [AGENTS.md §8](../AGENTS.md)。

@@ -31,7 +31,7 @@
 三条硬事实，后面每条铁律都从这儿来：
 
 1. **写的是真数据，不是测试库。** 工作区**现在是 git 仓库**，但只跟踪源码 / 文档 / 技能 / 模板 / 字幕
-   ——`data/`、`output/`、`docs/reports/` 与卡片资料全被 `.gitignore` 排除。
+   ——`data/`、`output/`、`docs/reports/`（`sample/` 除外）与卡片资料全被 `.gitignore` 排除。
    所以代码和文档有 `git diff` 可退，**卡片数据仍然没有**：唯一退路是快照/备份
    （`cli.py backup`、`data/plans/_prev/`、`data/*/backup_*.json`）。
 2. **Anki 必须开着**（AnkiConnect `127.0.0.1:8765`）。唯一例外：备份前必须**完全退出** Anki。

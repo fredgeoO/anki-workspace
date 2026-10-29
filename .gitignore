@@ -26,7 +26,9 @@
 /temp/
 
 # ---------- 个人学习数据（分析报告含自身的复习量、弱词、词汇量）----------
-/docs/reports/
+#   docs/reports/ 整体不入库；只放行 sample/ —— 作者主动公开的报告样板，已脱敏
+/docs/reports/*
+!/docs/reports/sample/
 
 # ---------- 收藏导出（= 卡片资料，可由 anki_api.Snapshot 重建）----------
 /code/analysis/anki_analyze/*.tsv

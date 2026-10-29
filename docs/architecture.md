@@ -131,7 +131,8 @@ deck 改名时只改那一处。
 
 回答三个问题：**一集字幕覆盖了我 core6000 / 考级词汇的多少？我的卡组到底能听懂多少？
 还要看（并学）多少部动画？**
-完整结论见报告 `docs/reports/字幕覆盖率与词汇量报告.md`（个人分析产物，本地保留、未入库）。
+完整结论见报告 `docs/reports/字幕覆盖率与词汇量报告.md`（个人分析产物，本地保留、未入库；
+公开样板见 [docs/reports/sample/字幕覆盖率与词汇量报告.md](reports/sample/字幕覆盖率与词汇量报告.md)）。
 
 ```powershell
 $VC = "$WS\code\analysis\vocab_cover"

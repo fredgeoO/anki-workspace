@@ -10,6 +10,7 @@
 | 直接拿它学日语 | §2 五分钟上手 → §3 每天怎么用 |
 | 把一集新番字幕做成卡 | §4 新素材：一集字幕变卡 |
 | 只想要牌组文件 | §11 整库下载 |
+| 想看输出长什么样 | [docs/reports/sample/](docs/reports/sample/README.md)（作者的真实报告样板） |
 | 改脚本 / 核对某个数字怎么算 | [docs/implementation.md](docs/implementation.md) |
 | 让 AI 代理替你操作 | [AGENTS.md](AGENTS.md)（行为契约） |
 
@@ -365,7 +366,7 @@ Release 单个附件上限 2 GiB，所以按三个分支拆包；媒体继续长
 | [docs/troubleshooting/](docs/troubleshooting/README.md) | 排障与犯错经验（流水线坑表、事故复盘） |
 | [docs/deprecated.md](docs/deprecated.md) | 已退场的机制与入口（**历史只记在这里**） |
 | [docs/jp-card-agent-instruction.md](docs/jp-card-agent-instruction.md) / [mine-agent-instruction.md](docs/mine-agent-instruction.md) / [japanese-word-example-teaching.md](docs/japanese-word-example-teaching.md) | 阶段二 / 阶段四 / 单词例句的提示词规范 |
-| `docs/reports/` | 分析报告（含个人学习数据，**本地保留、未入库**） |
+| `docs/reports/` / [sample/](docs/reports/sample/README.md) | 分析报告；`sample/` 是脱敏样板（入库），其余本地保留、未入库 |
 | [subtitles/README.md](subtitles/README.md) / [data/README.md](data/README.md) | 素材命名约定 / `data/` 各目录说明 |
 
 ---
