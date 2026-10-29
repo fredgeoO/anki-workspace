@@ -97,6 +97,7 @@ GROUPS = {
     'backup':    os.path.join(WSP.TOOLS, 'backup_anki.py'),
     'tagfreq':   os.path.join(WSP.TOOLS, 'tag_freq_stop.py'),
     'today-new': os.path.join(WSP.TOOLS, 'today_new_words.py'),
+    'r':         os.path.join(AN, 'ankir.py'),
 }
 
 # 词汇分析：**只暴露这 4 个入口**，其余 ~20 个脚本仍可直接调用（不从这里走）
@@ -311,6 +312,7 @@ def _print_help():
     print('  vocab     词汇分析 + 词频序重排     %s | reorder-jiten' % ' | '.join(VOCAB))
     print('  weak      弱项五件套                %s | %s'
           % (' | '.join(WEAK), ' | '.join(WEAK_CHAIN)))
+    print('  r         ankiR（R 包）分析报告      list | summary | report | health | weak | call | plot')
     print('  temp      一次性文件区（唯一）      list | clean | path')
     print('  tagfreq   按 Jiten 名次打词频分档标签 --stop 12000 --ceiling 24000（默认演练）')
     print('  backup    备份到 G: 盘              --dest <路径>')
