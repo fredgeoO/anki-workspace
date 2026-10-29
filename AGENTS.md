@@ -138,6 +138,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | 想知道什么 | 读哪里 | 成本 |
 |---|---|---|
 | 全貌与规矩 | 本文件 | 小 |
+| 数据流 / 流水线阶段 / 选词打分 / 覆盖率口径 / 测试矩阵 | `docs/implementation.md` | 6 KB |
 | 六条约定、doctor 口径、环境坑 | `docs/architecture.md` §1–3、§6 | 37 KB，按节 |
 | 每集流水线的判据与命令 | `docs/pipeline-guide.md` §0.4、§2 | 60 KB，按节 |
 | 踩过的坑 / 事故复盘 | `docs/troubleshooting/pipeline-pitfalls.md`、`bug-notes.md` | 各约 10 KB |
