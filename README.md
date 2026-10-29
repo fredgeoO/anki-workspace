@@ -1,17 +1,25 @@
 # anki-workspace
 
-> 状态：active ｜ 最后核实：2026-10-29
+> 状态：active ｜ 最后核实：2026-10-30
 
 一个「日语学习 × Anki」自动化工作区：把「看动画 → 做卡 → 复习 → 查漏」串成可重跑的脚本，
 而不是每次手工整理。当前收藏 **39,820 张卡 / 26 个牌组**，所有入口都在 `code/cli.py`。
 
-本文件是**项目说明书**（给人读）：是什么、怎么跑、怎么测、目录长什么样。
-**Agent 的行为契约在 [AGENTS.md](AGENTS.md)**——角色与边界、硬性禁令、验证命令、失败与求助条件；
-两者冲突时以 AGENTS.md 为准（见 §10）。设计细节见 [docs/architecture.md](docs/architecture.md) 及各专项手册。
+| 你想… | 从哪开始 |
+|---|---|
+| 直接拿它学日语 | §2 五分钟上手 → §3 每天怎么用 |
+| 把一集新番字幕做成卡 | §4 新素材：一集字幕变卡 |
+| 只想要牌组文件 | §11 整库下载 |
+| 改脚本 / 核对某个数字怎么算 | [docs/implementation.md](docs/implementation.md) |
+| 让 AI 代理替你操作 | [AGENTS.md](AGENTS.md)（行为契约） |
+
+本文件面向**使用者**：是什么、怎么装、每天怎么用、出问题去哪看。实现方式与内部细节在
+[docs/implementation.md](docs/implementation.md) 与各专项手册；Agent 的行为契约在
+[AGENTS.md](AGENTS.md)。
 
 ---
 
-## 1. 它做什么
+## 1. 这是什么
 
 **为「提升日语动画听力」而建**——目标是甩开字幕听懂对白，而不是应付考试。
 打底是两套成熟考级牌组（`1-高频日语单词 6000`、`2-考级词汇` N5–N1）覆盖日常日语的骨架；
@@ -19,12 +27,20 @@
 于是第三个牌组 `0-素材生词`：从看过的字幕里挖「**考级牌组里没有、但 Jiten 动画词频里常见**」的词收进去——
 **这是本工作区最主要的服务功能**。
 
-| 主线 | 输入 | 产出 |
+| 主线 | 你给它 | 它给你 |
 |---|---|---|
 | 每集流水线 | 一集字幕（`.ass/.srt`） | 例句卡 → 清理 → 讲解 + 振假名 → 素材生词 → 配音 |
-| 每日链路 | 当天 tag `今天学习生词` 选出的词（来自字幕；选词机制见下文 §1 末） | 日语讲义（`output/daily/lesson_latest.md`）、复习后弱项报告 |
+| 每日链路 | 当天字幕（自动选 30 个词） | tag `今天学习生词`、日语讲义、复习后的弱项报告 |
 | 词汇分析 | 字幕语料 + 现有卡组 | 覆盖率、新词表、挖掘窗口建议、跨作品通用性判定 |
 | 收集类 | 一段文字 / 一集字幕 | 专有名词卡（`3-专有词汇`，不进队列）、`复习::<名称>` 标签 |
+
+它会替你做机械活，但**不替你做学习决策**，也不碰你的复习进度：
+
+| 它会 | 它不会 |
+|---|---|
+| 清理无学习内容的卡、生成振假名与讲解、配音 | 决定你学哪些词、什么时候停学 |
+| 按词频挑出今天该学的 30 个词 | 改 `due/ivl/factor/type` 等调度列、牌组选项、笔记模板 |
+| 挖字幕生词、出覆盖率与弱项报告、一键备份 | 覆盖你已有的讲解（默认演练，`--commit` 才写） |
 
 ### 三个牌组，三种卡
 
@@ -45,274 +61,275 @@
   </tr>
 </table>
 
-- **听辨卡（`0-素材生词`）**：正面只有词形和词性，词音频自动播放；翻面给读音 `ぶたい`、
-  词性释义、挖出这个词的那句台词（带振假名）、动画画面和讲解。底部 `[动画-002505][全局-004673]`
-  是 Jiten 词频——挖词时先按这个排名决定收不收、先不先学。
-- **看字回想卡（`2-考级词汇`）**：正面给词形「恐竜」和原句音频，读音与释义要自己先想；翻面才给
-  `きょうりゅう`、音调 ①、词性「名」、中文释义「恐龙」，以及一句带译文的例句。底部同样是 Jiten 词频。
-- **例句卡（`2-例句`）**：正片画面 + 原声提问，翻面是带振假名的整句、中文翻译、核心词汇与语法要点。
-  下一节展开看一张。
+- **听辨卡（`0-素材生词`）**：正面只有词形和词性，词音频自动播放；翻面给读音、词性释义、
+  挖出这个词的那句台词（带振假名）、动画画面和讲解。底部 `[动画-002505][全局-004673]` 是
+  Jiten 词频——挖词时先按这个排名决定收不收、先不先学。
+- **看字回想卡（`2-考级词汇`）**：正面给词形和原句音频，读音与释义要自己先想；翻面才给读音、
+  音调、词性、中文释义与例句。底部同样是 Jiten 词频。
+- **例句卡（`2-例句`）**：正片画面 + 原声提问，翻面是带振假名的整句、中文翻译、核心词汇与语法要点
+  ——就是上面第三张图；**画面与字幕是素材，讲解文字才是工作区生成的**。
 
 > **听辨卡不止一个牌组**：`0-素材生词` 和 `1-高频日语单词 6000`（core6000）共用同一个笔记类型
 > `Japanese Vocabulary` 与同一个模板（`Word → Meaning`），卡面完全一样——区别只在词的来源：
 > 一个从看过的字幕里挖，一个来自 Core 6000 词表。
 
-### 展开看一张例句卡
+---
 
-<p align="center"><img src="docs/images/card-3-sentence.png" alt="一张带画面、振假名与讲解的例句卡（深色主题 v2）" width="420"></p>
+## 2. 五分钟上手
 
-这是一张 `2-例句` 卡：上方是台词对应的动画画面（asbplayer 插件导入），下方是流水线生成的内容——
-原句的振假名（`Sentence HTML`）与 `AINote` 四节（中文翻译 / 核心词汇 / 语法要点 / 动词变形解析；
-四节结构与生成口径见 [pipeline-guide](docs/pipeline-guide.md)）。
-**画面与字幕是素材，讲解文字才是工作区生成的**；流水线做的事就是把一集字幕变成一批这样的卡，
-再进入生词挖掘、复习和弱项分析。
+### 2.1 三样东西
 
-### 每天学哪些词：`今天学习生词`（核心日常）
-
-每日链路的入口。给一集字幕或整部作品的目录，脚本会扫**整部作品**（同目录所有集），
-统计每个词的「出现次数 / 跨了几集」，再和 `JitenAnimeRank`（全球动画词频）合成一个分，
-取前 30 个**已有卡但还没学**的词，打上 `今天学习生词`。每次运行先把全库旧标签摘掉，
-所以这个标签永远只代表「今天这一批」。每日讲义只认这个 tag
-（[docs/today_new-使用说明.md](docs/today_new-使用说明.md)）。
-
-```
-S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
-```
-
-**次数翻一倍 ≈ JAR 排名前移 10 倍**（`2^(1/0.30)`）。`--mu` 管跨集加成、`--lam` 管词频权重。
-JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这类语气词，真正的分量在「本作里出现多少」。
-
-选出来的词还要过两道闸，否则今天学的就是错的义项：
-
-| 闸 | 判据 | 挡掉的例子 |
+| 需要 | 为什么 | 怎么准备 |
 |---|---|---|
-| **读音**（机械，免费） | 卡片读音 vs 字幕里该词的词典形读音 | `頭` 名下 `あたま`（头）和 `かしら`（首领）两张卡，只标对得上的那张 |
-| **义项**（本地模型） | 字幕句里的义项 vs 卡片释义 | `空`（卡片「空的」/ 字幕「空の下」＝天空）、`吐く`（「呕吐」/ 吸烟语境＝呼气） |
+| **Anki + AnkiConnect** | 脚本通过 `127.0.0.1:8765` 读写收藏 | 装 Anki 2.1.x，再装插件 AnkiConnect（代码 `2055492159`）；用的时候保持 Anki 打开 |
+| **Python 3** | 跑 `code/` 下的脚本 | 装 Python 3（建议 3.10+）；第三方库放在工作区 `data/pylibs/`，不污染系统环境 |
+| **本地模型**（可选） | 生成讲解、挖词、选词时的义项判定 | OpenAI 兼容端点 `http://127.0.0.1:8080/v1`；不跑模型时，体检 / 覆盖率 / 弱项 / 找例句等只读命令照常可用 |
 
-助词、感动词、角色语尾（`かしら`、`〜にゃ`）直接影响对白语气，**单独给 2 个名额**（`--particles`），
-不跟内容词抢；格助词/系助词/接续助词（が・で・を・は）作为语法胶水排除。
+> 唯一的例外：跑**备份**前要**完全退出** Anki（见 §8）。
+
+### 2.2 三步跑起来
 
 ```powershell
-& $PY code\cli.py today-new "subtitles\Yani Neko"              # 演练，只打印名单
-& $PY code\cli.py today-new "subtitles\Yani Neko" --commit     # 真写标签
-& $PY code\cli.py today-new --revert --commit                  # 撤销上一次
+$WS = "<工作区根>"      # 换成这个目录的绝对路径
+$PY = "python"          # 换成你的 Python 3
+
+& $PY "$WS\code\cli.py" doctor          # ① 体检：0=全绿 2=只有提示 1=有阻塞
+& $PY "$WS\code\cli.py" list            # ② 看有哪些入口（永远比文档新）
+& $PY "$WS\code\cli.py" <组> --help     # ③ 查具体参数
 ```
 
-产物：`output/daily/today_new_words.md`（名单）、`data/daily_new/<日期>/picked.json`
-（分数拆解 / 义项判定 / noteId）、`data/daily_new/state.json`（回退记录）。
-**只写 `tags`**，不碰 `due/ivl/factor/type/queue`；要把这 N 个词挪到新卡队首是另一支
-（`jp-anki-activate`）。设计与取舍见
-[ADR 2026-10-29](docs/decisions/2026-10-29-今日选词打分与义项核验.md)。
+`doctor` 一次跑完九项：AnkiConnect、Anki 访问点自审、`textio` 编码自审、废弃符号、快照卫生、
+文档状态行、每集 preflight、环境与依赖、工作区卫生；**退出码 1 就先修再动手**。各项口径见
+[architecture §3](docs/architecture.md)。
 
-### 拿任意文本/字幕量一量：覆盖率与生词分析
+**没有现成收藏？** 先下 §11 的三个 `.apkg` 导入 Anki。**已有自己的库？** 直接导入同一套牌组即可；
+工作区按牌组名、笔记类型和字段名取数据（写死在 `code/common/jp_decks.py` 与各脚本里），
+结构不同的库需要先改这些常量。缺依赖时 `doctor` 会提示，装库入口是
+`code\oneshot\install_workspace_wheels.py`。
 
-流水线之外还有一条**随时可跑的体检链**：输入任意 `.srt/.ass/.vtt`、`.txt`、一段话或标准输入，
-就能回答「这段文字我认识多少、还差哪些词」。词汇状态来自 AnkiConnect 现场快照
-（`collect_vocab.py` 抽成 `data/vocab_cover/vocab_state.json`），换素材不用动卡组。
+---
 
-| 想知道什么 | 命令 | 产物 |
+## 3. 每天怎么用
+
+一天的典型节奏：
+
+| 时间 | 做什么 | 命令 |
 |---|---|---|
-| 这段文字我懂多少 | `cli.py vocab cover <文件>`（也吃 `--text` / `--stdin`） | 三个分母的覆盖率、句子级可懂度、新词预览 |
-| 新词具体是哪些 | `cli.py vocab newwords <文件或目录> --mine-only` | 读音 / 词性 / 首例句 / Jiten 档位，可导 TSV、Markdown、JSON |
-| 出一份学习用生词报告 | `cli.py vocab report <文件或目录>` | 固定章节的 Markdown + JSON（规模 / 分档 / 题材词 / 值得挖 / 不用记） |
-| 每季只挖前 N 集值不值 | `cli.py vocab mine_window --k 3` | 覆盖占比、效率、边际效率、窗口外高价值词 |
-| 全部字幕的整体水位 | `python code\analysis\vocab_cover\report_build.py` | 自动刷新快照 + `metrics.json` + 5 张图 + Markdown |
-| 卡组贴不贴动漫词频榜 | `jiten_fit.py` / `rank_buckets.py`（`vocab_cover` 下） | 榜→卡组覆盖、卡组→榜名次、每千词已学占比 |
-| 学哪些、还差多少、每天放几张 | `study_plan.py` / `mature_eta.py` / `study_time_budget.py`（`vocab_cover` 下） | 学习顺序收益、全成熟 ETA、新卡时间预算 |
+| 早上 | 选今天学的 30 个词 | `cli.py today-new "subtitles\<作品>" --commit` |
+| 早上 | 生成讲义 | `cli.py daily stats` → `plan` → `check` → `gen` |
+| 白天 | 打开 Anki 学 | — |
+| 晚上 | 看今天答得不好的词 | `cli.py weak today --days 3 --plain` |
+| 周末 | 出库层面分析 | `cli.py r report` |
 
-**口径**：三个分母差别很大，报告里必须写清——**含语法词**（全部词元，助词/助动词按「你懂」计）、
-**词汇词**（去掉语法词与符号）、**需背实词**（再去掉专有名词、感动词、数词，这才是词汇量的分母）。
-「已学」= 刷过至少 1 次，「已成熟」= 复习卡且间隔 ≥ 21 天；分词走 SudachiPy，Jiten 名次按
-「出现在多少部作品里」排，不按单部重复次数。新词也分两档：卡组外的 `oov` 与有卡没学的 `untackled`。
+### 3.1 早上：今天学哪些词
 
-产物落在 `docs/reports/`（本地保留、未入库），图表在 `output/vocab_cover/`——
-`字幕覆盖率与词汇量报告.md`、`挖掘窗口分析.md`、`Jiten动漫词库贴合度.md`、`词汇三卡组配比.md`
-都是这条链跑出来的。报告数字随快照漂移，引用时以文件头的生成时间为准。
-
-回到全局，三条贯穿全项目的原则（完整口径见 AGENTS.md §3）：**流水线不碰学习调度**（新卡顺序由 `JitenAnimeRank`
-与 `cards.due` 决定）、**机械判断归代码、语义判断归模型**（结构 / 逐字一致 / 回读由 `code/common/`
-检查器判）、**生成默认直连本地模型**（local-llm 技能）。
-
-## 2. 快速开始
+给一集字幕或整部作品的目录，脚本扫**整部作品**（同目录所有集），按「本作出现次数 + 跨集数 +
+Jiten 动画词频」打分，挑出 30 个**已有卡、还没学**的词，打上 tag `今天学习生词`：
 
 ```powershell
-$WS = "<工作区根>"
-$PY = "python"
+& $PY "$WS\code\cli.py" today-new "subtitles\Yani Neko"            # 演练，只打印名单
+& $PY "$WS\code\cli.py" today-new "subtitles\Yani Neko" --commit   # 真写标签
+& $PY "$WS\code\cli.py" today-new --revert --commit                # 撤销上一次
 ```
 
-> `<工作区根>` 与 `python` 是占位符：前者换成这个目录的绝对路径，后者换成任意 Python 3 解释器。
-> 文档与代码里不写本机的用户名、盘符和解释器路径。
+每次运行会先把全库旧标签摘掉，所以这个 tag 永远只代表「今天这一批」；**只写标签**，不动
+`due/ivl/type`。名单落在 `output/daily/today_new_words.md`，分数与义项判定在
+`data/daily_new/<日期>/picked.json`。想调权重用 `--mu`（跨集加成）/ `--lam`（词频权重）；
+打分公式、读音与义项两道闸门见 [implementation §3](docs/implementation.md)。
 
-**前置**：Anki 打开（AnkiConnect `127.0.0.1:8765`）。唯一例外是备份——那时必须**完全退出** Anki。
-第一次进工作区先跑体检：`& $PY "$WS\code\cli.py" doctor`。
+### 3.2 早上：把词变成讲义
 
-| 想做什么 | 命令 |
-|---|---|
-| 开工体检（只读门禁） | `cli.py doctor` ／ 离线 `doctor --skip-anki` ／ 查某集 `doctor --tag "动画::…"` |
-| 每集主线一条命令（阶段 2–5） | `cli.py episode --tag "动画::<作品>::<季>::第NN集" --input-tag 待标记 [--commit]` |
-| 每日讲义 | `cli.py daily stats` → `daily plan` → `daily check` → `daily gen` |
-| 复习后弱项 | `cli.py weak today --days 3 --plain`（另有 `revlog` / `pace` / `build-list`） |
-| 点名 core6000 词补第二条例句 | `cli.py core6000 gen --words "徹夜,適当"` → `tts` → `apply`（先演练再看 `--commit`） |
-| 给一个词找真实例句（jisho，不造句） | `cli.py jisho --word "徹夜" --reading "てつや"`（只读） |
-| 加强某张卡的讲解与语感 | `cli.py ainote enrich --word 分際 --commit` |
-| ImmersionKit 按词表抓例句卡 | `cli.py immersion fetch` → `gen` → `write --to both --commit` → `verify` |
-| 词汇覆盖率 / 新词表 / 挖掘窗口 | `cli.py vocab cover` ／ `newwords` ／ `report` ／ `mine_window --k 3` |
-| 全局 Jiten 词频序重排 | `cli.py vocab reorder-jiten [--commit]`（默认演练） |
-| 收摊：清一次性文件 | `cli.py temp list` → `temp clean` |
-| 备份到 G: 盘 | `cli.py backup --dest <备份盘>:\anki-backup-<日期>`（先退出 Anki） |
+```powershell
+& $PY "$WS\code\cli.py" daily stats     # tag 今天命中几个词；0 就收工
+& $PY "$WS\code\cli.py" daily plan      # 取词 + 查 JMdict（读音 / 词性 / 义项事实）
+& $PY "$WS\code\cli.py" daily check     # 复核词典；退出码 0/1/2/3
+& $PY "$WS\code\cli.py" daily gen       # 本地模型生成讲义
+```
 
-`cli.py list` 与 `cli.py <组> --help` 是**权威用法来源**——比任何文档都新。
-未纳入统一入口的脚本（如 `vocab_cover/` 里另外 20 个数据链脚本）直接调用，
-见 [docs/architecture.md §4-5](docs/architecture.md)。
+产物是 `output/daily/lesson_latest.md`（当天讲义）与 `lesson_<日期>.md`。
+**这条链只读 Anki、不写库**，做坏了删文件重跑即可；没有 tag 就什么都不生成。细则见
+[today_new-使用说明](docs/today_new-使用说明.md)。
 
-## 3. 开工体检 `doctor`（只读，几秒）
+### 3.3 晚上：看今天哪里没记住
 
-一次跑完九项：AnkiConnect、Anki 访问点自审、`textio` 编码自审、废弃符号、快照卫生、
-文档状态行、每集 preflight、环境与依赖、工作区卫生。
-**退出码**：`0` 全绿；`2` 只有提示；`1` 有阻塞项——**先修再动手**。
-各项的来源与判定口径见 [architecture §3](docs/architecture.md)。
+```powershell
+& $PY "$WS\code\cli.py" weak today --days 3 --plain   # 今天 / 近三天答得不好的词与语法
+```
 
-## 4. 目录结构
+`weak` 还有 `revlog`（自评按钮校准）、`pace`（每牌组复习量与单卡耗时）、`build-list`（弱词清单）。
+默认读 AnkiConnect 实时数据，加 `--source snapshot` 可离线跑（但快照可能过期）。
+
+### 3.4 想系统地看一眼
+
+```powershell
+& $PY "$WS\code\cli.py" r summary     # 留存 / 健康分 / 负荷概览（R 包 ankiR，只读）
+& $PY "$WS\code\cli.py" r due         # 按 Anki 口径重算的到期与未来负荷
+& $PY "$WS\code\cli.py" r report      # 完整分析报告
+```
+
+`r` 这组命令只读，需要本机装 R 与 `ankiR`；数据默认取 live 收藏，报告会写明「数据截至」。
+词汇覆盖率与学习计划另有 §5 那套 Python 链路。
+
+---
+
+## 4. 新素材：一集字幕变卡
+
+以 asbplayer 导入 Anki、挂 `待标记` 标签的例句卡为起点。先清理，再一条命令跑完剩下的阶段：
+
+```powershell
+# ① 清理：判掉没有学习内容的卡；只想筛字幕可先跑 filter_subtitle
+& $PY "$WS\code\cli.py" pipeline prepare
+& $PY "$WS\code\cli.py" pipeline triage --query "tag:待标记"
+
+# ② 阶段 2–5 一条命令（默认全链演练，只打印不写库）
+& $PY "$WS\code\cli.py" episode --tag "动画::<作品>::<季>::第NN集" --input-tag 待标记
+
+# ③ 看过演练结果再真写
+& $PY "$WS\code\cli.py" episode --tag "动画::<作品>::<季>::第NN集" --input-tag 待标记 --commit
+```
+
+- 阶段 2 生成 `AINote` + 振假名，阶段 4 挖素材生词，阶段 5 给生词配音，最后把 `待标记` 换成正式集标签。
+- 只跑某几步：`--phases ruby,rank`；字幕自带注音是读音的权威来源，有 `.srt` 时用 `--srt` 传进去。
+- 产物与断点续跑在 `data/pipeline/`、`data/vocab/`、`output/audio/`；每步的判据与失败重试见
+  [pipeline-guide](docs/pipeline-guide.md)（60 KB，按节查即可）。
+
+**换新作品**：字幕目录命名与 `anki/` 子目录约定见 [subtitles/README.md](subtitles/README.md)。
+集标签一般是 `动画::<作品>::<季>::第NN集`，但历史导入还有 `动画::<作品>::第01集`（无季）、
+整部一个 `动画::<作品>` 等写法——拼查询串前先看库里现有标签。
+
+---
+
+## 5. 量一量：我认识多少、还差哪些词
+
+输入任意 `.srt/.ass/.vtt`、`.txt`、一段话或标准输入，就能回答「这段文字我懂多少」：
+
+```powershell
+& $PY "$WS\code\cli.py" vocab cover "subtitles\Yani Neko\ヤニねこ.S01E01.ニャーがヤニねこにゃ.WEBRip.Netflix.ja[cc].srt"
+& $PY "$WS\code\cli.py" vocab newwords "subtitles\Yani Neko" --mine-only
+& $PY "$WS\code\cli.py" vocab report "subtitles\Yani Neko"              # 学习用生词报告
+& $PY "$WS\code\cli.py" vocab mine_window --k 3                         # 只挖前 N 集值不值
+```
+
+词汇状态来自 AnkiConnect 现场快照，换素材不用动卡组。**报告里会写清三个分母**——含语法词 /
+词汇词 / 需背实词，「已学」= 刷过至少一次，「已成熟」= 复习卡且间隔 ≥ 21 天；Jiten 名次按
+「出现在多少部作品里」排，不按单部重复次数。完整命令矩阵与口径见
+[implementation §4](docs/implementation.md)，字段和算法见 [architecture §4-5](docs/architecture.md)。
+
+---
+
+## 6. 其它常用能力
+
+| 想做什么 | 命令 | 写库？ |
+|---|---|---|
+| 给 core6000 词补第二条例句 | `cli.py core6000 gen --words "徹夜,適当"` → `tts` → `apply --commit` | 是（演练默认） |
+| 给一个词找**真实**例句（不造句） | `cli.py jisho --word "徹夜" --reading "てつや"` | 只读 |
+| 加强某张词汇卡的讲解与语感 | `cli.py ainote enrich --word 分際 --commit` | 是（只写 `AINote`） |
+| 按词表抓 ImmersionKit 对白例句 | `cli.py immersion fetch` → `gen` → `write --to both --commit` → `verify` | 是（演练默认） |
+| 收集一集的专有名词 | `cli.py proper scan/gen/verify/write`（只收集，不进队列） | 是（演练默认） |
+| 给字幕里的生词打 `复习::<名称>` | `python code\tools\subtitle_tag.py <字幕> --name <名称> --commit` | 只写 tags |
+| 回填 Jiten 词频字段 | `python code\analysis\vocab_cover\freq_external.py field --tag "需更新JAR" --remove-tag` | 是（演练默认） |
+| 按 Jiten 名次重排新卡顺序 | Anki 插件 `jiten_reorder`，见 [docs](docs/jiten-reorder-使用说明.md) | 只改新卡 `due` |
+| 收摊：清一次性文件 | `cli.py temp list` → `temp clean` | 删 `temp/` |
+
+`cli.py list` 是**权威用法来源**；每个命令的参数用 `cli.py <组> --help` 现查。未纳入统一入口的脚本
+（如 `vocab_cover/` 里的数据链零件）直接调用，见 [architecture §2](docs/architecture.md)。
+
+---
+
+## 7. 目录结构
 
 ```
 anki-workspace/
-├─ README.md                本文件：项目说明书
+├─ README.md                本文件：给使用者的说明书
 ├─ AGENTS.md                ★ Agent 行为契约（边界 / 禁令 / 验证 / 求助）
 ├─ code/                    可复用代码：cli.py（统一入口，薄分发器）
 │                            + common / execution / tools / analysis / tests / oneshot
-│                            （代码地图与脚本清单见 AGENTS.md §5）
-├─ docs/                    手册与档案（architecture / pipeline-guide / deprecated / decisions / images / reports）
-├─ data/                    输入与中间产物（snapshots、pipeline、vocab、pylibs、freq、plans、evidence、dict）
+├─ docs/                    手册与档案（implementation / architecture / pipeline-guide /
+│                            decisions / troubleshooting / images / reports）
+├─ data/                    输入与中间产物（snapshots、pipeline、vocab、pylibs、freq、plans、dict）
 ├─ output/                  生成物（daily 讲义、audio、vocab_cover）
 ├─ subtitles/               原始字幕素材（vocab_cover 的输入）
-├─ core6000-analysis/       独立子项目：core6000 听辨卡分析（自带脚本与 docx 报告）
+├─ core6000-analysis/       独立子项目：core6000 听辨卡分析（本地生成，未入库）
 ├─ temp/                    ★ 唯一的一次性文件区（临时脚本 / dump / 日志）
-├─ archive/experiments/     一次性的实验与旧证据（见其 README.md）
+├─ archive/experiments/     一次性的实验与旧证据（未入库）
 └─ .dsh/skills/             技能（一技能一任务；任务 → 技能路由表在 AGENTS.md §4）
 ```
 
-## 5. 一次字幕流水线
+代码地图与每个脚本的职责见 [AGENTS.md §5](AGENTS.md) 和 [architecture §1](docs/architecture.md)。
 
-`cli.py episode` 把下面几步串起来（`--commit` 才真写；不加则全链演练）：
+---
 
-| 阶段 | 谁跑 | 产物 |
-|---|---|---|
-| 0–1 预处理 + 清理 | `pipeline.py prepare` → `triage` | 判弃无学习内容的卡；可选先跑 `filter_subtitle.py` 筛字幕 |
-| 2 生成 | `pipeline.py gen` | `data/pipeline/gen/{input,output,manifest}.json`；`AINote` + `Sentence HTML` |
-| 4 素材生词 | `mine.py` | `data/vocab/{mine_candidates.json,gen_mine/*}` → `0-素材生词` |
-| 5 配音 | `mine_audio.py` | `output/audio/*.mp3` → 上传 Anki 媒体库 |
-| 改标签 | `episode.py retag` | 把导入时的 `待标记` 换成正式集标签 |
-
-运行记录落在 `data/pipeline/runs/<时间戳>-<集>.json`。每步的判据、批次建议、失败重试
-见 [docs/pipeline-guide.md](docs/pipeline-guide.md)（60 KB，按节查，不必通读）。
-
-## 6. 数据流
-
-```
-Anki 收藏 ──复制──> data/snapshots/…                    （分析用只读快照）
-
-episode.py ──> pipeline.py（阶段 0-2）──> mine.py（阶段 4）──> mine_audio.py（阶段 5）
-                                    └──> data/pipeline/gen/     data/vocab/      output/audio/
-
-proper.py        ──> data/vocab/proper/<作品>_<集>/（专名卡，不进队列）
-today_new.py     ──> output/daily/{cards_*.json, lessons/*, lesson_*.md}（直连本地模型）
-today_new_words  ──> data/daily_new/ + output/daily/today_new_words.md（每天 N 个「今天学习生词」）
-core6000_example ──> 5 个字段 + output/audio/core6000/*.mp3
-ainote_enrich    ──> 只写 AINote（旧值备份 data/ainote/backup_*.json）
-analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_cover/*.png
-```
-
-## 7. 测试
-
-12 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
-2026-10-28 复核全部通过。跑法：
-
-```powershell
-& $PY "$WS\code\tests\test_llm_out.py"     # 换一个文件名就是另一组
-```
-
-| 测试 | 挡什么 |
-|---|---|
-| `test_llm_out.py` | 本地模型产出吸收层：畸形 JSON、字段类型错、整组超预算、漏卡重问 |
-| `test_mine_patch.py` | 阶段四 `merge-fix` 的前缀回退（2026-10-12 事故） |
-| `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性 |
-| `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
-| `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
-| `test_jiten_rank.py` | `JitenAnimeRank`/`JitenGlobalRank` 查表、词字段推导与 6 位补零（文本序 = 数值序） |
-| `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
-| `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |
-| `test_today_new_words.py` | 每日生词挑选：Jiten 升序、无排名垫底、上限 N、标签差集 |
-| `test_lesson_render.py` | 每日讲义口径：词形/读音、词性校正、同词合并、接续脏数据、计数自洽、讲解机械错 |
-| `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
-
-跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。
-
-## 8. 维护约定
-
-工程约定（代码四区、路径走 `paths`、文本 I/O 走 `textio`、碰 Anki 走 `anki_api`、
-一次性文件只进 `temp/`、改行为前先体检）在 [AGENTS.md](AGENTS.md) §8 写全——
-**单一来源，本文件不再复制**；人和代理都照那里执行，冲突时以 AGENTS.md 为准。
-
-## 9. 备份与恢复
+## 8. 备份与恢复
 
 ```powershell
 & $PY "$WS\code\cli.py" backup --dest <备份盘>:\anki-backup-<日期>
 ```
 
-硬规则：备份收藏库前**完全退出 Anki**；新备份校验通过后才删旧的。校验与恢复流程见
-[docs/backup-sop.md](docs/backup-sop.md)（唯一权威版）。
+硬规则：备份收藏库前**完全退出 Anki**；新备份校验通过后才删旧的。备份包含工作区、收藏库、
+媒体与插件，校验与恢复流程见 [docs/backup-sop.md](docs/backup-sop.md)（唯一权威版）。
 
-## 10. 与 Agent 的边界
+> 为什么必须备份：git 只跟踪源码与文档，**卡片数据没有 git 可退**（见
+> [implementation §6](docs/implementation.md)）。
 
-| | 本文件（README） | [AGENTS.md](AGENTS.md) |
-|---|---|---|
-| 读者 | 人 | 代理 |
-| 内容 | 项目事实：是什么、怎么跑、怎么测、目录、维护约定 | 行为契约：角色与边界、禁令、验证命令、失败处理、求助条件、输出格式 |
-| 语气 | 说明性 | 可执行（有命令、有退出码、有「必须先问」的清单） |
+---
 
-两者互相引用、**不互相复制**：项目事实以本文件为准，行为约束以 AGENTS.md 为准。
-**若两者冲突**（例如本文件描述某操作可行、AGENTS.md 列为禁止），以 AGENTS.md 为准；
-代理应**停止并询问用户**，不要在文档之间自行仲裁。
+## 9. 测试
 
-技能的清单与「哪个任务加载哪个技能」在 AGENTS.md §4；技能本体在 `.dsh/skills/`。
+12 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回：
 
-## 11. 已知事项
+```powershell
+& $PY "$WS\code\tests\test_llm_out.py"     # 换一个文件名就是另一组
+```
 
-- **快照会过期**：离线分析（`weak build-list`、`--source snapshot`）读 `data/snapshots/`，
-  可能与 live 库差几天（登记与可删口径见 [architecture §6.3](docs/architecture.md)）。
-- **仓库边界**：git 只跟踪「源码 / 文档 / 技能 / 模板 / 字幕」；`data/`、`output/`、`docs/reports/`
-  都不入库——**卡片资料没有 git 可退，唯一退路是备份**（见 §9）。清单见 [data/README.md](data/README.md)。
-- **`今天学习生词` 只统计已有卡的词**：统计链路走「Anki 里有没有这个词」，所以库里没卡的词
-  （`かしら`、`ニコチン`、`喫煙所`）进不了候选。改成 token 驱动后才会把无卡新词纳入候选并建卡。
+改过 `code/common/` 或 `code/execution/` 就把 `code\tests\*.py` 全跑一遍，12 个都 0 才算完；
+只改文档不用跑。每个测试挡什么见 [implementation §5](docs/implementation.md)。
 
-其余已知事项（`data/pylibs/`、`code/oneshot/`、`code/analysis/anki_analyze/`、根目录 `_tmp_*.py`）
-见 [AGENTS.md §6](AGENTS.md) 的禁读清单。
+---
 
-## 12. 文档索引
+## 10. 常见问题
 
-| 文档 | 讲什么 |
+| 现象 | 原因 / 怎么办 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | **Agent 行为契约**：边界、铁律、技能路由、阅读预算、验证与求助 |
-| [docs/architecture.md](docs/architecture.md) | 代码分区、六条约定、doctor、vocab_cover、Jiten 词频序、环境踩坑 |
-| [docs/pipeline-guide.md](docs/pipeline-guide.md) | 字幕卡流水线操作手册（阶段 0-2、4-5 的判据与命令） |
-| [docs/deprecated.md](docs/deprecated.md) | 已退场的机制与入口、恢复路径（**历史只记在这里**） |
-| [docs/decisions/](docs/decisions/) | 关键决策 ADR |
-| [docs/today_new-使用说明.md](docs/today_new-使用说明.md) | 每日讲义 |
-| [docs/core6000-example-使用说明.md](docs/core6000-example-使用说明.md) / [design](docs/core6000-example-design.md) | 按需补例句 |
-| [docs/ainote-enrich-使用说明.md](docs/ainote-enrich-使用说明.md) | 加强某张卡的 AINote 讲解 + 语感 |
-| [docs/immersionkit-使用说明.md](docs/immersionkit-使用说明.md) | ImmersionKit 按词表抓例句卡/素材卡 |
-| [docs/jiten-reorder-使用说明.md](docs/jiten-reorder-使用说明.md) | 插件 `jiten_reorder`：新卡按 JitenAnimeRank 排位 |
-| [docs/proper-noun-使用说明.md](docs/proper-noun-使用说明.md) | 专有名词收集：原子能力 + `3-专有词汇` + 扁平标签 + 读法音频 |
-| [docs/backup-sop.md](docs/backup-sop.md) | 备份 / 恢复 SOP（唯一权威流程） |
-| [docs/jp-card-agent-instruction.md](docs/jp-card-agent-instruction.md) / [mine-agent-instruction.md](docs/mine-agent-instruction.md) | 阶段二 / 阶段四的提示词规范 |
-| [docs/japanese-word-example-teaching.md](docs/japanese-word-example-teaching.md) | 单词例句教学口径（提示词来源） |
-| [docs/troubleshooting/](docs/troubleshooting/README.md) | 排障与犯错经验：流水线坑表、事故复盘、本地模型防错 |
-| `docs/reports/` | 分析报告（含个人学习数据，**本地保留、未入库**） |
-| [archive/experiments/README.md](archive/experiments/README.md) | 归档实验索引（**未入库**） |
-| [subtitles/README.md](subtitles/README.md) | 字幕目录的命名约定与 `anki/` 子目录说明 |
-| [data/README.md](data/README.md) | `data/` 各子目录是什么、哪些能重建、为什么不入库 |
+| `doctor` 报 AnkiConnect 连不上 | Anki 没开、AnkiConnect 没装，或 8765 被占用。打开 Anki 后重跑；备份时反过来要退出 Anki |
+| 命令跑完什么也没变 | 多数写库命令**默认演练**，确认输出无误后再加 `--commit` |
+| 日文乱码 / 字段判断恒真 | 不要用 PowerShell 解析日文文本；脚本的文本 I/O 一律走 `textio`。数据异常用 Python 脚本查 |
+| 今天没选出让想要的词 | 选词只统计**库里已有卡**的词；没有卡的词（如 `かしら`、`ニコチン`）进不了候选。可 `--particles` 给语气词留名额 |
+| 想换一批今天的词 | `cli.py today-new --revert --commit` 撤销上一批，再重新选；不要手删 tag |
+| 分析数字和 Anki 里对不上 | 离线分析可能读的是旧快照；以 live 收藏为准，或重跑 `collect_vocab.py` 刷新 |
+| 我的复习进度会被覆盖吗 | 不会。工作区脚本不写调度列；导出的 `.apkg` 也不带复习历史（`includeSched=false`） |
+| 本地模型 401/403 | key 查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`；别把 key 写进代码或文档 |
+| 改坏了怎么退 | 代码 / 文档用 `git diff`；卡片数据用备份（§8）或写库脚本留下的 `backup_*.json` |
 
-## 13. 牌组版权与署名（第三方牌组）
+更多排障见 [docs/troubleshooting/](docs/troubleshooting/README.md) 与
+[docs/architecture.md §6](docs/architecture.md)。
+
+---
+
+## 11. 整库下载
+
+完整收藏打包成 `.apkg` 放在 Release 里——**`.apkg` 不进 git 历史**（单个 1.6 GB，远超仓库的文件上限）：
+
+**[deck-2026-10-29](https://github.com/fredgeoO/anki-workspace/releases/tag/deck-2026-10-29)**
+
+| 附件 | 内容 | 卡数 | 大小 |
+|---|---|---|---|
+| `anki-workspace-deck-1-vocab.apkg` | `0-词汇`（素材生词 / 高频 6000 / 考级 / 专有 / 今天词汇） | 25,921 | 1.60 GiB |
+| `anki-workspace-deck-2-grammar.apkg` | `1-语法`（N5–N1，每级 解释 + 例句） | 3,160 | 0.21 GiB |
+| `anki-workspace-deck-3-examples.apkg` | `2-例句`（动画例句卡） | 10,739 | 0.92 GiB |
+
+三个包各导一次即可：牌组名带完整路径（`0-日本语学习::0-词汇` …），导入后自动挂回 `0-日本语学习` 下。
+
+**不含复习历史**：导出时 `includeSched=false`，`due / ivl / factor / type / queue / reps / lapses`
+全部清零、`revlog` 为空，所有卡按新卡导入——既不会覆盖你自己的进度，也不暴露作者的学习记录。
+音频（`Word Audio` / `Sentence Audio`）随包导入媒体库。
+
+要重新打一份（改过卡之后）：Anki 开着，用 AnkiConnect `exportPackage` 按三个子牌组拆包、
+`includeSched=false`（命令与三个牌组的对应关系见 [backup-sop §9](docs/backup-sop.md)）。
+Release 单个附件上限 2 GiB，所以按三个分支拆包；媒体继续长就继续按子牌组拆。
+
+---
+
+## 12. 牌组版权与署名（第三方牌组）
 
 ### `2-考级词汇` —— 【egg rolls】JLPT N1–N5 一万词 v3.5
 
@@ -329,24 +346,34 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 
 ---
 
-## 14. 整库下载
+## 13. 文档索引
 
-完整收藏打包成 `.apkg` 放在 Release 里——**`.apkg` 不进 git 历史**（单个 1.6 GB，远超仓库的文件上限）：
+| 文档 | 讲什么 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | **Agent 行为契约**：边界、铁律、技能路由、阅读预算、验证与求助 |
+| [docs/implementation.md](docs/implementation.md) | 本 README 的细节层：数据流 / 流水线阶段 / 选词打分 / 覆盖率口径 / 测试矩阵 |
+| [docs/architecture.md](docs/architecture.md) | 代码分区、统一入口、doctor、vocab_cover、Jiten 词频序、环境踩坑 |
+| [docs/pipeline-guide.md](docs/pipeline-guide.md) | 字幕卡流水线操作手册（阶段 0-2、4-5 的判据与命令） |
+| [docs/today_new-使用说明.md](docs/today_new-使用说明.md) | 每日讲义 |
+| [docs/core6000-example-使用说明.md](docs/core6000-example-使用说明.md) / [design](docs/core6000-example-design.md) | 按需补例句 |
+| [docs/ainote-enrich-使用说明.md](docs/ainote-enrich-使用说明.md) | 加强某张卡的 AINote 讲解 + 语感 |
+| [docs/immersionkit-使用说明.md](docs/immersionkit-使用说明.md) | ImmersionKit 按词表抓例句卡 / 素材卡 |
+| [docs/proper-noun-使用说明.md](docs/proper-noun-使用说明.md) | 专有名词收集（`3-专有词汇`，不进队列） |
+| [docs/jiten-reorder-使用说明.md](docs/jiten-reorder-使用说明.md) | 插件 `jiten_reorder`：新卡按 `JitenAnimeRank` 排位 |
+| [docs/backup-sop.md](docs/backup-sop.md) | 备份 / 恢复 SOP（唯一权威流程） |
+| [docs/decisions/](docs/decisions/) | 关键决策 ADR |
+| [docs/troubleshooting/](docs/troubleshooting/README.md) | 排障与犯错经验（流水线坑表、事故复盘） |
+| [docs/deprecated.md](docs/deprecated.md) | 已退场的机制与入口（**历史只记在这里**） |
+| [docs/jp-card-agent-instruction.md](docs/jp-card-agent-instruction.md) / [mine-agent-instruction.md](docs/mine-agent-instruction.md) / [japanese-word-example-teaching.md](docs/japanese-word-example-teaching.md) | 阶段二 / 阶段四 / 单词例句的提示词规范 |
+| `docs/reports/` | 分析报告（含个人学习数据，**本地保留、未入库**） |
+| [subtitles/README.md](subtitles/README.md) / [data/README.md](data/README.md) | 素材命名约定 / `data/` 各目录说明 |
 
-**[deck-2026-10-29](https://github.com/fredgeoO/anki-workspace/releases/tag/deck-2026-10-29)**
+---
 
-| 附件 | 内容 | 卡数 | 大小 |
-|---|---|---|---|
-| `anki-workspace-deck-1-vocab.apkg` | `0-词汇`（素材生词 / 高频 6000 / 考级 / 专有 / 今天词汇） | 25,921 | 1.60 GiB |
-| `anki-workspace-deck-2-grammar.apkg` | `1-语法`（N5–N1，每级 解释 + 例句） | 3,160 | 0.21 GiB |
-| `anki-workspace-deck-3-examples.apkg` | `2-例句`（动画例句卡） | 10,739 | 0.92 GiB |
+## 14. 与 Agent 的边界
 
-三个包各导一次即可：牌组名带完整路径（`0-日本语学习::0-词汇` …），导入后自动挂回 `0-日本语学习` 下。
-
-**不含复习历史**：导出时 `includeSched=false`，`due / ivl / factor / type / queue / reps / lapses` 全部清零、
-`revlog` 为空，所有卡按新卡导入——既不会覆盖你自己的进度，也不暴露作者的学习记录。
-音频（`Word Audio` / `Sentence Audio`）随包导入媒体库。
-
-要重新打一份（改过卡之后）：Anki 开着，用 AnkiConnect `exportPackage` 按三个子牌组拆包、
-`includeSched=false`（命令与三个牌组的对应关系见 [backup-sop §9](docs/backup-sop.md)）。
-Release 单个附件上限 2 GiB，所以按三个分支拆包；媒体继续长就继续按子牌组拆。
+[AGENTS.md](AGENTS.md) 是**代理的行为契约**（角色边界、禁令、验证命令、失败处理与求助条件），
+本文件是**人的项目说明书**（是什么、怎么跑、怎么测、目录）。两者互相引用、**不互相复制**：
+项目事实以本文件为准，行为约束以 AGENTS.md 为准。**若两者冲突**（例如本文件描述某操作可行、
+AGENTS.md 列为禁止），以 AGENTS.md 为准，代理应**停下询问用户**，不要在文档之间自行仲裁。
+技能路由表在 AGENTS.md §4，技能本体在 `.dsh/skills/`。

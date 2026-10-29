@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-10-28
+> 状态：active ｜ 最后核实：2026-10-30
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -58,7 +58,7 @@ $PY = "python"
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
 ```
 
-README §2 有完整的命令清单、§7 有每个测试挡什么——这两段**只在需要时**去翻，
+README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试挡什么——这两段**只在需要时**去翻，
 上面的命令已够日常使用。
 
 ## 3. 铁律（违反会坏数据）
@@ -96,6 +96,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | 按 `需更新JAR` 回填 `JitenAnimeRank`；全量补 `JitenGlobalRank` | `jp-anki-jiten-rank` |
 | 每日讲义（把 tag `今天学习生词` 里的词讲一遍；没有 tag 就不生成） | `jp-anki-daily-lesson` |
 | 弱项分析 / 复习负载报告 | `jp-anki-daily-weak` |
+| 库层面的学习分析报告（留存 / 健康分 / 负荷预测 / 图表，R 包 ankiR） | `jp-anki-r-analysis` |
 | 点名 core6000 词补第二条例句 | `jp-anki-core6000-example` |
 | 给一个词找**真实**例句（jisho，不造句） | `jisho-example` |
 | 专有名词收集 → `3-专有词汇`（不进队列） | `jp-anki-proper-noun` |
@@ -126,7 +127,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |
 | `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `core6000_example.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` |
 | `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `proper_extract.py` `jisho_example.py` |
-| `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`） |
+| `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
 | `code/tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
 

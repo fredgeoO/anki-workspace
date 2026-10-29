@@ -353,7 +353,7 @@ python -X utf8 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb'
 
 > 本节**不是备份流程**：备份走「退出 Anki + robocopy + SHA256 校验」（§0–§6）；
 > 发布导出在 **Anki 开着** 时用 AnkiConnect `exportPackage` 出 `.apkg` 给外人导入
-> （README §14「整库下载」）。注意：`exportPackage` 一次性导出**整个收藏**可能让
+> （README §11「整库下载」）。注意：`exportPackage` 一次性导出**整个收藏**可能让
 > Anki 直接退出（见 [pipeline-pitfalls](troubleshooting/pipeline-pitfalls.md) 末行），
 > 所以按三个子牌组拆着导。
 
