@@ -59,7 +59,7 @@
 
 ### 展开看一张例句卡
 
-<p align="center"><img src="docs/images/sentence-card-example.png" alt="一张带画面、振假名与讲解的例句卡" width="420"></p>
+<p align="center"><img src="docs/images/card-3-sentence.png" alt="一张带画面、振假名与讲解的例句卡（深色主题 v2）" width="420"></p>
 
 这是一张 `2-例句` 卡：上方是台词对应的动画画面（asbplayer 插件导入），下方是流水线生成的内容——
 原句的振假名（`Sentence HTML`）与 `AINote` 四节（中文翻译 / 核心词汇 / 语法要点 / 动词变形解析；
