@@ -1,6 +1,6 @@
 # 架构与内部约定（architecture）
 
-> 状态：active ｜ 最后核实：2026-10-28
+> 状态：active ｜ 最后核实：2026-10-29
 
 **这是什么**：工作区的细节层 —— 代码怎么分区、六条约定怎么落地、各子系统的口径与踩坑。
 **为什么存在**：根 README 只讲入口与规矩；改代码、加脚本、排查「为什么这样设计」时看这里。
@@ -315,6 +315,23 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 
 > `--all-notes` 自带护栏：演练/真写都打印「改 N 个笔记 → 下次同步要传 N 个」；`--commit` 前落
 > 写前快照（1 小时内的直接复用），写后用快照 diff 调度列，非零就告警。
+
+**`JitenGlobalRank`（2026-10-29 加）** —— 同一套实作逻辑，换一把尺子：词表用 Jiten 的
+**Global**（全媒介合并，460,896 行 / 554,660 个归一化键），写 `JitenGlobalRank`，覆盖两类
+词汇卡的**全部**笔记（`Japanese Vocabulary` 15,212 + `eggrolls-JLPT10k-v3.5` 10,650 =
+25,862 张）：
+
+```powershell
+& $PY -X utf8 code\analysis\vocab_cover\freq_external.py field `
+    --models vocab --media Global --field JitenGlobalRank --add-field --commit
+```
+
+`--models` 是「按笔记类型全量回填」入口：不需要 plan、不需要待办 tag、不摘任何 tag；
+护栏与 `--all-notes` 相同（同步影响行、写前快照、写后调度列 diff），另加写后
+`verify_note_fields` 回读。**它同样只是注解**：`jiten_reorder` 与 `activate.py` 仍只认
+`JitenAnimeRank`（Global 与 Anime 是两套排名，换尺子要先改配置、并想清楚后果）。
+查不到的词仍写 `999999`；实测查不到 60 个（`似ている`、`介抱する`、`でかくて` 这类活用形/
+词组条目），它们在 Anime 表里同样是 `999999` —— 两条路的分歧只来自词表本身。
 
 ### 5.4 顺序为什么会生效
 

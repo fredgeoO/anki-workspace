@@ -145,7 +145,7 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 | `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性 |
 | `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
 | `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
-| `test_jiten_rank.py` | `JitenAnimeRank` 查表与 6 位补零（文本序 = 数值序） |
+| `test_jiten_rank.py` | `JitenAnimeRank`/`JitenGlobalRank` 查表、词字段推导与 6 位补零（文本序 = 数值序） |
 | `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
 | `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |
 | `test_today_new_words.py` | 每日生词挑选：Jiten 升序、无排名垫底、上限 N、标签差集 |
@@ -238,13 +238,13 @@ analysis/        ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_c
 
 完整收藏打包成 `.apkg` 放在 Release 里——**`.apkg` 不进 git 历史**（单个 1.6 GB，远超仓库的文件上限）：
 
-**[deck-2026-10-26](https://github.com/fredgeoO/anki-workspace/releases/tag/deck-2026-10-26)**
+**[deck-2026-10-29](https://github.com/fredgeoO/anki-workspace/releases/tag/deck-2026-10-29)**
 
 | 附件 | 内容 | 卡数 | 大小 |
 |---|---|---|---|
-| `anki-workspace-deck-1-vocab.apkg` | `0-词汇`（素材生词 / 高频 6000 / 考级 / 专有 / 复习） | 25,921 | 1.61 GB |
-| `anki-workspace-deck-2-grammar.apkg` | `1-语法`（N5–N1，每级 解释 + 例句） | 3,160 | 0.21 GB |
-| `anki-workspace-deck-3-examples.apkg` | `2-例句`（动画例句卡） | 10,739 | 0.92 GB |
+| `anki-workspace-deck-1-vocab.apkg` | `0-词汇`（素材生词 / 高频 6000 / 考级 / 专有 / 今天词汇） | 25,921 | 1.60 GiB |
+| `anki-workspace-deck-2-grammar.apkg` | `1-语法`（N5–N1，每级 解释 + 例句） | 3,160 | 0.21 GiB |
+| `anki-workspace-deck-3-examples.apkg` | `2-例句`（动画例句卡） | 10,739 | 0.92 GiB |
 
 三个包各导一次即可：牌组名带完整路径（`0-日本语学习::0-词汇` …），导入后自动挂回 `0-日本语学习` 下。
 

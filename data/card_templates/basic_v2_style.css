@@ -1,0 +1,159 @@
+/* 重置 html 和 body，确保背景 100% 覆盖全屏 */
+html, body {
+    background-color: #1e1e1e !important;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100%;
+}
+
+/* 卡片基础容器（负责背景全屏） */
+.card {
+    font-family: "Helvetica Neue", Helvetica, Arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", Meiryo, sans-serif;
+    background-color: #1e1e1e !important;
+    color: #e0e0e0;
+    font-size: 20px;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* --- 正面专用：垂直居中 --- */
+.card.front-view {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* --- 背面专用：从上到下自然排版 --- */
+.card.back-view {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 20px 40px 20px;
+}
+
+/* 图片容器 */
+.image-container {
+    margin-top: 15px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.image-container img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); /* 增加阴影显得更立体 */
+    border: 1px solid #333;
+}
+
+/* 播放按钮容器 */
+.audio-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 40px;
+    margin-bottom: 10px;
+}
+
+audio { display: none; }
+
+/* 美化 Anki 自带播放按钮 */
+.replay-button, .soundLink {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.replay-button svg, .soundLink svg {
+    width: 40px;
+    height: 40px;
+    transition: transform 0.2s;
+}
+
+.replay-button svg circle, .soundLink svg circle {
+    fill: #252526;
+    stroke: #ffb86c;
+    stroke-width: 2.5px;
+    transition: stroke 0.2s;
+}
+
+.replay-button svg path, .soundLink svg path {
+    fill: #ffb86c;
+    transition: fill 0.2s;
+}
+
+.replay-button:hover svg, .soundLink:hover svg {
+    transform: scale(1.1);
+}
+
+/* 分割线 */
+hr {
+    border: 0;
+    height: 1px;
+    background: #333333;
+    width: 90%;
+    max-width: 800px;
+    margin: 25px 0;
+}
+/* 隐藏 Anki 默认的 <hr id=answer>，我们统一用上面的 hr 样式 */
+hr#answer {
+    display: none; 
+}
+
+/* 背面 - 例句区 */
+.sentence-section {
+    font-size: 28px;
+    line-height: 1.6;
+    color: #ffffff;
+    margin: 10px 0 30px 0;
+    text-align: center;
+    width: 100%;
+    max-width: 800px;
+}
+
+/* 振假名 */
+ruby { ruby-align: center; }
+rt { font-size: 0.5em; color: #888888; }
+
+/* 背面 - AI 笔记 */
+.ai-note {
+    font-family: "Arial", sans-serif;
+    font-size: 16px;
+    text-align: left;
+    line-height: 1.8;
+    color: #cccccc;
+    background-color: #252526;
+    padding: 20px;
+    border-radius: 12px;
+    margin: 0 0 25px 0;
+    width: 100%;
+    max-width: 800px;
+    box-sizing: border-box;
+}
+
+/* 背面 - 底部来源信息 */
+.source-info {
+    font-size: 14px;
+    color: #666666;
+    line-height: 1.5;
+    width: 100%;
+    max-width: 800px;
+    text-align: left;
+}
+.source-info a {
+    color: #888888;
+    text-decoration: none;
+    word-break: break-all;
+}
+.source-info a:hover {
+    color: #ffb86c;
+}

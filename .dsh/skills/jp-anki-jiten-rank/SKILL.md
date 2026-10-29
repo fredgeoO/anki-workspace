@@ -1,18 +1,21 @@
 ---
 name: jp-anki-jiten-rank
-description: anki-workspace 的**词汇注解任务 · Jiten 排名回填**：把带待办 tag（`需更新JAR`，旧名 `需要更新jitenrank的卡片`）的笔记，按笔记里的词查 Jiten 动漫词频表，写进 `JitenAnimeRank`（%06d 补零），并把这批笔记的待办 tag 摘掉。只写这一个字段：不碰 due/ivl/type 等调度列、不改词字段、不加别的 tag。默认演练，显式 `--commit` 才真写。当用户说「这些卡的 jitenrank 补上」「需更新JAR 的卡处理掉」「JitenAnimeRank 是空的」时加载本技能。**不含**清理、生成、激活、挖生词、配音、讲义——那些在各自独立的技能里。仅适用于 anki-workspace。
+description: anki-workspace 的**词汇注解任务 · Jiten 排名回填**：把带待办 tag（`需更新JAR`，旧名 `需要更新jitenrank的卡片`）的笔记，按笔记里的词查 Jiten 动漫词频表，写进 `JitenAnimeRank`（%06d 补零），并把这批笔记的待办 tag 摘掉。只写这一个字段：不碰 due/ivl/type 等调度列、不改词字段、不加别的 tag。默认演练，显式 `--commit` 才真写。另有 `--models` 全量回填路径：同一套逻辑换 Global 词表，给两类词汇卡写 `JitenGlobalRank`（不摘 tag）。当用户说「这些卡的 jitenrank 补上」「需更新JAR 的卡处理掉」「JitenAnimeRank 是空的」「给所有单词加 JitenGlobalRank」时加载本技能。**不含**清理、生成、激活、挖生词、配音、讲义——那些在各自独立的技能里。仅适用于 anki-workspace。
 ---
 
-# 日语 Anki · Jiten 排名回填（按 tag 补 `JitenAnimeRank`）
+# 日语 Anki · Jiten 排名回填（按 tag 补 `JitenAnimeRank`，可全量补 `JitenGlobalRank`）
 
-本技能覆盖**一件事**：把打了待办 tag 的笔记，按笔记里的词查 Jiten 词频表，写成 `JitenAnimeRank`，写完摘掉待办 tag。
+本技能覆盖**一件事**：把排名写进笔记字段。两条入口共用同一套查表/补零逻辑：
+
+* `--tag`：把打了待办 tag 的笔记，按词查 Jiten **Anime** 表，写 `JitenAnimeRank`，写完摘 tag；
+* `--models`：把点名笔记类型的**全部**笔记，按词查 Jiten **Global** 表，写 `JitenGlobalRank`，不碰 tag。
 
 ## 一、边界（不可越线）
 
 | 允许 | 不允许 |
 |---|---|
-| 写笔记字段 `JitenAnimeRank` | 写 `due` / `ivl` / `factor` / `type` / `queue` / `reps` / `lapses` |
-| 从命中的笔记上摘掉**这一个**待办 tag | 加别的 tag、改 deck、动词字段（`Word` / `VocabKanji` …） |
+| 写笔记字段 `JitenAnimeRank` / `JitenGlobalRank` | 写 `due` / `ivl` / `factor` / `type` / `queue` / `reps` / `lapses` |
+| 从命中的笔记上摘掉**这一个**待办 tag（仅 `--tag` 路径） | 加别的 tag、改 deck、动词字段（`Word` / `VocabKanji` …） |
 | 只读词表 CSV | 联网重下词表（除非用户明确要求更新榜单） |
 
 - 排序不归本技能管：新卡位置由插件 `jiten_reorder` 按 `JitenAnimeRank` 写 `due`
@@ -58,6 +61,28 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 ```
 （不带 `--remove-tag` 就只演练字段写入，tag 原样留着。）
 
+### 2.5 另一套词表全量回填：`JitenGlobalRank`（Global，2026-10-29）
+
+「和 Anime 一样的实作逻辑，换一把尺子」：词表换成 Jiten 的 **Global**（全媒介合并），
+字段写 `JitenGlobalRank`，范围是两类词汇卡的**全部**笔记（25,862 张），不需要待办 tag、
+也不摘任何 tag。
+
+```powershell
+# 演练（先看规模/样例/未命中词）
+& $PY -X utf8 $FE field --models vocab --media Global --field JitenGlobalRank --add-field
+# 真写（第一步会先给两个笔记类型加字段）
+& $PY -X utf8 $FE field --models vocab --media Global --field JitenGlobalRank --add-field --commit
+```
+
+- `--models vocab` = `Japanese Vocabulary` + `eggrolls-JLPT10k-v3.5`（也可显式写类型名）。
+- 词表要先有：`& $PY -X utf8 $FE download --media Global`（46 万行，约 16 MB，CC BY-SA 4.0）。
+- 护栏同 `--all-notes`：打印同步影响、写前快照、写后 diff 调度列；另外写后 `verify_note_fields` 回读。
+- **不参与排序**：`jiten_reorder` / `activate.py` 仍只认 `JitenAnimeRank`。
+- 查不到仍写 `999999`；实测 60 个（活用形/词组条目，如 `似ている`、`介抱する`、`でかくて`），
+  与 Anime 表一致。
+- 幂等：值对了就跳过；第二遍应输出 `需要写入/更新：0 个` + `无需变更。`
+- 加字段要先关掉 Anki 里开着的编辑器（见 §五 `modelFieldAdd` 那条）。
+
 ## 三、输出怎么读（逐行）
 
 | 输出行 | 含义 | 正常值 |
@@ -69,6 +94,8 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 | `摘 tag：从 N 个笔记移除「…」` | 打算摘的数量 | = 命中数 − 无词字段数 |
 | `已写入 X / Y，失败 Z` | 实际写入 | Z 必须为 0 |
 | `已从 N 个笔记摘掉 tag「…」；该 tag 下还剩 0 个` | 摘完回查 | 剩 0 |
+| `合计 N 个笔记，查到词 M 个（无词字段跳过 K 个）` | `--models` 路径的规模 | K 应为 0 |
+| `✓ 回读一致：N 个笔记的 JitenGlobalRank` | `--models` 写后回读 | 必须一致；不一致会以退出码 1 结束 |
 
 **判定完成**：`失败 0` + 摘完剩 `0 个`。再跑一次 2.1 应得到 `需要写入/更新：0 个` + `无需变更。`
 
@@ -90,6 +117,7 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 | 现象 | 动作 |
 |---|---|
 | `AnkiConnect 错误 [updateNoteFields]: Close the affected editor` | 那张卡正在 Anki 编辑器里开着。**让用户关掉那个编辑窗口**，再重跑 2.2（幂等，已写好的会跳过） |
+| `AnkiConnect 错误 [modelFieldAdd]: Close the affected editor` | 加字段时 Anki 里有编辑器开着（含浏览器右侧编辑区）。**让用户关掉编辑器**再重跑 2.5；字段没加上时重跑没有副作用 |
 | `已写入 X / Y，失败 N` 里 N ≥ 1 + 上面那条 | 同上；这次**不会摘 tag**（有失败就整批不摘），关编辑器后重跑 2.2 |
 | `找不到 data\freq\jiten_freq_Anime.csv` | 用户明确要更新榜单时才跑：`& $PY -X utf8 $FE download --media Anime`（加 `--force` 重下）。否则停手问用户 |
 | `tag … 下没有命中笔记` | 正常：这批已经处理完，换另一个 tag 名继续 |
@@ -111,4 +139,4 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 - 清理（阶段 1）→ `jp-anki-triage`；生成（阶段 2）→ `jp-anki-generate`；激活（阶段 3）→ `jp-anki-activate`；
   挖生词（阶段 4）→ `jp-anki-mine`；配音（阶段 5）→ `jp-anki-audio`；振假名读音 → `jp-anki-check-ruby`。
 - 每日讲义 → `jp-anki-daily-lesson`；弱项 → `jp-anki-daily-weak`；core6000 补例句 → `jp-anki-core6000-example`。
-- 本技能**只补 `JitenAnimeRank` 一个字段**，别的阶段要动卡请加载对应技能。
+- 本技能**只补排名字段**（`JitenAnimeRank` / `JitenGlobalRank`），别的阶段要动卡请加载对应技能。

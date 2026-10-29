@@ -71,8 +71,43 @@ def test_primary_form():
     check('接尾辞去装饰', FE.norm_word('〜さん') == 'さん', FE.norm_word('〜さん'))
 
 
+def test_derive_field_values():
+    """--tag / --models 共用的推导：词字段按类型取、补零、查不到写 no_rank。"""
+    notes = [
+        {'noteId': 1, 'modelName': 'Japanese Vocabulary',
+         'fields': {'Word': {'value': '宿'}}},
+        {'noteId': 2, 'modelName': 'eggrolls-JLPT10k-v3.5',
+         'fields': {'VocabKanji': {'value': 'なす'}}},
+        {'noteId': 3, 'modelName': 'Japanese Vocabulary',
+         'fields': {'Word': {'value': '存在しない語'}}},
+        {'noteId': 4, 'modelName': 'Japanese Vocabulary',
+         'fields': {'Word': {'value': ''}, 'Sentence': {'value': '宿'}}},
+        {'noteId': 5, 'modelName': 'Other',
+         'fields': {'Sentence': {'value': 'x'}, 'Expression': {'value': '妙'}}},
+    ]
+    want, words, skipped = FE.derive_field_values(notes, INDEX, '999999')
+    check('词字段按笔记类型取（Word / VocabKanji）',
+          want.get(1) == '004471' and want.get(2) == '003476', want)
+    check('未知类型按 WORD_FIELDS 顺序回退（Expression）', want.get(5) == '001181', want)
+    check('词表查不到写 no_rank', want.get(3) == '999999', want)
+    check('无词字段的笔记被跳过', 4 not in want and skipped == 1, (want, skipped))
+    check('words 只记查到词的笔记', set(words) == {1, 2, 3, 5}, words)
+    check('no_rank 可改', FE.derive_field_values(notes[:3], INDEX, '000000')[0][3] == '000000')
+
+
+def test_expand_models():
+    check('vocab 展开成两个词汇笔记类型',
+          FE._expand_models(['vocab']) == list(FE.VOCAB_MODELS),
+          FE._expand_models(['vocab']))
+    check('显式类型名原样保留', FE._expand_models(['Basic']) == ['Basic'])
+    check('去空去重', FE._expand_models(['Basic', '', 'Basic', ' vocab '])
+          == ['Basic', 'Japanese Vocabulary', 'eggrolls-JLPT10k-v3.5'],
+          FE._expand_models(['Basic', '', 'Basic', ' vocab ']))
+
+
 def main():
-    for fn in (test_lookup, test_kyujitai, test_format, test_primary_form):
+    for fn in (test_lookup, test_kyujitai, test_format, test_primary_form,
+               test_derive_field_values, test_expand_models):
         print(fn.__name__)
         fn()
     print()

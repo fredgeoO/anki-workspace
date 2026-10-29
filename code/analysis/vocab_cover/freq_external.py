@@ -22,9 +22,17 @@
     python code/analysis/vocab_cover/freq_external.py build    --media Anime
     python code/analysis/vocab_cover/freq_external.py compare  --media Anime
 
+    # 注解：按待办 tag 回填 JitenAnimeRank
+    python code/analysis/vocab_cover/freq_external.py field --tag 需更新JAR --remove-tag --commit
+
+    # 注解：全量回填另一套词表（Global -> JitenGlobalRank，两类词汇卡）
+    python code/analysis/vocab_cover/freq_external.py field \\
+        --models vocab --media Global --field JitenGlobalRank --add-field --commit
+
 产物::
 
     data/freq/jiten_freq_Anime.csv                 原始词表（CC BY-SA 4.0，见 data/freq/README.md）
+    data/freq/jiten_freq_Global.csv                全媒介词表（同上）
     data/vocab_cover/study_plan_jiten_anime.json   与 study_plan_critical_path.json 同形状
     data/vocab_cover/freq_compare_anime.json       对比数据
     docs/reports/外部词表排序对比.md                对比报告
@@ -77,6 +85,10 @@ KNOWN_WORD_FIELD = {
     'Japanese Vocabulary': ('Word',),
     'eggrolls-JLPT10k-v3.5': ('VocabKanji',),
 }
+
+# 库里两个「词汇卡」笔记类型。`--models vocab` 是它们的简写，避免手打长名拼错
+# （拼错不会报错，只会 0 命中 —— 白跑一趟）。
+VOCAB_MODELS = ('Japanese Vocabulary', 'eggrolls-JLPT10k-v3.5')
 
 # 旧字体 -> 新字体：Jiten 词表只收新字体，卡组里偶有旧字体词条（`剝げる`）。
 # 只在首次查表落空时再试一次；新遇到的旧字体往这里加（保持一字符对一字符）。
@@ -249,6 +261,45 @@ def lookup_rank(index, word: str) -> int:
     return hit[0] if hit else 0
 
 
+def derive_field_values(notes, index, no_rank='999999'):
+    """notesInfo 结果 → (``{noteId: 字段值}``, ``{noteId: 词}``, 无词笔记数)。
+
+    纯函数（不碰 Anki），``--tag`` 与 ``--models`` 两条路共用同一套推导，
+    测试也能离线覆盖：词字段按笔记类型的惯例取，排名 ``%06d`` 补零，
+    词表查不到写 ``no_rank``。
+    """
+    want, words, skipped = {}, {}, 0
+    for n in notes:
+        nid = int(n['noteId'])
+        model = n.get('modelName')
+        fields = {k: (v or {}).get('value', '') for k, v in (n.get('fields') or {}).items()}
+        cand = KNOWN_WORD_FIELD.get(model, WORD_FIELDS)
+        word = next((fields[f] for f in cand if fields.get(f)), '')
+        if not word:
+            skipped += 1
+            continue
+        rank = lookup_rank(index, word)
+        words[nid] = word
+        want[nid] = ('%06d' % rank) if rank else no_rank
+    return want, words, skipped
+
+
+def _expand_models(models):
+    """``['vocab']`` -> 两个词汇笔记类型；其余原样（保持顺序、去空）。"""
+    out = []
+    for m in models or ():
+        m = (m or '').strip()
+        if not m:
+            continue
+        out.extend(VOCAB_MODELS if m.lower() == 'vocab' else (m,))
+    seen, uniq = set(), []
+    for m in out:
+        if m not in seen:
+            seen.add(m)
+            uniq.append(m)
+    return uniq
+
+
 def cmd_build(args) -> int:
     src = _csv_path(args.media)
     if not os.path.exists(src):
@@ -343,7 +394,7 @@ def _sched_diff(before: dict, after: dict):
     return out
 
 
-def _report_sched_diff(snap_path: str, note_ids: list, MAP, chunk: int = 200) -> None:
+def _report_sched_diff(snap_path: str, note_ids: list, chunk: int = 200) -> None:
     """用写前快照 diff 受影响卡片的调度列；非零就大声告警。"""
     import anki_api as AK
     try:
@@ -353,9 +404,7 @@ def _report_sched_diff(snap_path: str, note_ids: list, MAP, chunk: int = 200) ->
         print('  [!] 读不了写前快照，跳过调度列 diff：%s' % exc)
         return
     cids = AK.cards_of_notes(note_ids)
-    after = []
-    for i in range(0, len(cids), chunk):
-        after.extend(MAP.ac('cardsInfo', cards=cids[i:i + chunk]) or [])
+    after = AK.cards_info(cids, chunk=chunk)
     diffs = _sched_diff(before, _sched_from_live(after))
     print()
     print('写后自检（调度列 diff，基准 %s）：' % os.path.relpath(snap_path, WSP.ROOT))
@@ -400,30 +449,12 @@ def _cmd_field_tag(args) -> int:
         return 0
     print('tag %s 下命中 %d 个笔记' % (args.tag, len(nids)))
 
-    # 读字段 + 提取词 → 查排名
+    # 读字段 + 提取词 → 查排名（推导与 --models 路径共用同一纯函数）
     notes = AK.notes_info(nids)
-    want = {}
-    words = {}
-    skipped_no_word = 0
-    for n in notes:
-        nid = int(n['noteId'])
-        model = n.get('modelName')
-        fields = {k: (v or {}).get('value', '') for k, v in (n.get('fields') or {}).items()}
-        # 已知模型按固定词字段；其余按 WORD_FIELDS 取第一个非空
-        cand = KNOWN_WORD_FIELD.get(model, WORD_FIELDS)
-        word = next((fields[f] for f in cand if fields.get(f)), '')
-        if not word:
-            skipped_no_word += 1
-            continue
-        rank = lookup_rank(index, word)
-        words[nid] = word
-        want[nid] = ('%06d' % rank) if rank else args.no_rank
+    want, words, skipped_no_word = derive_field_values(notes, index, args.no_rank)
 
     # 读取当前字段值，做幂等对照
-    current = {}
-    for n in notes:
-        nid = int(n['noteId'])
-        current[nid] = AK.field(n, args.field) or ''
+    current = {int(n['noteId']): (AK.field(n, args.field) or '') for n in notes}
 
     todo = {n: v for n, v in want.items() if current.get(n) != v}
     ok_ids = [n for n in want if n not in todo]          # 值已经对，不用写
@@ -478,6 +509,134 @@ def _cmd_field_tag(args) -> int:
     return 0
 
 
+def _cmd_field_models(args) -> int:
+    """全量回填：直接点名笔记类型，把它们的**全部**笔记按词表排名写进字段。
+
+    与 ``--tag`` 的差别只在「选哪些笔记」：不需要 plan、不需要待办 tag、不摘任何
+    tag。护栏与 ``--all-notes`` 相同（同步影响行、写前快照、写后调度列 diff、
+    写后回读）。典型用法（Global 词表 -> JitenGlobalRank，两类词汇卡）：
+
+        python code/analysis/vocab_cover/freq_external.py field \\
+            --models vocab --media Global --field JitenGlobalRank \\
+            --add-field --commit
+    """
+    models = _expand_models(args.models)
+    if not models:
+        print('✗ --models 没给出笔记类型')
+        return 2
+
+    index_path = _csv_path(args.media)
+    if not os.path.exists(index_path):
+        print('找不到 %s —— 先跑：python code/analysis/vocab_cover/freq_external.py '
+              'download --media %s' % (os.path.relpath(index_path, WSP.ROOT), args.media))
+        return 2
+    index = load_index(index_path)
+    print('Jiten 词表 %s：%d 个归一化键' % (
+        os.path.relpath(index_path, WSP.ROOT), len(index)))
+    print('目标笔记类型：%s' % '、'.join(models))
+
+    known = set(AK.model_names())
+    unknown = [m for m in models if m not in known]
+    if unknown:
+        print('✗ 库里没有这些笔记类型：%s' % '、'.join(unknown))
+        return 2
+
+    # 字段：缺就（--add-field + --commit）加上；否则不写空值，直接停
+    missing = [m for m in models if args.field not in AK.model_field_names(m)]
+    if missing:
+        print('缺字段 %s 的笔记类型：%s' % (args.field, '、'.join(missing)))
+        if not args.add_field:
+            print('  加 --add-field 才会自动加；否则请先在 Anki 里手动加好这个字段')
+            if args.commit:
+                return 2
+        elif args.commit:
+            for m in missing:
+                AK.call('modelFieldAdd', modelName=m, fieldName=args.field)
+            still = [m for m in missing if args.field not in AK.model_field_names(m)]
+            if still:
+                print('✗ 加字段失败：%s' % '、'.join(still))
+                return 2
+            print('  已加字段（注意：Anki 会给这些类型的**全部**笔记补一个空字段，'
+                  '同步量比写入数更大）')
+        else:
+            print('  （演练：加 --commit 才会真加）')
+
+    # 收集：笔记里的词 -> 词表排名 -> 字段值；同时读当前值做幂等对照
+    want, words, current = {}, {}, {}
+    total_notes = skipped_no_word = 0
+    for m in models:
+        ids = AK.find_notes('note:"%s"' % m)
+        print('  %s：%d 个笔记' % (m, len(ids)))
+        for i in range(0, len(ids), 500):
+            notes = AK.notes_info(ids[i:i + 500])
+            total_notes += len(notes)
+            w, wd, sk = derive_field_values(notes, index, args.no_rank)
+            want.update(w)
+            words.update(wd)
+            skipped_no_word += sk
+            for n in notes:
+                current[int(n['noteId'])] = AK.field(n, args.field) or ''
+    print('合计 %d 个笔记，查到词 %d 个（无词字段跳过 %d 个）'
+          % (total_notes, len(want), skipped_no_word))
+
+    todo = {n: v for n, v in want.items() if current.get(n) != v}
+    print('需要写入/更新：%d 个（值已正确的跳过 %d 个）' % (len(todo), len(want) - len(todo)))
+    print('同步影响：改 %d 个笔记 × 1 个字段（%s）→ 下次同步要传约 %d 个笔记'
+          % (len(todo), args.field, len(todo)))
+    miss = sorted({words[n] for n, v in todo.items() if v == args.no_rank})
+    print('  词表未命中（写 %s）：%d 个%s' % (
+        args.no_rank, len(miss), ('：' + '、'.join(miss[:20])) if miss else ''))
+
+    if not todo:
+        print('无需变更。')
+        return 0
+    if not args.commit:
+        ex = list(todo.items())[:8]
+        print('  样例：%s' % '、'.join('%s(%s)->%s' % (n, words.get(n, '?'), v) for n, v in ex))
+        print('\n演练结束，未写库。加 --commit 真写。')
+        return 0
+
+    # 写前基准（全库写值得留一份快照）
+    snap_path = _newest_fresh_snapshot()
+    if snap_path:
+        print('写前基准：复用 %s（%.1f 分钟前）'
+              % (os.path.relpath(snap_path, WSP.ROOT),
+                 (time.time() - os.path.getmtime(snap_path)) / 60.0))
+    else:
+        snap_path = _copy_live_snapshot()
+        print('写前基准：现落一份快照 %s' % os.path.relpath(snap_path, WSP.ROOT))
+    if snap_path and (time.time() - os.path.getmtime(snap_path)) > SNAP_FRESH_SECONDS:
+        print('  ⚠ 这份基准超过 1 小时了，diff 可能混入之后的正常复习活动')
+
+    done, failed = 0, []
+    for n, v in todo.items():
+        try:
+            AK.update_note_fields(n, {args.field: v})
+            done += 1
+        except Exception as exc:                   # noqa: BLE001
+            failed.append((n, str(exc)[:60]))
+        if done and done % 2000 == 0:
+            print('   ...%d' % done, flush=True)
+    print('已写入 %d / %d，失败 %d' % (done, len(todo), len(failed)))
+    if failed:
+        print('  失败样例：%s' % failed[:5])
+
+    # 写后回读（铁律 7）：只回读这次写过的笔记
+    bad = AK.verify_note_fields({n: {args.field: v} for n, v in todo.items()}, settle=1.0)
+    if bad:
+        print('✗ 回读不一致：%d 个（样例 %s）' % (len(bad), list(bad.items())[:3]))
+    else:
+        print('✓ 回读一致：%d 个笔记的 %s' % (len(todo), args.field))
+
+    # 写后自检：字段写**不应该**碰调度列
+    if snap_path:
+        _report_sched_diff(snap_path, list(todo))
+
+    print('字段值格式：%%06d（补零，文本序=数值序）；%s = 词表里查不到、排在队尾'
+          % args.no_rank)
+    return 0 if not failed and not bad else 1
+
+
 def cmd_field(args) -> int:
     """把 plan 里的 freq_rank 写成笔记字段（可选：先给笔记类型加这个字段）。
 
@@ -501,10 +660,23 @@ def cmd_field(args) -> int:
       否则现落一份 ``data/snapshots/pre_jiten_field_<时间戳>/``）。
     * 写完后用那份快照 diff 受影响卡片的**调度列**（due/ivl/factor/reps/lapses/
       queue/type），非零就大声告警 —— 字段写**不应该**碰到调度。
+
+    ``--models``（2026-10-29 加）：同一个字段写，换成「按笔记类型全量回填」，
+    不需要 plan、不需要待办 tag，护栏与 ``--all-notes`` 相同（快照 + 调度列 diff），
+    并额外做写后回读。用于给两类词汇卡补 ``JitenGlobalRank``（Global 词表）。
     """
     # ---- --tag 路径：按 tag 查询笔记，按词查 Jiten 排名，写回字段 -------------
     if args.tag:
+        if args.models:
+            print('✗ --models 与 --tag 互斥：一次只走一条路')
+            return 2
         return _cmd_field_tag(args)
+    # ---- --models 路径：按笔记类型全量回填（不需要 plan / tag）-------------
+    if args.models:
+        if args.all_notes:
+            print('✗ --models 与 --all-notes 互斥：--models 本身就是全量回填')
+            return 2
+        return _cmd_field_models(args)
 
     add_pylibs()
     import make_activate_plan as MAP  # AnkiConnect 调用只此一份
@@ -630,7 +802,7 @@ def cmd_field(args) -> int:
 
     # ---- 写后自检：字段写**不应该**碰调度列
     if snap_path:
-        _report_sched_diff(snap_path, list(todo), MAP)
+        _report_sched_diff(snap_path, list(todo))
 
     print('字段值格式：%%06d（补零，文本序=数值序）；%s = 词表里查不到、排在队尾'
           % args.no_rank)
@@ -907,13 +1079,18 @@ def main() -> int:
     b.add_argument('--max-rank', type=int, default=0, help='丢弃排名大于 N 的（0=不丢）')
     b.set_defaults(func=cmd_build)
 
-    f = sub.add_parser('field', help='把 plan 的 freq_rank 写成笔记字段（注解，不做排序）')
+    f = sub.add_parser('field', help='把词表排名写成笔记字段（注解，不做排序）')
     f.add_argument('--plan', default=None,
                    help='默认 data/plans/plan_activate_jiten.json')
     f.add_argument('--field', default='JitenAnimeRank', help='字段名')
-    f.add_argument('--media', default='Anime', help=MEDIA_HELP + '（--all-notes 用它找词表）')
+    f.add_argument('--media', default='Anime', help=MEDIA_HELP + '（--all-notes / --models 用它找词表）')
     f.add_argument('--words-file', default=None,
                    help='--all-notes 用的词表；默认 study_plan_jiten_<media>.json')
+    f.add_argument('--models', nargs='+', default=None, metavar='MODEL',
+                   help='全量回填：直接点名笔记类型，把这些类型的**全部**笔记按词表排名'
+                        '写进字段；不需要 plan，与 --tag / --plan / --all-notes 互斥。'
+                        '`--models vocab` 是 "Japanese Vocabulary" + '
+                        '"eggrolls-JLPT10k-v3.5" 的简写')
     f.add_argument('--all-notes', action='store_true',
                    help='把这几个笔记类型下的**全部**笔记都写上（含已学过的旧卡——'
                         '旧卡不在 plan 里，改按「笔记里的词 → 词表排名」重新查）')

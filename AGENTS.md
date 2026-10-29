@@ -93,7 +93,7 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 | 从例句挖素材生词 → `0-素材生词` | `jp-anki-mine` |
 | 给生词卡配音 / 修读错的 mp3 | `jp-anki-audio` |
 | 校验振假名读音（对字幕自带注音） | `jp-anki-check-ruby` |
-| 按 `需更新JAR` 回填 `JitenAnimeRank` | `jp-anki-jiten-rank` |
+| 按 `需更新JAR` 回填 `JitenAnimeRank`；全量补 `JitenGlobalRank` | `jp-anki-jiten-rank` |
 | 每日讲义（把 tag `今天学习生词` 里的词讲一遍；没有 tag 就不生成） | `jp-anki-daily-lesson` |
 | 弱项分析 / 复习负载报告 | `jp-anki-daily-weak` |
 | 点名 core6000 词补第二条例句 | `jp-anki-core6000-example` |
@@ -174,8 +174,9 @@ README §2 有完整的命令清单、§7 有每个测试挡什么——这两�
 
 - `2-例句`（Basic）：`Sentence` `Word` `Sentence HTML` `AINote` `Image` `Sentence Audio` `Source` `URL`
 - 词汇（Japanese Vocabulary）：`Word` `Sentence` `Sentence HTML` `Transliteration` `Meaning`
-  `Part of Speech` `AINote` `JitenAnimeRank` `Word Audio` `Sentence Audio` `Index`
-- 考级（eggrolls）：词形是 `VocabKanji`，读音 `VocabFurigana`，级别由标签还原
+  `Part of Speech` `AINote` `JitenAnimeRank` `JitenGlobalRank` `Word Audio` `Sentence Audio` `Index`
+- 考级（eggrolls）：词形是 `VocabKanji`，读音 `VocabFurigana`，级别由标签还原；
+  同样带 `JitenAnimeRank` / `JitenGlobalRank`（注解，不参与排序）
 
 标签口径（**别猜，先查现有标签**）：
 

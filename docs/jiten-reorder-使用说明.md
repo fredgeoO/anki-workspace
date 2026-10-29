@@ -1,6 +1,6 @@
 # 插件 `jiten_reorder`：素材生词新卡按 `JitenAnimeRank` 排位置
 
-> 状态：active ｜ 最后核实：2026-10-17（ImmersionKit 批量跑一律 `write --no-order`，
+> 状态：active ｜ 最后核实：2026-10-29（ImmersionKit 批量跑一律 `write --no-order`，
 > 新卡 due 全部交给本插件）
 
 > 一句话：把 `0-素材生词` 里**新卡**的 `cards.due` 改成该词 `JitenAnimeRank` 的数值 ——
@@ -11,6 +11,9 @@
 > 已装入 `%APPDATA%\Anki2\addons21\jiten_reorder\` —— **重启 Anki 才会加载**。
 >
 > 背景与原则见 [ADR：`JitenAnimeRank` 只作注解，顺序一律看 `cards.due`](decisions/2026-10-jitenanimerank仅作注解.md)。
+>
+> 另有一个只作注解的 **`JitenGlobalRank`**（Global 词表，2026-10-29 全量回填）：本插件
+> **不读它**，仍按 `config.json` 的 `field`（默认 `JitenAnimeRank`）取值。
 
 ---
 

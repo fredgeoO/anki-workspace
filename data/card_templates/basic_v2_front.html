@@ -1,0 +1,25 @@
+<div class="card">
+    <div class="front-wrapper">
+        
+        <!-- 播放按钮 -->
+        <div id="autoplay" class="audio-container">
+            {{Sentence Audio}}
+        </div>
+
+        <!-- 图片 -->
+        <div class="image-container">
+            {{Image}}
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // 自动播放脚本
+    setTimeout(function() {
+        var elem = document.querySelector("#autoplay .soundLink, #autoplay .replay-button, #autoplay .replaybutton");
+        if (elem) {
+            elem.click();
+        }
+    }, 100);
+</script>
