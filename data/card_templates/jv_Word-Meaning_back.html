@@ -1,0 +1,46 @@
+<div class="card">
+    <div class="content-wrapper back-wrapper">
+        
+        <div class="transliteration">
+            {{Transliteration}}
+        </div>
+        
+        <div class="word-display">
+            {{Word}}
+        </div>
+
+        <div class="audio-container" id="autoplay">
+            {{Word Audio}} {{Sentence Audio}}
+        </div>
+
+        <div class="part-of-speech">
+            [{{Part of Speech}}] : {{Meaning}}
+        </div>
+
+        <hr>
+
+        <div class="sentence-section">
+            {{Sentence HTML}}
+        </div>
+
+        <hr>
+
+        <div class="ai-note">
+            {{AINote}}
+        </div>
+
+        <div class="frequency">
+            词频: [动画-{{JitenAnimeRank}}][全局-{{JitenGlobalRank}}]
+        </div>
+
+    </div>
+</div>
+
+<script>
+    setTimeout(function() {
+        var elem = document.querySelector("#autoplay .soundLink, #autoplay .replay-button");
+        if (elem) {
+            elem.click();
+        }
+    }, 100);
+</script>

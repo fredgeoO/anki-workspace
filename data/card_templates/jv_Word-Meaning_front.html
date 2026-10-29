@@ -1,0 +1,24 @@
+<div class="card">
+    <div class="content-wrapper front-wrapper">
+        
+
+        
+        <div class="audio-container" id="autoplay">
+            {{Word Audio}} {{Sentence Audio}}
+        </div>
+        
+        <div class="part-of-speech">
+            [{{Part of Speech}}]
+        </div>
+
+    </div>
+</div>
+
+<script>
+    setTimeout(function() {
+        var elem = document.querySelector("#autoplay .soundLink, #autoplay .replay-button");
+        if (elem) {
+            elem.click();
+        }
+    }, 100);
+</script>

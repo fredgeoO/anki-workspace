@@ -1,0 +1,27 @@
+.card {
+ font-family: aozora mincho;
+ font-size: 20px;
+ text-align: center;
+ color: black;
+ background-color: white;
+}
+
+span.accent_plain{
+    border-top: solid 1px;
+    padding-top:1px;
+}
+
+span.accent_top{
+    color:red;
+    border-top: solid red 1px;
+    padding-top:1px;
+    background-image: url(_accent.png);
+    background-repeat: no-repeat;
+    background-position: right top;
+}
+
+.pitch_accent_table{
+	display: inline-table;
+	text-align: left;
+	border-spacing: 10px;
+} 
