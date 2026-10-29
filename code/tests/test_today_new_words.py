@@ -257,6 +257,38 @@ def test_reading_gate():
     check('记为读音对不上而非已学', skipped3['reading'] == ['頭'], skipped3)
 
 
+def test_pick_with_quota_particles():
+    """语气词单独占名额：高分感动词不许把内容词挤掉（2026-10-30 修义项补位的回归）。
+
+    用户口径：语气词每天只学 2 个，其余名额留给内容词。感动词频次极高
+    （`ん` 一期 400 次），一旦和内容词同池按分数切，30 个名额全是 `あっ`/`うっ`。
+    """
+    items = [
+        {'word': 'ん', 'score': 9.0, 'kind': 'particle', 'notes': [1]},
+        {'word': 'あっ', 'score': 8.0, 'kind': 'particle', 'notes': [2]},
+        {'word': 'え', 'score': 7.0, 'kind': 'particle', 'notes': [3]},
+        {'word': '村', 'score': 3.5, 'kind': 'word', 'notes': [4]},
+        {'word': '反応', 'score': 3.4, 'kind': 'word', 'notes': [5]},
+    ]
+    picked = TN.pick_with_quota(items, 3, particles=2)
+    got = [it['word'] for it in picked]
+    check('感动词只占 particles 个名额', got == ['村', '反応', 'ん', 'あっ'], got)
+    check('总名额 = n + particles', len(picked) == 4, len(picked))
+
+    none = TN.pick_with_quota(items, 3, particles=0)
+    check('particles=0 时一个感动词都不选',
+          [it['word'] for it in none] == ['村', '反応'], [it['word'] for it in none])
+
+    with_no_note = [{'word': 'ほら', 'score': 99.0, 'kind': 'particle', 'notes': []}] + items
+    req = TN.pick_with_quota(with_no_note, 1, particles=1, require_notes=True)
+    check('require_notes 时没笔记的词不占名额',
+          [it['word'] for it in req] == ['村', 'ん'], [it['word'] for it in req])
+    keep_pending = TN.pick_with_quota(with_no_note, 1, particles=1)
+    check('默认保留没笔记的词（待建卡要能显示）',
+          [it['word'] for it in keep_pending] == ['村', 'ほら'],
+          [it['word'] for it in keep_pending])
+
+
 def test_diff_ids():
     d = TN.diff_ids([1, 2, 3, 3], [3, 3, 4, 5])
     check('摘除 = 旧 - 新', d['remove'] == [1, 2], d['remove'])
@@ -280,7 +312,8 @@ def main():
                test_flip_ratio, test_lam_zero_ignores_jar, test_jar_gate,
                test_drop_phrases_off_by_default, test_candidates_skip_learned_only,
                test_plan_pick_order, test_plan_pick_quota, test_pick_top_tie_stable,
-               test_word_quota_notes_more_than_n, test_reading_gate, test_diff_ids,
+               test_word_quota_notes_more_than_n, test_reading_gate,
+               test_pick_with_quota_particles, test_diff_ids,
                test_fmt_rank):
         print(fn.__name__)
         fn()

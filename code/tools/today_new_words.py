@@ -389,20 +389,35 @@ def build_candidates(stats, index, max_jar=DEFAULT_MAX_JAR, mu=DEFAULT_MU,
     return items, skipped
 
 
+def _is_particle(it):
+    return it.get('kind') == 'particle'
+
+
+def pick_with_quota(items, n, particles=0, require_notes=False):
+    """按「内容词 n 个 + 助词/感动词 particles 个」分两路取词（各自按分数降序）。
+
+    ``particles`` 是助词/感动词单独的名额：它们频次极高（`ね` 一期上百次），
+    放进同一个池会把内容词全部挤掉，所以按词性分两路取。
+
+    ``require_notes=True`` 时跳过没有笔记的词（待建卡的助词打不出标签，不该占名额）。
+    """
+    def _pool(want_particle):
+        return [it for it in items
+                if _is_particle(it) == want_particle
+                and (not require_notes or it.get('notes'))]
+
+    words = sorted(_pool(False), key=item_key)
+    parts = sorted(_pool(True), key=item_key)
+    return words[:max(0, int(n))] + parts[:max(0, int(particles))]
+
+
 def plan_pick(items, n, particles=0):
     """候选 → (入选词, 全量排序后的候选)。
 
-    ``particles`` 是助词/感动词单独的名额：它们频次极高（`ね` 一期上百次），
-    放进同一个池会把内容词全部挤掉，所以按词性分两路取，再按分数合并显示。
+    ``particles`` 是助词/感动词单独的名额（见 :func:`pick_with_quota`）。
     """
-    words = [it for it in items if it.get('kind') != 'particle']
-    parts = [it for it in items if it.get('kind') == 'particle']
-    words.sort(key=item_key)
-    parts.sort(key=item_key)
-    picked = words[:max(0, int(n))] + parts[:max(0, int(particles))]
-    ranked = sorted(picked + words[max(0, int(n)):] + parts[max(0, int(particles)):],
-                    key=item_key)
-    return picked, ranked
+    picked = pick_with_quota(items, n, particles)
+    return picked, sorted(items, key=item_key)
 
 
 def describe(item, index):
@@ -468,7 +483,7 @@ def print_picked(items):
     if not items:
         return
     print('')
-    print('今天要学的词（按分数降序；分=次数项+集数项+频率项）：')
+    print('今天要学的词（内容词按分数降序，助词/感动词排在最后；分=次数项+集数项+频率项）：')
     for i, w in enumerate(items, 1):
         first = _first_text(w)
         print('  %2d. %-10s %-12s JAR %-6s ｜%2d 次/%d 集｜分 %.2f｜%d 张笔记%s'
@@ -598,15 +613,22 @@ def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None):
 # ============================================================================
 # 主流程
 # ============================================================================
-def sense_filter(picked, ranked, n, index, buffer=15, quiet=False):
+def sense_filter(picked, ranked, n, index, buffer=15, particles=0, quiet=False):
     """义项核验：卡片释义和字幕句义项对不上的词剔掉，用后面的词补位。
 
     只有模型明确判 ``False`` 才剔；词典查不到 / 模型判不了 → 放行（``None``）。
+
+    补位必须沿用 ``plan_pick`` 的两路名额，**不能直接切 ``ranked[:n]``**：感动词频次
+    极高（`ん` 一期 400 次），按分数直切会让它们把内容词全挤掉，用户要的是
+    「语气词每天 2 个，其余留给内容」。没有笔记的词（待建卡的助词）也不进池，
+    否则会占着名额却打不出标签。
     → (保留的词, 被剔的记录)
     """
     import sense_gate as SG
 
-    pool = ranked[:max(int(n), len(picked)) + int(buffer)]
+    # 判池与补位都沿用「内容词 n 个 + 助词/感动词 particles 个」的两路名额
+    pool = pick_with_quota(ranked, int(n) + int(buffer),
+                           max(0, int(particles)) + int(buffer), require_notes=True)
     rows = SG.to_inputs(pool, index)
     if not rows:
         return picked, []
@@ -631,7 +653,8 @@ def sense_filter(picked, ranked, n, index, buffer=15, quiet=False):
                 'sense_gloss': gloss,
                 'why': it['sense_why'],
             })
-    kept = [it for it in pool if it['word'] not in bad][:int(n)]
+    kept = pick_with_quota([it for it in pool if it['word'] not in bad],
+                           n, particles, require_notes=True)
     return kept, dropped
 
 
@@ -649,7 +672,8 @@ def do_pick(a):
     sense_dropped = []
     if a.sense_check and picked:
         before = [w['word'] for w in picked]
-        picked, sense_dropped = sense_filter(picked, ranked, a.n, index, quiet=False)
+        picked, sense_dropped = sense_filter(picked, ranked, a.n, index,
+                                             particles=a.particles, quiet=False)
         if sense_dropped:
             print('')
             print('义项核验：剔掉 %d 个词（卡片释义与字幕句对不上）'
@@ -685,8 +709,10 @@ def do_pick(a):
         'score_top': round(max(float(w['score']) for w in picked), 2) if picked else None,
         'score_min': round(min(float(w['score']) for w in picked), 2) if picked else None,
         'score_next': next((round(float(w['score']), 2) for w in ranked
-                            if w.get('kind') != 'particle'
-                            and w['word'] not in {p['word'] for p in picked}), None),
+                            if not _is_particle(w)
+                            and w['word'] not in {p['word'] for p in picked}
+                            and w['word'] not in {d['word'] for d in sense_dropped}),
+                           None),
     }
 
     print('来源：%s' % a.input)
