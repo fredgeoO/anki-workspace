@@ -1,6 +1,6 @@
 # Core6000 例句补全（例句② + 振假名 + 合并讲解 + 配音）设计契约
 
-> 状态：active ｜ 最后核实：2026-10-26
+> 状态：active ｜ 最后核实：2026-10-30
 
 本文件是 `code/execution/core6000_example.py` 与 `code/execution/core6000_example_prompt.md`
 的**唯一接口契约**。实现者按本文件写代码，改接口先改本文件。
@@ -369,6 +369,9 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 
 1. `new_sentence` 去标签后**包含目标词**：`Word` 原文、或 `Transliteration` 读音、
    或 `Word` 的汉字/假名主干部（至少 1 个汉字字符序列）命中其一。
+   纯假名词再加**活用形**（`kana_conjugations()`：五段行 + て/た 音便，
+   `しゃがむ` → `しゃがんだ`/`しゃがんで`/`しゃがみます`…）：假名动词在真实语料里
+   几乎只以活用形出现，只比词典形会把 Jisho 的正确候选判成 no-target（2026-10-30 加）。
    （闸门 1/2 只对**模型新造**的句子生效；已有两句话的卡见 §3.3）
 2. `new_sentence` 长度 6–45 字符（去空白），且 **≠ 原句**。
 3. `new_sentence_ruby` 去 ruby 后与 `new_sentence` 一致（`<rt>` 内容整块删掉、剥标签后比较，

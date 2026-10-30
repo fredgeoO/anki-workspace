@@ -1391,8 +1391,50 @@ def parse_response(raw, note_id):
 # ============================================================================
 # 机械闸门 1-5（gen 阶段：拿到模型产出就能判的）
 # ============================================================================
+# 五段动词的行（行 = 段）：只用来把纯假名动词展开成活用形，不做词性判断。
+_GODAN_ROWS = {
+    'う': 'わいうえお', 'く': 'かきくけこ', 'ぐ': 'がぎぐげご', 'す': 'さしすせそ',
+    'つ': 'たちつてと', 'ぬ': 'なにぬねの', 'ぶ': 'ばびぶべぼ', 'む': 'まみむめも',
+    'る': 'らりるれろ',
+}
+# て/た 的音便：しゃがむ → しゃがんだ / しゃがんで；かく → かいた / かいて …
+_ONBIN_TA = {
+    'む': ('んだ', 'んで'), 'ぶ': ('んだ', 'んで'), 'ぬ': ('んだ', 'んで'),
+    'く': ('いた', 'いて'), 'ぐ': ('いだ', 'いで'),
+    'う': ('った', 'って'), 'つ': ('った', 'って'), 'る': ('った', 'って'),
+    'す': ('した', 'して'),
+}
+
+
+def kana_conjugations(word):
+    """纯假名动词的常见活用形（`しゃがむ` → `しゃがんだ`/`しゃがんで`/`しゃがみます`…）。
+
+    闸门 2（真含目标词）用。Jisho 的句子写的是活用形，而纯假名词没有
+    「去掉词尾送假名」的汉字骨架可用（`しゃがむ` 拆不出 `しゃがんだ`），
+    只拿词典形去比会把正确候选判成 no-target。词尾不在五段行里的
+    假名词（`あまり`、`ところ`）不展开 —— 否则 `あまり` → `あま` 这类
+    子串会把完全不相干的句子放进候选。
+    """
+    if len(word) < 2 or not RE_KANA_ONLY.match(word):
+        return set()
+    stem, last = word[:-1], word[-1]
+    row = _GODAN_ROWS.get(last)
+    if not row:
+        return set()
+    ta, te = _ONBIN_TA.get(last, ('た', 'て'))
+    out = {stem + ta, stem + te}
+    a, i, _, e, o = row
+    out |= {stem + a + 'ない', stem + a + 'なかった', stem + a + 'ないで',
+            stem + a + 'ず', stem + a + 'れる', stem + a + 'せる',
+            stem + i + 'ます', stem + i + 'ました', stem + i + 'たい', stem + i + 'そう',
+            stem + e + 'ば', stem + e + 'る', stem + o + 'う'}
+    if last == 'る':                      # 一段（たべる）也走这条路：stem+た/て/ます
+        out |= {stem + 'た', stem + 'て', stem + 'ます', stem + 'ない'}
+    return out
+
+
 def target_forms(card):
-    """目标词的可接受写法：原词、读音、每个汉字串、去掉词尾的词干。"""
+    """目标词的可接受写法：原词、读音、每个汉字串、去掉词尾的词干、活用形。"""
     forms = set()
     for raw in (card['word'], card['reading']):
         if not raw:
@@ -1408,6 +1450,8 @@ def target_forms(card):
         stem = re.sub(r'[するるうつくぶむぬぐずふ]$', '', word)
         if len(stem) >= 2:
             forms.add(stem)
+    else:
+        forms |= kana_conjugations(word)
     forms.discard('')
     return forms
 
@@ -1719,7 +1763,11 @@ def render_sentences(card, entry):
 
 
 def render_sentence_html(card, entry):
-    """`Sentence HTML`：内容永远是「原句 ruby <br><br> 新句 ruby」，外壳沿用原卡。"""
+    """`Sentence HTML`：内容永远是「原句 ruby <br><br> 新句 ruby」，不加任何外壳标签。
+
+    2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳——Sentence HTML 只含例句本身，
+    多句用 `<br><br>` 分隔，不用 `<p>` 包裹（与 check_cards 白名单一致）。
+    """
     ruby1 = card['sentences'][0]['ruby'] or entry['sentence1_ruby'] or ''
     if card['n_sent'] >= 2:
         if card['need_ruby2']:
@@ -1731,18 +1779,6 @@ def render_sentence_html(card, entry):
             ruby2 = card['sentences'][1]['ruby'] or entry['new_sentence_ruby'] or ''
     else:
         ruby2 = entry['new_sentence_ruby'] or ''
-    orig = card.get('snapshot', {}).get(F_HTML, '')
-    stripped = strip_outer_wrappers(clean_malformed_ruby(orig))
-    wrap = 'bare'
-    if re.match(r'^\s*<div\b', orig, re.I):
-        wrap = 'div'
-    elif re.match(r'^\s*<p\b', orig, re.I) and not RE_PBOUND.search(stripped):
-        wrap = 'p'
-    if wrap == 'div':
-        outer = re.match(r'^\s*(<div\b[^>]*>)', orig, re.I)
-        return '%s%s<br><br>%s</div>' % (outer.group(1) if outer else '<div>', ruby1, ruby2)
-    if wrap == 'p':
-        return wrap_p(ruby1) + wrap_p(ruby2)
     return '%s<br><br>%s' % (ruby1, ruby2)
 
 

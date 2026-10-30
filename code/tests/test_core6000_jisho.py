@@ -117,6 +117,27 @@ def main():
         check('没有汉字写法时退而接受假名写法',
               pick and pick['jp'] == '彼は、彼女が幸せだと思いこんでいた。', (pick, why))
 
+        print('== 4b. 纯假名动词：活用形也算「含目标词」 ==')
+        forms = CX.kana_conjugations('しゃがむ')
+        check('しゃがむ → しゃがんだ（撥音便）', 'しゃがんだ' in forms, sorted(forms))
+        check('しゃがむ → しゃがんで', 'しゃがんで' in forms, sorted(forms))
+        check('しゃがむ → しゃがみます', 'しゃがみます' in forms, sorted(forms))
+        check('かく → かいた（イ音便）', 'かいた' in CX.kana_conjugations('かく'))
+        check('たべる → たべた（一段）', 'たべた' in CX.kana_conjugations('たべる'))
+        check('あまり → 不展开（避免子串误判）',
+              CX.kana_conjugations('あまり') == set(), CX.kana_conjugations('あまり'))
+        kana_card = card(word='しゃがむ', reading='しゃがむ',
+                         first='お年寄りが道端にしゃがんでいますね。')
+        check('target_forms 收进活用形',
+              'しゃがんだ' in CX.target_forms(kana_card))
+        CX.jisho_fetch = with_candidates([cand('少し離れて見ると、その岩は人がしゃがんだ姿に見える。')])
+        pick, why = CX.pick_jisho(kana_card, Args())
+        check('写「しゃがんだ」的 Jisho 句能被选中',
+              pick is not None and 'しゃがんだ' in pick['jp'], (pick, why))
+        CX.jisho_fetch = with_candidates([cand('私は犬が好きだ。')])
+        pick, why = CX.pick_jisho(kana_card, Args())
+        check('假名卡也挡得住不含目标词的句子', pick is None and 'no-target' in why, (pick, why))
+
         print('== 5. pin_sentence_source：模型改写的句子留不下来 ==')
         entry = {'new_sentence': '彼は自分が病人だと思っている。',
                  'new_sentence_ruby': '<ruby>彼<rt>かれ</rt></ruby>…'}
