@@ -1763,10 +1763,10 @@ def render_sentences(card, entry):
 
 
 def render_sentence_html(card, entry):
-    """`Sentence HTML`：内容永远是「原句 ruby <br><br> 新句 ruby」，不加任何外壳标签。
+    """`Sentence HTML`：内容永远是「原句 ruby <br> 新句 ruby」，不加任何外壳标签。
 
     2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳——Sentence HTML 只含例句本身，
-    多句用 `<br><br>` 分隔，不用 `<p>` 包裹（与 check_cards 白名单一致）。
+    多句用单个 `<br>` 分隔（不用 `<br><br>`、不用 `<p>` 包裹）。
     """
     ruby1 = card['sentences'][0]['ruby'] or entry['sentence1_ruby'] or ''
     if card['n_sent'] >= 2:
@@ -1779,7 +1779,7 @@ def render_sentence_html(card, entry):
             ruby2 = card['sentences'][1]['ruby'] or entry['new_sentence_ruby'] or ''
     else:
         ruby2 = entry['new_sentence_ruby'] or ''
-    return '%s<br><br>%s' % (ruby1, ruby2)
+    return '%s<br>%s' % (ruby1, ruby2)
 
 
 def render_translation(card, entry):
