@@ -19,6 +19,8 @@ import os
 import re
 import shutil
 import sys
+import threading
+import time
 from itertools import count
 
 _SEQ = count(1)
@@ -263,6 +265,67 @@ def main():
     check('素材卡只取第一条（Index 连续）', idx == ['10'], str(idx))
     check('媒体文件名来自 example id', IK.media_stem('anime_k_on__000003060') == 'ik_anime_k_on__000003060',
           IK.media_stem('anime_k_on__000003060'))
+
+    print('== 11. gen：模型返回并回（命中/兜底/不合格）==')
+
+    def grep_rec(word, entry=None):
+        return {'word': word, 'picks': [{'translation': '译'}], 'entry': entry or {},
+                'reading': '', 'pos': '', 'meaning': '', 'translation_cn': '',
+                'a_note': '', 'gen': ''}
+
+    b = [grep_rec('猫'), grep_rec('犬'), grep_rec('鳥', {'glossary_list': ['bird'],
+                                                        'tags': 'n', 'reading': 'とり'})]
+    got = {'entries': [
+        {'word': '猫', 'reading': 'ねこ', 'pos': '名詞', 'meaning': '猫',
+         'translation': '猫。', 'a_note': '<p>猫</p>'},
+        {'word': '犬', 'reading': 'いぬ', 'pos': '名詞', 'meaning': '狗',
+         'translation': '狗。', 'a_note': ''},
+    ]}
+    hit, problems = IK.apply_gen_payload(b, got, [])
+    check('命中 2 条（有 AINote 的 ok、空 AINote 的 fallback）', hit == 2, str(hit))
+    check('猫 写成 ok 且读音/词性/翻译齐全',
+          b[0]['gen'] == 'ok' and b[0]['reading'] == 'ねこ' and b[0]['pos'] == '名詞'
+          and b[0]['translation_cn'] == '猫。', str(b[0]))
+    check('犬 AINote 为空 → fallback（保留模型给的释义）',
+          b[1]['gen'] == 'fallback' and b[1]['meaning'] == '狗', str(b[1]))
+    check('缺条目的词用 JMdict 兜底（释义/读音）',
+          b[2]['gen'] == 'fallback' and b[2]['meaning'] == 'bird'
+          and b[2]['reading'] == 'とり', str(b[2]))
+    hit2, problems2 = IK.apply_gen_payload([grep_rec('猫')], ['不是对象'], ['x'])
+    check('顶层不是对象 → 记问题并全部兜底',
+          hit2 == 0 and any('顶层' in p for p in problems2)
+          and b[0]['gen'] in ('ok', 'fallback'), str(problems2))
+
+    print('== 12. gen 并发：2 路真并行、结果顺序不变 ==')
+    lock = threading.Lock()
+    state = {'active': 0, 'peak': 0}
+    barrier = threading.Barrier(2)
+
+    def pair(batch):
+        with lock:
+            state['active'] += 1
+            state['peak'] = max(state['peak'], state['active'])
+        try:
+            barrier.wait(timeout=2.0)
+        except threading.BrokenBarrierError:
+            pass
+        with lock:
+            state['active'] -= 1
+        return batch
+
+    got_batches = IK.map_batches([1, 2], pair, 2)
+    check('--workers 2 时两条请求同时在飞', state['peak'] == 2, str(state))
+    check('并发结果按输入顺序返回', got_batches == [1, 2], str(got_batches))
+
+    def slow_first(batch):
+        if batch == 1:
+            time.sleep(0.05)
+        return batch
+
+    check('先完成的批次不会插队（顺序仍按输入）',
+          IK.map_batches([1, 2, 3], slow_first, 2) == [1, 2, 3])
+    check('--workers 1 仍是严格串行',
+          IK.map_batches([1, 2], lambda x: x, 1) == [1, 2])
 
     print()
     if FAIL:

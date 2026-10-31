@@ -184,15 +184,17 @@ def main(argv=None):
         WSP.REPORTS, 'ImmersionKit词表-Jiten%d%s%s.md'
         % (a.max_rank, '-考级已有' if a.known_only else '',
            '-单词' if a.words_only else ''))
+    rank_label = ('≤ %d' % a.max_rank) if a.min_rank <= 1 else (
+        '%d–%d' % (a.min_rank, a.max_rank))
 
-    lines = ['# ImmersionKit 词表：Jiten Rank ≤ %d%s%s' % (
-                 a.max_rank, '（core6000/考级已有 → 只补例句卡）' if a.known_only else '',
+    lines = ['# ImmersionKit 词表：Jiten Rank %s%s%s' % (
+                 rank_label, '（core6000/考级已有 → 只补例句卡）' if a.known_only else '',
                  '（只做单词，剔多词素短语）' if a.words_only else ''), '',
              '> 生成时间 %s · 源 `%s` · 口径见 `code/oneshot/immersion_jiten_wordlist.py`'
              % (__import__('datetime').datetime.now().isoformat(timespec='seconds'),
                 os.path.relpath(a.csv, WSP.ROOT)), '',
              '| 项 | 数量 |', '| --- | --- |',
-             '| Jiten 表 Rank ≤ %d 的条目 | %d |' % (a.max_rank, len(rows)),
+             '| Jiten 表 Rank %s 的条目 | %d |' % (rank_label, len(rows)),
              '| 入选（写进 `%s`） | **%d** |' % (os.path.relpath(a.out, WSP.ROOT), len(keep)),
              '| 剔除合计 | %d |' % len(dropped), '']
     by_reason = {}

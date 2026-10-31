@@ -1,7 +1,7 @@
 # ImmersionKit 抓例句卡 / 素材生词卡 使用说明
 
-> 状态：active ｜ 最后核实：2026-10-17（标签改为 `动画::中文名` / 裸 `素材生词`；
-> 分批跑改带 `--no-order`，due 交给插件 `jiten_reorder`）
+> 状态：active ｜ 最后核实：2026-10-30（`gen` 增加本地模型并发 `--workers`，
+> 分批驱动 `--gen-workers 2`；标签/`--no-order` 口径不变）
 
 > 一句话：给一个日语词表，自动从 [ImmersionKit](https://www.immersionkit.com/dictionary)
 > 抓「对白例句 + 剧照 + 原声 + 振假名」，用本地模型补讲解，写成 Anki 里的
@@ -57,6 +57,7 @@ $WS = "<工作区根>"
 | `--speaker-max 0.6` | 括号内（`(メリル)` 这类说话人标记）占比上限 |
 | `--delay 0.5` / `--refresh` | 真上网的间隔 / 忽略缓存重抓 |
 | `--workers 4` | **`fetch` 并发线程数**（默认 4；`1` = 老串行行为）。实测 8 个词：串行 45.4 s → 4 线程 7.1 s；缓存命中的词不占线程 |
+| `gen --workers 2` | **`gen` 本地模型并发请求数**（默认取全局配置 `concurrency`，本机 2；`1` = 严格串行）。服务端 `serve.ps1` 要用 `--max-concurrency 2` 开够槽；两路都不可流式打印（自动 quiet），结果按批次顺序回收 |
 | `--limit N` | 只处理前 N 个词（试跑；`fetch`/`gen` 都有） |
 | `fetch --keep-known` | **反过来的选词口径**：只抓 core6000/考级里**已有**的词（给例句牌组补对白例句用）。配 `write --to example` 只出例句卡，不建素材生词卡 |
 | `write --to example` | 只写例句卡；`--to mined` 只写素材卡；默认 `both` |
@@ -302,7 +303,7 @@ $WS = "<工作区根>"
       --keep-known --to example --progress data\immersion\batch_progress_known.json
 # 生产跑法：--pipeline（第 N+1 块 fetch 与第 N 块 gen/write 并行，实测约 7–15 分钟/块）
 & $PY code\oneshot\immersion_batch.py --words-file data\immersion\words_10k20k.txt `
-      --pipeline --progress data\immersion\batch_progress_10k20k.json
+      --pipeline --gen-workers 2 --progress data\immersion\batch_progress_10k20k.json
 ```
 
 * 中途干净停：建一个 `data\immersion\STOP` 文件，驱动会在块之间停下（删掉即续跑）。
@@ -326,6 +327,7 @@ $WS = "<工作区根>"
 | `--stop-file data\immersion\STOP` | 建这个空文件 → 块与块之间干净停下（exit 5）；删掉重跑即续 |
 | `--only N` / `--from N` / `--redo` | 调试：只跑第 N 块 / 从第 N 块起 / 忽略进度重跑 |
 | `--pipeline` | **流水线跑法**：第 N+1 块的 `fetch` 与第 N 块的 `gen`+`write` 并行；块内「预下媒体」与「gen」也并行（下载不再串着等） |
+| `--gen-workers 2` | 透传给 `gen --workers`：本地模型同时发 2 条请求（默认 2；`1` = 串行）。全局配置里 `concurrency=2`，对应服务端两个 decode 槽 |
 
 #### `--pipeline`：下载与生成并行
 

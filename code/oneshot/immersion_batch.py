@@ -82,6 +82,14 @@ def newest(pattern):
     return max(files, key=os.path.getmtime) if files else ''
 
 
+def gen_argv(plan, workers):
+    """gen 阶段命令：--workers 透传给本地模型并发（0 = 用配置里的 concurrency）。"""
+    argv = ['gen', '--quiet', '--in', plan]
+    if workers and workers > 0:
+        argv += ['--workers', str(workers)]
+    return argv
+
+
 def log(msg):
     print('[%s] %s' % (dt.datetime.now().strftime('%H:%M:%S'), msg), flush=True)
 
@@ -268,6 +276,7 @@ def run_pipeline(a, chunks, tag, prog, windows):
             log('%s 已 fetch 但收到停止信号 → 丢弃（结果在缓存里，重跑近乎零成本）' % key)
             continue
         rec = {'i': i, 'words': len(batch), 'file': chunk_file,
+               'gen_workers': a.gen_workers,
                't_fetch': t_fetch, 'fetch_plan': fetch_plan or ''}
         for attempt in (1, 2):
             t_total = time.time()
@@ -291,7 +300,7 @@ def run_pipeline(a, chunks, tag, prog, windows):
                 warm.daemon = True
                 warm.start()
                 t0 = time.time()
-                IK.main(['gen', '--quiet', '--in', fetch_plan])
+                IK.main(gen_argv(fetch_plan, a.gen_workers))
                 rec['t_gen'] = round(time.time() - t0, 1)
                 warm.join()
                 rec['t_prewarm'] = box.get('t')
@@ -374,6 +383,8 @@ def main(argv=None):
     ap.add_argument('--words-file', default=os.path.join(DATA, 'words.txt'))
     ap.add_argument('--chunk-size', type=int, default=150)
     ap.add_argument('--n', type=int, default=1, help='每个词最多几条例句')
+    ap.add_argument('--gen-workers', type=int, default=2,
+                    help='本地模型并发请求数（默认 2，对应 serve.ps1 的两个 decode 槽；1 = 串行）')
     ap.add_argument('--to', default='both', choices=('example', 'mined', 'both'))
     ap.add_argument('--keep-known', action='store_true',
                     help='fetch 加 --keep-known：只抓 core6000/考级已有的词（配 --to example）')
@@ -411,10 +422,11 @@ def main(argv=None):
     prog.setdefault('started', dt.datetime.now().isoformat(timespec='seconds'))
 
     log('=' * 88)
-    log('全量分批：%d 个词 → %d 块（每块 %d）｜ 目标牌组 %s ｜ %s%s'
+    log('全量分批：%d 个词 → %d 块（每块 %d）｜ 目标牌组 %s ｜ %s%s ｜ 本地模型并发 %s'
         % (len(words), len(chunks), size, a.to,
            '演练' if a.dry_run else '★ 真写库',
-           ' ｜ 流水线（fetch 提前一块 ∥ 媒体预下 ∥ gen）' if a.pipeline else ''))
+           ' ｜ 流水线（fetch 提前一块 ∥ 媒体预下 ∥ gen）' if a.pipeline else '',
+           ('配置' if not a.gen_workers else a.gen_workers)))
     log('=' * 88)
 
     if a.pipeline:
@@ -474,7 +486,8 @@ def main(argv=None):
                                           and minutes_until_window(windows) < need):
                     continue
                 break
-            rec = {'i': i, 'words': len(batch), 'file': chunk_file, 'status': 'running'}
+            rec = {'i': i, 'words': len(batch), 'file': chunk_file,
+                   'gen_workers': a.gen_workers, 'status': 'running'}
             t_total = time.time()
             try:
                 t0 = time.time()
@@ -486,7 +499,7 @@ def main(argv=None):
                 rec['fetch_plan'] = newest(os.path.join(DATA, 'fetch_*.json'))
 
                 t0 = time.time()
-                IK.main(['gen', '--quiet'])
+                IK.main(gen_argv(IK.LATEST, a.gen_workers))
                 rec['t_gen'] = round(time.time() - t0, 1)
                 rec['gen_plan'] = newest(os.path.join(DATA, 'plan_*.json'))
 

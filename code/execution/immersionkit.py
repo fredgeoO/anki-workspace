@@ -11,7 +11,7 @@ ImmersionKit 把同一件事免费提供了：**原声** + **剧照** + **母语
 ----------------------------------------------
     # 0. 词表：一行一个词（UTF-8；允许 ``#`` 注释与「词<TAB>条数」覆盖 --n）
     & $PY code\\cli.py immersion fetch  --words-file data\\immersion\\words.txt
-    & $PY code\\cli.py immersion gen
+    & $PY code\\cli.py immersion gen    --workers 2   # 本地模型并发 2 路（默认取配置 concurrency）
     & $PY code\\cli.py immersion write  --to both              # 演练
     & $PY code\\cli.py immersion write  --to both --commit     # 真写
     & $PY code\\cli.py immersion verify
@@ -488,6 +488,56 @@ def fallback_text(rec):
     return meaning, (entry.get('tags') or ''), (entry.get('reading') or '')
 
 
+def map_batches(batches, fn, workers=1):
+    """按 ``workers`` 路并发跑 ``fn(batch)``，**返回顺序与 batches 一致**。
+
+    ``workers == 1`` 就是老行为（严格串行）。多路只用于本地模型：每次
+    ``LLM.call_json`` 是一条独立 HTTP 请求，客户端本身没有共享状态；服务端
+    ``serve.ps1 --max-concurrency 2`` 开了两个 decode 槽（见全局技能 local-llm）。
+    结果按 ``ex.map`` 的输入顺序回收，所以计划里的词序不会被打乱。
+    """
+    workers = max(1, min(int(workers or 1), len(batches) or 1))
+    if workers == 1 or len(batches) <= 1:
+        return [fn(b) for b in batches]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, batches))
+
+
+def apply_gen_payload(batch, got, problems):
+    """把一次模型返回并回 ``batch`` 的记录；返回 ``(命中条数, problems)``。
+
+    与模型无关的确定性部分（兜底 JMdict 释义、缺条目判 failed）留在这里，
+    串行/并发两条路走同一份实现，避免口径分叉。
+    """
+    by_word = {}
+    if isinstance(got, dict):
+        for e in got.get('entries') or []:
+            if isinstance(e, dict) and e.get('word'):
+                by_word[str(e['word']).strip()] = e
+    elif got is not None:
+        problems = list(problems) + ['顶层不是对象']
+    hit = 0
+    for rec in batch:
+        e = by_word.get(rec['word'])
+        if not e:
+            meaning, pos, reading = fallback_text(rec)
+            rec.update(meaning=meaning, pos=pos,
+                       reading=rec.get('reading') or reading,
+                       a_note='', gen='fallback')
+            if not meaning:
+                rec['gen'] = 'failed'
+            continue
+        rec['reading'] = str(e.get('reading') or rec.get('reading') or '').strip()
+        rec['pos'] = str(e.get('pos') or '').strip()
+        rec['meaning'] = str(e.get('meaning') or '').strip()
+        rec['translation_cn'] = str(e.get('translation') or '').strip()
+        rec['a_note'] = str(e.get('a_note') or '').strip()
+        rec['gen'] = 'ok' if rec['meaning'] and rec['a_note'] else 'fallback'
+        hit += 1
+    return hit, problems
+
+
 def cmd_gen(a):
     WSP.ensure()
     state = load_state(a.inp)
@@ -514,9 +564,12 @@ def cmd_gen(a):
         cfg = LLM.load_config()
         info('本地模型：%s ｜ %s' % (cfg.get('model'), cfg.get('base_url')))
 
+    batches = list(AK.chunks(todo, a.batch))
     done = 0
-    for batch in AK.chunks(todo, a.batch):
-        if a.no_ainote:
+    out_lock = threading.Lock()
+
+    if a.no_ainote:
+        for batch in batches:
             for rec in batch:
                 meaning, pos, reading = fallback_text(rec)
                 rec['meaning'], rec['pos'] = meaning, pos
@@ -524,39 +577,28 @@ def cmd_gen(a):
                 rec['translation_cn'] = (rec['picks'][0].get('translation') or '')
                 rec['a_note'] = ''
                 rec['gen'] = 'fallback'
-                done += 1
-            continue
-        got, res, problems = LLM.call_json(cfg, build_gen_messages(batch),
-                                           require='entries', json_mode=True,
-                                           quiet=a.quiet)
-        by_word = {}
-        if isinstance(got, dict):
-            for e in got.get('entries') or []:
-                if isinstance(e, dict) and e.get('word'):
-                    by_word[str(e['word']).strip()] = e
-        elif got is not None:
-            problems = list(problems) + ['顶层不是对象']
-        for rec in batch:
-            e = by_word.get(rec['word'])
-            if not e:
-                meaning, pos, reading = fallback_text(rec)
-                rec.update(meaning=meaning, pos=pos,
-                           reading=rec.get('reading') or reading,
-                           a_note='', gen='fallback')
-                if not meaning:
-                    rec['gen'] = 'failed'
-                continue
-            rec['reading'] = str(e.get('reading') or rec.get('reading') or '').strip()
-            rec['pos'] = str(e.get('pos') or '').strip()
-            rec['meaning'] = str(e.get('meaning') or '').strip()
-            rec['translation_cn'] = str(e.get('translation') or '').strip()
-            rec['a_note'] = str(e.get('a_note') or '').strip()
-            rec['gen'] = 'ok' if rec['meaning'] and rec['a_note'] else 'fallback'
-            done += 1
-        info('  本批 %d 条 → 命中 %d ｜ 累计 %d/%d'
-             % (len(batch), len(by_word), done, len(todo)))
-        if problems:
-            info('    ⚠ %s' % '；'.join(problems)[:160])
+            done += len(batch)
+    else:
+        # 默认取本地模型配置里的 concurrency（本机 2，对应 serve.ps1 的两个 decode 槽）；
+        # --workers 1 退回严格串行。多路时强制 quiet：两路流式输出会拼成乱码。
+        workers = int(a.workers or cfg.get('concurrency') or 1)
+        workers = max(1, min(workers, len(batches)))
+        info('  本地模型并发 %d 路（--workers；1 = 串行）' % workers)
+
+        def run(batch):
+            nonlocal done
+            got, _res, problems = LLM.call_json(
+                cfg, build_gen_messages(batch), require='entries', json_mode=True,
+                quiet=(a.quiet or workers > 1))
+            hit, problems = apply_gen_payload(batch, got, problems)
+            with out_lock:
+                done += len(batch)
+                info('  [%d/%d] 本批 %d 条 → 命中 %d'
+                     % (done, len(todo), len(batch), hit))
+                if problems:
+                    info('    ⚠ %s' % '；'.join(problems)[:160])
+
+        map_batches(batches, run, workers)
 
     out = os.path.join(DATA, 'plan_%s.json' % stamp())
     save_state(state, out)
@@ -1083,6 +1125,8 @@ def build_parser():
     g = sub.add_parser('gen', help='本地模型出 读音/词性/释义/翻译/讲解')
     common(g)
     g.add_argument('--batch', type=int, default=6, help='每批几个词（默认 6）')
+    g.add_argument('--workers', type=int, default=0,
+                   help='本地模型并发请求数（默认取配置 concurrency，本机 2；1 = 串行）')
     g.add_argument('--no-ainote', action='store_true',
                    help='不调模型：只用 JMdict 释义，AINote 与 Sentence HTML 一起留空')
     g.add_argument('--quiet', action='store_true', help='不打印模型流式输出')
