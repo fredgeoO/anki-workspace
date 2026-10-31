@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py 
 sys.path.insert(0, _HERE)                                           # pipeline.py
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'analysis', 'vocab_cover'))  # _norm.py
 import anki_api as AK      # noqa: E402  唯一的 Anki 访问点
+import batchjob as BJ      # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
 import paths as WSP        # noqa: E402  工作区路径的唯一来源
 import pipeline as P       # noqa: E402  复用 CFG / norm / build_variants
 import check_mine as CM    # noqa: E402  生词条目的**唯一**规则实现（子代理自检也用它）
@@ -631,20 +632,7 @@ def cmd_split(a):
     cands = data['candidates']
     if not cands:
         raise SystemExit('候选为空，先跑：python mine.py scan')
-    os.makedirs(GEN, exist_ok=True)
-    size = (len(cands) + a.batches - 1) // a.batches
-    manifest = []
-    for b in range(a.batches):
-        chunk = cands[b * size:(b + 1) * size]
-        if not chunk:
-            continue
-        name = 'input_%02d.json' % (b + 1)
-        json.dump(chunk, open(os.path.join(GEN, name), 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
-        manifest.append({'batch': b + 1, 'input': name,
-                         'output': 'output_%02d.json' % (b + 1), 'count': len(chunk)})
-    json.dump(manifest, open(os.path.join(GEN, 'manifest.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    manifest = BJ.split(GEN, cands, a.batches)
     print('已切分为 %d 批，共 %d 个候选（约 %d 个/批）'
           % (len(manifest), len(cands), size))
     if not a.print_prompts:
@@ -812,12 +800,10 @@ def is_placeholder(rec):
 
 
 def save_failed(entries):
-    doc = {'generated_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
-           'note': ('这些候选本地模型重试后仍未通过 check_mine；'
-                    '用 mine.py merge-fix --file <产出> 并回，或人工处理'),
-           'candidates': entries}
-    json.dump(doc, open(MINE_FAILED, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return doc
+    return BJ.save_failed(
+        GEN, entries, key='candidates',
+        note=('这些候选本地模型重试后仍未通过 check_mine；'
+              '用 mine.py merge-fix --file <产出> 并回，或人工处理'))
 
 
 def patch_outputs(done):
@@ -1008,42 +994,26 @@ def output_matches_input(m):
 
 def cmd_gen(a):
     """直连本地模型判定候选。默认跳过已存在的批次（断点续跑，判据见 `output_matches_input`）。"""
-    manifest_path = os.path.join(GEN, 'manifest.json')
-    if not os.path.exists(manifest_path):
-        raise SystemExit('没有 manifest.json，先跑：python mine.py split --batches N')
+    manifest = BJ.load_manifest(GEN, hint='先跑：python mine.py split --batches N')
     try:
         import local_llm as LLM
     except ImportError as e:
         raise SystemExit('找不到本地模型客户端 code/common/local_llm.py：%s' % e)
-    manifest = json.load(open(manifest_path, encoding='utf-8'))
     cfg = LLM.load_config()
     if a.fix_failed:
         return fix_failed(a, cfg, LLM)
     print('本地模型：%s @ %s（单请求输出上限 %d tokens，每请求 %d 条候选）'
           % (cfg['model'], cfg['base_url'], MINE_MAX_TOKENS, a.per_request))
-    todo = []
-    for m in manifest:
-        if a.force or not os.path.exists(os.path.join(GEN, m['output'])):
-            todo.append(m)
-        elif output_matches_input(m):
-            print('  批%02d %s 已存在且与输入同源 → 跳过（--force 重做）'
-                  % (m['batch'], m['output']))
-        else:
-            print('  ⚠ 批%02d %s 已存在但与本批输入对不上（同一批号的旧产出）→ 重做'
-                  % (m['batch'], m['output']))
-            todo.append(m)
+    todo = BJ.todo(manifest, GEN, force=a.force, same_source=output_matches_input)
     if not todo:
         print('没有要判定的批次。下一步：python mine.py write')
         return
 
-    t0 = time.time()
-    tot_p = tot_c = tot_req = 0
-    failed = []
-    for m in todo:
-        cands = json.load(open(os.path.join(GEN, m['input']), encoding='utf-8'))
+    def run_batch(m, cands):
         done, bad = {}, {}
         pending = list(cands)
         rounds = 0
+        req = tp = tc = 0
         while pending:
             fb = []
             size = a.per_request if rounds == 0 else 1     # 重问逐条发
@@ -1054,14 +1024,14 @@ def cmd_gen(a):
                 try:
                     got, res = mine_request(cfg, LLM, group,
                                             feedback='\n'.join(fb) if fb else None)
-                    tot_req += 1
-                    tot_p += res.prompt_tokens
-                    tot_c += res.completion_tokens
+                    req += 1
+                    tp += res.prompt_tokens
+                    tc += res.completion_tokens
                     ok, problems = judge_mine(group, got)
                 except Exception as e:
                     # 一组出意外（模型回复形状离谱、校验器 bug、连接抖动）不许拖垮整批：
                     # 这一组按「没判出来」处理，下一轮会逐条重问，最后落到 failed.json。
-                    tot_req += 1
+                    req += 1
                     print('  ⚠ 批%02d 一组判定出意外：%s: %s → 这 %d 条按未判定处理'
                           % (m['batch'], type(e).__name__, e, len(group)))
                     ok, problems = {}, {P.norm(c['word']): '%s: %s' % (type(e).__name__, e)
@@ -1092,31 +1062,31 @@ def cmd_gen(a):
                                       'include': False,
                                       'reason': MINE_PLACEHOLDER_REASON}
             out.append(entry)
-        json.dump(out, open(os.path.join(GEN, m['output']), 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
         n_inc = sum(1 for e in out if e['include'])
         print('  批%02d 写出 %s：收录 %d / 排除 %d'
               % (m['batch'], m['output'], n_inc, len(out) - n_inc))
+        failed_rows = []
         for c in cands:
             key = P.norm(c['word'])
             if key in bad:
                 item = dict(c)
                 item['batch'] = m['batch']
                 item['problems'] = bad[key]
-                failed.append(item)
-    print('判定结束：%d 次请求，prompt %d + completion %d tokens，耗时 %.0fs'
-          % (tot_req, tot_p, tot_c, time.time() - t0))
+                failed_rows.append(item)
+        return out, failed_rows, (req, tp, tc)
+
+    failed, _totals, _elapsed, fpath = BJ.run(
+        todo, GEN, run_batch, key='candidates',
+        note=('这些候选本地模型重试后仍未通过 check_mine；'
+              '用 mine.py merge-fix --file <产出> 并回，或人工处理'))
     if failed:
-        save_failed(failed)
         print()
-        print('有 %d 条本地模型没判出来 → 已写入 %s' % (len(failed), MINE_FAILED))
+        print('有 %d 条本地模型没判出来 → 已写入 %s' % (len(failed), fpath))
         print('下一步（交给 deepseek 收尾）：')
         print('  1) 让强模型按 failed.json 生成 data/vocab/gen_mine/fix_output.json')
         print('     （同样的 JSON 数组格式，只放这些 word）')
         print('  2) python mine.py merge-fix --file fix_output.json')
     else:
-        if os.path.exists(MINE_FAILED):
-            os.remove(MINE_FAILED)     # 全部通过就清掉旧的失败清单
         print('全部一次判定通过。')
     print('下一步：python mine.py write       # 演练（看 dryrun_notes.json 的 word 列）')
 

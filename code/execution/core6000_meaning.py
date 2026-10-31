@@ -44,6 +44,7 @@ import anki_api as AK          # noqa: E402
 import jmdict_check as JC      # noqa: E402
 import paths as WSP            # noqa: E402
 import textio                  # noqa: E402  UTF-8 stdio 唯一入口
+import writeback as WB         # noqa: E402  写库事务（演练/备份/回读）
 
 DECK = '0-日本语学习::0-词汇::1-高频日语单词 6000'
 NOTE_MODEL = 'Japanese Vocabulary'
@@ -647,26 +648,13 @@ def cmd_apply(args):
     textio.dump_json(backup, backup_path)
     print('旧 Meaning 已备份：%s（%d 条）' % (os.path.relpath(backup_path, WSP.ROOT), len(backup)))
 
-    pairs = [(int(c['id']), {'Meaning': c['new_raw']}) for c in changed]
-    ok_n, fail = 0, []
-    for i in range(0, len(pairs), 50):
-        for nid, fields in pairs[i:i + 50]:
-            try:
-                AK.update_note_fields(nid, fields)
-                ok_n += 1
-            except Exception as e:
-                fail.append((nid, str(e)))
-        time.sleep(0.2)
-    print('写入：成功 %d，失败 %d' % (ok_n, len(fail)))
-    if fail:
-        for nid, e in fail[:10]:
-            print('  ✗ %s %s' % (nid, e))
     expected = {int(c['id']): {'Meaning': c['new_raw']} for c in changed}
-    bad = AK.verify_note_fields(expected)
-    print('回读：%d 张不一致' % len(bad))
-    if bad:
-        for nid, fields in list(bad.items())[:10]:
-            print('  ✗ %s %s' % (nid, fields))
+    rep = WB.write_fields(expected, commit=True, label='meaning', backup=False,
+                          chunk=50, pause=0.2, quiet=True)
+    bad = rep['bad']
+    print('写入：%d 张；回读不一致 %d 张' % (len(expected) - len(bad), len(bad)))
+    for nid, fields in list(bad.items())[:10]:
+        print('  ✗ %s %s' % (nid, '、'.join(fields)))
     applied = os.path.join(DIR, 'applied_%s.json' % ts)
     textio.dump_json({'backup': backup_path, 'count': len(changed),
                       'items': [{'id': c['id'], 'index': c['index'], 'word': c['word'],
@@ -674,7 +662,7 @@ def cmd_apply(args):
     print('应用记录：%s' % os.path.relpath(applied, WSP.ROOT))
     print('回退：python code/cli.py meaning revert --backup %s --commit'
           % os.path.relpath(backup_path, WSP.ROOT))
-    return 0 if not bad and not fail else 1
+    return 0 if rep['ok'] else 1
 
 
 def cmd_revert(args):

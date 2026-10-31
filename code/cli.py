@@ -120,6 +120,40 @@ WEAK_CHAIN = {
                    os.path.join(AN, 'make_weak_list.py')],
 }
 
+# 一张扁平分发表：key 是命令路径（1 元组=顶层组，2 元组=组+子命令）。
+# 2026-11-01 收成一层：main 只查这张表，不再为 vocab / weak / preset 各写一路 if。
+# value = (kind, payload)：script=单个脚本 / chain=顺序脚本链 / preset=包死参数的流程 /
+# group=只打印子入口帮助（vocab、weak 不带子命令时）。
+ENTRIES = {}
+for _k, _v in GROUPS.items():
+    ENTRIES[(_k,)] = ('script', _v)
+for _k, _v in VOCAB.items():
+    ENTRIES[('vocab', _k)] = ('script', _v)
+for _k, _v in WEAK.items():
+    ENTRIES[('weak', _k)] = ('script', _v)
+for _k, _v in WEAK_CHAIN.items():
+    ENTRIES[('weak', _k)] = ('chain', _v)
+ENTRIES[('vocab', 'reorder-jiten')] = ('preset', 'vocab reorder-jiten')
+ENTRIES[('jiten',)] = ('preset', 'vocab reorder-jiten')
+ENTRIES[('reorder-jiten',)] = ('preset', 'vocab reorder-jiten')
+ENTRIES[('vocab',)] = ('group', 'vocab')
+ENTRIES[('weak',)] = ('group', 'weak')
+
+
+def resolve(argv):
+    """argv → ((kind, payload), 剩余参数)；不认识返回 (None, rest)。
+
+    先按「组 + 子命令」查，再退回「单独一个组」；``--`` 之后的参数原样回传。
+    """
+    group, rest = argv[0], argv[1:]
+    if rest and rest[0] == '--':
+        rest = rest[1:]
+    if rest and not rest[0].startswith('-'):
+        entry = ENTRIES.get((group, rest[0]))
+        if entry is not None:
+            return entry, rest[1:]
+    return ENTRIES.get((group,)), rest
+
 # ── Jiten 全局词频序重排 preset ────────────────────────────────────────
 # 这里包死的三个开关，是 2026-10 实测口径（docs/architecture.md §5 / freq_external.py docstring）：
 #   * make_activate_plan 必须 --all-cards + 排除例句卡组，否则计划覆盖不到全部词汇卡
@@ -316,13 +350,13 @@ def _print_help():
     print('  temp      一次性文件区（唯一）      list | clean | path')
     print('  tagfreq   按 Jiten 名次打词频分档标签 --stop 12000 --ceiling 24000（默认演练）')
     print('  backup    备份到 G: 盘              --dest <路径>')
-    print('  list      列出全部入口与实际脚本路径')
+    print('  list      列出全部入口与实际脚本路径  list --check（缺失则退出 1）')
     print()
     print('参数原样透传给被调脚本；``--`` 之后不再被本文件解析。')
     print('子脚本自己的帮助：python code/cli.py <组> --help')
 
 
-def cmd_list():
+def cmd_list(check=False):
     print('组 → 脚本（存在性检查）')
     print('-' * 88)
     rows = list(GROUPS.items()) + [('vocab:' + k, v) for k, v in VOCAB.items()]
@@ -331,15 +365,22 @@ def cmd_list():
         for s in v:
             rows.append(('weak:' + k, s))
     rows.append(('preset', 'vocab reorder-jiten'))
+    missing = []
     for name, script in rows:
         if name == 'preset':
             print('  %-24s %s' % (name, script))
             continue
-        mark = 'ok ' if os.path.exists(script) else '❌ '
-        print('  %s%-21s %s' % (mark, name, os.path.relpath(script, WSP.ROOT)))
+        ok = os.path.exists(script)
+        if not ok:
+            missing.append(name)
+        print('  %s%-21s %s' % ('ok ' if ok else '❌ ', name,
+                                os.path.relpath(script, WSP.ROOT)))
     print()
     print('未纳入统一入口的脚本仍可直接调用（如 %s）'
           % os.path.relpath(VOCAB_DIR, WSP.ROOT))
+    if check and missing:
+        print('\n✗ %d 个入口找不到脚本：%s' % (len(missing), '、'.join(missing)))
+        return 1
     return 0
 
 
@@ -354,20 +395,24 @@ def main(argv=None):
         rest = rest[1:]
 
     if group == 'list':
-        return cmd_list()
-    if group == 'vocab':
-        return cmd_vocab(rest)
-    if group == 'weak':
-        return cmd_weak(rest)
-    if group in ('jiten', 'reorder-jiten'):   # 顶层别名
-        return cmd_jiten(rest)
-    if group in GROUPS:
-        return _run(GROUPS[group], rest)
+        return cmd_list(check='--check' in rest)
 
-    print('❌ 未知入口：%s' % group)
-    print()
-    _print_help()
-    return 2
+    entry, rest = resolve(argv)
+    if entry is None:
+        print('❌ 未知入口：%s' % group)
+        print()
+        _print_help()
+        return 2
+
+    kind, payload = entry
+    if kind == 'script':
+        return _run(payload, rest)
+    if kind == 'chain':
+        steps = [(s, os.path.relpath(s, WSP.ROOT)) for s in payload]
+        return _chain(steps, [rest] + [[] for _ in payload[1:]])
+    if kind == 'preset':
+        return cmd_jiten(rest)
+    return cmd_vocab(rest) if payload == 'vocab' else cmd_weak(rest)
 
 
 if __name__ == '__main__':

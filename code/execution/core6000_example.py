@@ -126,8 +126,9 @@ Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回�
    也不往库里塞一句没人说过的话。`data/pylibs` 里没有 lxml，`jisho_example` 会自动用
    `code/tools/minihtml.py`（标准库实现的等价解析）。
 
-只用 Python 标准库（+ 复用 code/execution/today_new.py、code/tools/edge_tts_min.py、
-code/tools/jisho_example.py、code/common/paths.py、code/analysis/today_weak.py）；不 pip install。
+只用 Python 标准库（+ 复用 code/execution/today_new.py、code/execution/core6000_text.py、
+code/tools/edge_tts_min.py、code/tools/jisho_example.py、code/common/paths.py、
+code/analysis/today_weak.py）；不 pip install。
 AnkiConnect 必须在 127.0.0.1:8765，本地模型默认 http://127.0.0.1:8080/v1（NInfer；Responses API：/v1/responses）。
 """
 import argparse
@@ -153,6 +154,9 @@ import paths as WSP           # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import today_new as TN        # noqa: E402  （可安全 import：argparse 只在它的 __main__ 里跑）
 import edge_tts_min as TTS    # noqa: E402
+# ② 的纯渲染（词性/注音/词表）：实现在 core6000_text.py；这里 import 是为了模块级
+# 名字不变（测试与探针脚本仍用 CE.ruby_word / CE.gloss_lines / CE.pos_cn）。
+from core6000_text import POS_CN, gloss_lines, pos_cn, ruby_word  # noqa: E402,F401
 
 # ============================================================================
 # 常量：路径 / 字段名 / 范围
@@ -1749,10 +1753,6 @@ def gate_gen(card, entry, scopes=None):
 # ============================================================================
 # 渲染（契约 §5）
 # ============================================================================
-def wrap_p(block):
-    return '<p>%s</p>' % block
-
-
 def render_sentences(card, entry):
     """`Sentence`：1 句的卡 = 原句 + 新句；已有 2 句的卡 = 原来那两句（绝不追加第三句）。"""
     if card['n_sent'] >= 2:
@@ -1808,64 +1808,8 @@ def render_audio(card):
     return ''.join('[sound:%s]' % f for f in names)
 
 
-POS_CN = {                       # 卡上 `Part of Speech` 是英文：② 的（词性）按 ① 的中文口径写
-    'noun': '名词', 'verb': '动词', 'adjective': 'い形容词',
-    'adjectival noun': 'な形容词', 'adverb': '副词', 'verbal noun': '名词/サ変動詞',
-    'interrogative': '疑问词', 'pronoun': '代词', 'conjunction': '接续词',
-    'particle': '助词', 'counter': '量词', 'numeral': '数词',
-    'expression': '惯用语', 'prefix': '接头辞', 'suffix': '接尾辞',
-}
-
-
-def pos_cn(pos):
-    """词性英文 → 中文（认不出就原样返回，不丢信息）。"""
-    p = (pos or '').strip()
-    return POS_CN.get(p.lower(), p)
-
-
-def ruby_word(w, r):
-    """`<ruby>漢字<rt>かな</rt></ruby>`；没有读音或词里没汉字就原样返回。
-
-    口径与 ① 一致：只给汉字注音（假名词不注音 —— 闸门 4 也禁止基底只含假名）。
-    """
-    w = (w or '').strip()
-    if w and (r or '').strip() and TN.KANJI.search(w):
-        return '<ruby>%s<rt>%s</rt></ruby>' % (w, r.strip())
-    return w
-
-
-def gloss_lines(word, reading, meaning, glosses, pos=''):
-    """② 的词表：目标词一行 + 新句里其它值得讲的词（最多 4 个）。
-
-    行文与 ① 的「核心词汇」对齐：`<ruby>漢字<rt>かな</rt></ruby>（词性）：释义`，
-    这样 ①② 看起来是同一套版式（契约 §5.2）。① 用的是**卡里原有的正文**
-    （`section_body_html` 的 `orig`），不经过这里 —— 改这里一个字都不会动 ①。
-
-    目标词那一行优先用模型在 `new_word_gloss` 里给的那条（`mean` 要写明新句**实际用的义项**，
-    「此处是「…」的意思」就写在这里）；模型没给就回退到卡上的 `Meaning`。
-    """
-    lines, used, target_line = [], set(), None
-    for g in glosses:
-        if g['w'] == word or (reading and g['w'] == reading):
-            target_line = g
-            used.add(g['w'])
-    if target_line:
-        head_word = target_line['w']
-        head_r = target_line['r'] or reading
-        head_pos = target_line['pos'] or pos          # 模型没给词性就用卡上的 Part of Speech
-        head_mean = target_line['mean'] or meaning
-    else:
-        head_word, head_r, head_pos, head_mean = word, reading, pos, meaning
-    head = ruby_word(head_word, head_r)
-    if head:
-        head += '（%s）：%s' % (pos_cn(head_pos) or '—', head_mean or '—')
-    lines.append(head)
-    for g in glosses:
-        if g['w'] in used:
-            continue
-        lines.append('%s（%s）：%s' % (ruby_word(g['w'], g['r']),
-                                     pos_cn(g['pos']) or '—', g['mean'] or '—'))
-    return lines
+# POS_CN / pos_cn / ruby_word / gloss_lines 已移到 core6000_text.py（纯渲染，可单独测），
+# 这里从那里 import，模块级名字保持不变。
 
 
 def both(one, two):

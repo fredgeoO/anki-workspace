@@ -1,6 +1,6 @@
 # 实现与内部机制（implementation）
 
-> 状态：active ｜ 最后核实：2026-10-30
+> 状态：active ｜ 最后核实：2026-11-01
 
 **这是什么**：从根 [README](../README.md) 迁出的实现细节——数据流、流水线各阶段、选词打分、
 覆盖率口径、测试矩阵、仓库边界。README 只留使用者要的「怎么用」，想知道「它到底怎么算、产物落在哪、
@@ -105,8 +105,8 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 
 ## 5. 测试矩阵
 
-12 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
-2026-10-28 复核全部通过。跑法：
+19 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
+2026-11-01 复核全部通过。跑法：
 
 ```powershell
 & $PY "$WS\code\tests\test_llm_out.py"     # 换一个文件名就是另一组
@@ -116,7 +116,7 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 |---|---|
 | `test_llm_out.py` | 本地模型产出吸收层：畸形 JSON、字段类型错、整组超预算、漏卡重问 |
 | `test_mine_patch.py` | 阶段四 `merge-fix` 的前缀回退（2026-10-12 事故） |
-| `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性 |
+| `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性、gen 并回与并发顺序 |
 | `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
 | `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
 | `test_jiten_rank.py` | `JitenAnimeRank`/`JitenGlobalRank` 查表、词字段推导与 6 位补零（文本序 = 数值序） |
@@ -125,9 +125,16 @@ JAR 只作次级加分：它排名靠前多是 `おっ`/`くっ`/`やっぱ` 这
 | `test_today_new_words.py` | 每日生词挑选：Jiten 升序、无排名垫底、上限 N、标签差集 |
 | `test_lesson_render.py` | 每日讲义口径：词形/读音、词性校正、同词合并、接续脏数据、计数自洽、讲解机械错 |
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
+| `test_writeback.py` | 写库事务：演练不写、提交备份、回读失败上报、分块/quiet、调度接口不出现 |
+| `test_batchjob.py` | 批处理清单：分批/manifest、同源跳过、`--force`、failed 形状与清理 |
+| `test_episode_retag.py` | 编排 retag：走 `write_tags` 双向回读、演练不写 |
+| `test_episode_scripts.py` | 编排脚本表存在性 + `rank` 进程内调用 |
+| `test_cli_entries.py` | cli 入口表存在性、`list --check`、`resolve` 路径 |
+| `test_ruby_wrap.py` | `<ruby>` 构造唯一：wrap / to_ruby / ruby_word / ruby_text |
+| `test_core6000_text.py` | core6000 ② 的纯渲染：词性中文化、注音、词表目标行/去重，且只实现一份 |
 
 跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。动过 `common/` 或
-`execution/` 就把 `code\tests\*.py` 全跑一遍，12 个都 0 才算完；只改文档不用跑。
+`execution/` 就把 `code\tests\*.py` 全跑一遍，19 个都 0 才算完；只改文档不用跑。
 
 ## 6. 仓库边界与数据安全
 

@@ -52,6 +52,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py / check_cards.py
 sys.path.insert(0, _HERE)
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
+import batchjob as BJ  # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
 import check_cards  # noqa: E402
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
 import llm_out as OUT  # noqa: E402  模型产出吸收层（类型归一 / 原始回复留证）
@@ -695,20 +696,7 @@ def cmd_split(a):
               'word': n['fields'].get('Word', {}).get('value', ''),
               'source': n['fields'].get('Source', {}).get('value', '')}
              for n in AK.notes_info(ids)]
-    os.makedirs(GEN, exist_ok=True)
-    size = (len(cards) + a.batches - 1) // a.batches
-    manifest = []
-    for b in range(a.batches):
-        chunk = cards[b * size:(b + 1) * size]
-        if not chunk:
-            continue
-        name = 'input_%02d.json' % (b + 1)
-        json.dump(chunk, open(os.path.join(GEN, name), 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
-        manifest.append({'batch': b + 1, 'input': name,
-                         'output': 'output_%02d.json' % (b + 1), 'count': len(chunk)})
-    json.dump(manifest, open(os.path.join(GEN, 'manifest.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    manifest = BJ.split(GEN, cards, a.batches)
     print('已切分为 %d 批，共 %d 张（含 Word 重点词 %d 张）'
           % (len(manifest), len(cards), sum(1 for c in cards if c['word'].strip())))
     if not a.print_prompts:
@@ -849,15 +837,13 @@ def dump_raw(batch_no, rounds, group, res, why=''):
 
 
 
-def write_output(batch_no, cards, done):
-    """写出 output_NN.json：顺序同输入；没做出来的两个字段留空（规范 §8）。"""
+def build_output(cards, done):
+    """input 顺序 → output 行；没做出来的两个字段留空（规范 §8）。"""
     out = []
     for c in cards:
         nid = int(c['noteId'])
         out.append(done.get(nid) or {'noteId': nid, 'sentence': c['sentence'],
                                      'AINote': '', 'SentenceHTML': ''})
-    json.dump(out, open(os.path.join(GEN, 'output_%02d.json' % batch_no), 'w',
-                        encoding='utf-8'), ensure_ascii=False, indent=1)
     return out
 
 
@@ -866,12 +852,10 @@ def save_failed(entries):
 
     条目信息足够让别处独立生成：noteId / sentence / word / source / batch / problems。
     """
-    doc = {'generated_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
-           'note': ('这些卡本地模型重试后仍未通过 check_cards；'
-                    '用 pipeline.py merge-fix --file <产出> 并回，或人工处理'),
-           'cards': entries}
-    json.dump(doc, open(FAILED, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return doc
+    return BJ.save_failed(
+        GEN, entries, key='cards',
+        note=('这些卡本地模型重试后仍未通过 check_cards；'
+              '用 pipeline.py merge-fix --file <产出> 并回，或人工处理'))
 
 
 def gen_loop(a, cfg, LLM, cards, batch_no, tag=''):
@@ -965,14 +949,11 @@ def cmd_gen(a):
     没做出来的卡汇总进 failed.json，交给强模型（deepseek）用 `merge-fix` 收尾 ——
     本地模型只在**结果可机械校验**的地方顶上，做不出来的不让它硬撑。
     """
-    manifest_path = os.path.join(GEN, 'manifest.json')
-    if not os.path.exists(manifest_path):
-        raise SystemExit('没有 manifest.json，先跑：python pipeline.py split --tag "…"')
+    manifest = BJ.load_manifest(GEN, hint='先跑：python pipeline.py split --tag "…"')
     try:
         import local_llm as LLM
     except ImportError as e:
         raise SystemExit('找不到本地模型客户端 code/common/local_llm.py：%s' % e)
-    manifest = json.load(open(manifest_path, encoding='utf-8'))
     cfg = LLM.load_config()
 
     if a.fix_failed:
@@ -980,51 +961,38 @@ def cmd_gen(a):
 
     print('本地模型：%s @ %s（单请求输出上限 %d tokens，每请求 %d 张）'
           % (cfg['model'], cfg['base_url'], GEN_MAX_TOKENS, a.per_request))
-    todo = []
-    for m in manifest:
-        if os.path.exists(os.path.join(GEN, m['output'])) and not a.force:
-            if output_matches_input(m):
-                print('  批%02d %s 已存在且与输入同源 → 跳过（--force 重做）'
-                      % (m['batch'], m['output']))
-                continue
-            print('  ⚠ 批%02d %s 已存在但与本批输入对不上（同一批号的旧产出）→ 重做'
-                  % (m['batch'], m['output']))
-        todo.append(m)
+    todo = BJ.todo(manifest, GEN, force=a.force, same_source=output_matches_input)
     if not todo:
         print('没有要生成的批次。下一步：python pipeline.py write')
         return
 
-    t0 = time.time()
-    tot = [0, 0, 0]
-    failed = []
-    for m in todo:
-        cards = json.load(open(os.path.join(GEN, m['input']), encoding='utf-8'))
+    def run_batch(m, cards):
         done, bad, stat = gen_loop(a, cfg, LLM, cards, m['batch'],
                                    tag='批%02d ' % m['batch'])
-        for i in range(3):
-            tot[i] += stat[i]
-        write_output(m['batch'], cards, done)
+        out = build_output(cards, done)
         print('  批%02d 写出 %s：%d 张合格 / %d 张待强模型收尾'
               % (m['batch'], m['output'], len(done), len(cards) - len(done)))
         by_id = {int(c['noteId']): c for c in cards}
+        failed_rows = []
         for nid, why in sorted(bad.items()):
             c = by_id[nid]
-            failed.append({'noteId': nid, 'batch': m['batch'],
-                           'sentence': c['sentence'], 'word': c.get('word', ''),
-                           'source': c.get('source', ''), 'problems': why})
-    print('本地模型结束：%d 次请求，prompt %d + completion %d tokens，耗时 %.0fs'
-          % (tot[0], tot[1], tot[2], time.time() - t0))
+            failed_rows.append({'noteId': nid, 'batch': m['batch'],
+                                'sentence': c['sentence'], 'word': c.get('word', ''),
+                                'source': c.get('source', ''), 'problems': why})
+        return out, failed_rows, stat
+
+    failed, _totals, _elapsed, fpath = BJ.run(
+        todo, GEN, run_batch, key='cards',
+        note=('这些卡本地模型重试后仍未通过 check_cards；'
+              '用 pipeline.py merge-fix --file <产出> 并回，或人工处理'))
     if failed:
-        save_failed(failed)
         print()
-        print('有 %d 张本地模型没做出来 → 已写入 %s' % (len(failed), FAILED))
+        print('有 %d 张本地模型没做出来 → 已写入 %s' % (len(failed), fpath))
         print('下一步（交给 deepseek 收尾）：')
         print('  1) 让强模型按 failed.json 生成 data/pipeline/gen/fix_output.json')
         print('     （同样的 JSON 数组格式，只放这些 noteId）')
         print('  2) python pipeline.py merge-fix --file "%s"' % 'fix_output.json')
     else:
-        if os.path.exists(FAILED):
-            os.remove(FAILED)          # 全部通过就把旧的失败清单清掉，免得强模型去做已经做好的卡
         print('全部一次通过，没有要收尾的。')
     print('下一步：python pipeline.py write')
 

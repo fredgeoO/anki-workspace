@@ -49,6 +49,7 @@ SNAPSHOTS = os.path.join(DATA, 'snapshots')
 DATA_PIPELINE = os.path.join(DATA, 'pipeline')   # 阶段 0-2 工作目录（原 ./gen）
 DATA_VOCAB = os.path.join(DATA, 'vocab')         # 阶段 4 工作目录（原 ./gen_mine）
 DATA_PLANS = os.path.join(DATA, 'plans')         # plan_activate_*.json
+DATA_WRITEBACK = os.path.join(DATA, 'writeback')  # 写库前旧值备份（writeback.py）
 DATA_I1 = os.path.join(DATA, 'i1')               # gen_i1_cache.json
 DATA_WEAK = os.path.join(DATA, 'weak')           # weak_words_2d.json
 EVIDENCE = os.path.join(DATA, 'evidence')        # ep04_backup 等判定证据
@@ -86,7 +87,8 @@ def ensure(*dirs):
     """Create the given directories (defaults to the writable workdirs)."""
     for d in dirs or (DATA_PIPELINE, DATA_VOCAB, DATA_PLANS, DATA_I1,
                       DATA_WEAK, OUT_I1, OUT_AUDIO, REPORTS,
-                      DATA_CORE6000, OUT_AUDIO_CORE6000, DATA_IMMERSION):
+                      DATA_CORE6000, OUT_AUDIO_CORE6000, DATA_IMMERSION,
+                      DATA_WRITEBACK):
         os.makedirs(d, exist_ok=True)
     return dirs
 

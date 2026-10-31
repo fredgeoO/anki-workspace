@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.join(_CODE, 'common'))
 import anki_api as AK         # noqa: E402  唯一的 Anki 访问点
 import paths as WSP           # noqa: E402
 import textio                 # noqa: E402  UTF-8 stdio 唯一入口（import 即生效）
+import writeback as WB        # noqa: E402  写库事务（演练/备份/回读）
 
 NOTE_MODEL = 'Japanese Vocabulary'
 F_NOTE = 'AINote'
@@ -509,17 +510,17 @@ def do_commit(rows):
 
     print()
     print('写 %d 张卡的 AINote…' % len(rows))
-    for card, _entry, rendered in rows:
-        AK.update_note_fields(card['id'], {F_NOTE: rendered})
-        print('  ✓ %s（%d）' % (card['word'], card['id']))
+    want = {int(card['id']): {F_NOTE: rendered} for card, _e, rendered in rows}
+    rep = WB.write_fields(want, commit=True, label='ainote', backup=False, quiet=True)
+    for card, _entry, _rendered in rows:
+        if int(card['id']) not in rep['bad']:
+            print('  ✓ %s（%d）' % (card['word'], card['id']))
 
-    live = AK.note_values([card['id'] for card, _e, _r in rows], names=(F_NOTE,))
-    bad = [(card['word'],) for card, _e, rendered in rows
-           if (live.get(card['id']) or {}).get(F_NOTE, '') != rendered]
+    bad = [card['word'] for card, _e, _r in rows if int(card['id']) in rep['bad']]
     print()
     if bad:
         print('⚠️ 回读校验不一致 %d 张（Anki 浏览器开着没刷新？）：%s'
-              % (len(bad), '、'.join(w for (w,) in bad)))
+              % (len(bad), '、'.join(bad)))
         return 1
     print('★ 回读校验通过：%d 张卡的 AINote 与写入值逐字一致。' % len(rows))
     print('退路：python code/cli.py ainote revert --commit --backup %s' % backup_path)

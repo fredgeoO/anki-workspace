@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-10-30
+> 状态：active ｜ 最后核实：2026-11-01
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（12 个独立脚本，纯离线，全部几秒）：
+改过代码还要跑回归测试（19 个独立脚本，纯离线，全部几秒）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -77,7 +77,8 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
    → `check_cards.py` / `check_mine.py` / `check_ruby.py` / `ruby_engine.py`；
    词形/读音/词性对词典 → `jmdict_check.py`；
    模型只做翻译、讲解、释义、词性、读音盲区裁决，且一批一次，不逐卡 ping-pong。
-7. **写库前留退路，写后回读**：`AK.verify_note_fields({nid: {...}})` 是收尾动作。
+7. **写库前留退路，写后回读**：优先用 `code/common/writeback.py`（演练 / 备份 / 写 / 回读一次到位）；
+   手写路径也必须 `AK.verify_note_fields({nid: {...}})` 收尾。
 8. **删除/覆盖前先打印「将删/将改 N 项」和清单**，数字不对就停。
 9. **不可逆操作先问人**：批量删卡/删字段、改笔记模板、`revert`、覆盖已有讲解。
 10. **环境别自己造**：不 `pip install`、不找系统 Python；TTS 用 `code/tools/edge_tts_min.py`（纯标准库）。
@@ -119,13 +120,20 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/cli.py` | 组 → 脚本映射（`GROUPS` / `VOCAB` / `WEAK`）。加功能只加映射，别在这里写逻辑 |
 | `code/common/paths.py` | 路径唯一来源（`WSP.DATA_PIPELINE`、`WSP.TEMP` …） |
 | `code/common/anki_api.py` | **Anki 唯一通道**：`find_notes` / `notes_info` / `update_note_fields` / `verify_note_fields` / `Snapshot.open(live_copy=True)` / 命令行 `check`、`audit`、`count`、`revlog` |
+| `code/common/writeback.py` | **写库事务**：演练 / 备份 / 写 / 回读；只暴露字段与标签，结构上不碰调度列 |
+| `code/common/batchjob.py` | **批处理清单层**：split / manifest / 断点续跑 / failed.json（mine 与 pipeline 共用） |
 | `code/common/textio.py` | UTF-8 stdio 与容错解码；`read_text` / `dump_json` / `run` / `audit --strict` |
 | `code/common/jp_decks.py` | 牌组名、考级级别标签解析（`level_from_tags`）。**别拼子 deck 路径** |
 | `code/common/ruby_engine.py` | 拿原句当骨架**确定性**渲染/修复 `Sentence HTML` |
+| `code/common/ruby_text.py` | `漢字[かんじ]` ↔ `<ruby>` 的解析与纯文本提取；标签构造走 `ruby_engine.wrap` |
+| `code/common/htmltext.py` | 去 HTML 标签 / `<br>` 转换行（`ruby_text` 与讲义共用） |
 | `code/common/jmdict_check.py` | JMdict 核验：词形/读音/词性对词典（每日讲义纠错；只读词典，不写 Anki） |
 | `code/common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
 | `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |
 | `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `core6000_example.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` |
+| `code/execution/lesson_text.py` | 讲义 teach 整形 / 接续清洗 / Markdown 渲染（从 `today_new.py` 抽出） |
+| `code/execution/core6000_text.py` | core6000 补例句②的纯渲染：词性中文化 / 注音 / 词表（从 `core6000_example.py` 抽出） |
+| `code/execution/lesson_check.py` | 讲义的机械判定：词形/读音/词性、内容问题、渲染后闸门（从 `today_new.py` 抽出，不渲染） |
 | `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `proper_extract.py` `jisho_example.py` |
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
@@ -197,7 +205,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
 6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
 7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   12 个都 0 才算完；只改文档就不用。
+   19 个都 0 才算完；只改文档就不用。
 
 `docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
 

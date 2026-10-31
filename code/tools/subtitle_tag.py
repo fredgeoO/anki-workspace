@@ -52,6 +52,7 @@ import textio                    # noqa: E402  UTF-8 stdio 唯一入口
 import anki_api as AK            # noqa: E402
 import jp_decks as JD            # noqa: E402
 import subtitle_new_words as SW  # noqa: E402
+import writeback as WB           # noqa: E402  写库事务（演练/备份/回读）
 
 # 三个词汇卡组（不含 3-专有词汇）。改卡组名只改 jp_decks.py，这里跟着走。
 SCOPES = (JD.DECK_MINED, JD.DECK_CORE6000, JD.DECK_KAOKYU)
@@ -240,10 +241,8 @@ def do_tag(a):
         print('（回退记录会写到 %s）' % os.path.join(out_dir, STATE_NAME))
         return 0
 
-    AK.add_tags([it['noteId'] for it in todo], [tag])
-    tags = {n['noteId']: (n.get('tags') or [])
-            for n in AK.notes_info([it['noteId'] for it in todo])}
-    bad = [it['word'] for it in todo if tag not in tags.get(it['noteId'], [])]
+    rep = WB.write_tags([it['noteId'] for it in todo], add=[tag], commit=True,
+                        label='subtitle_tag:%s' % tag)
     textio.dump_json({
         'tag': tag,
         'source': a.input,
@@ -257,6 +256,8 @@ def do_tag(a):
     print('=' * 88)
     print('写入结果')
     print('=' * 88)
+    id_to_word = {it['noteId']: it['word'] for it in todo}
+    bad = [id_to_word[nid] for nid in rep['bad'] if nid in id_to_word]
     print('  已打标签 %d 个；回读校验%s'
           % (len(todo), '通过' if not bad else ('失败：' + '、'.join(bad))))
     if bad:

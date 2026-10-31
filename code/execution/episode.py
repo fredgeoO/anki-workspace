@@ -61,11 +61,13 @@ import anki_api as AK        # noqa: E402
 import paths as WSP          # noqa: E402
 import ruby_engine as RE     # noqa: E402
 import textio                # noqa: E402
+import writeback as WB       # noqa: E402  写库事务（备份 + 完整回读）
+
+sys.path.insert(0, os.path.join(WSP.ANALYSIS, 'vocab_cover'))
+import freq_external as FEX  # noqa: E402  Jiten 字段回填（rank 阶段进程内调用）
 
 PY = sys.executable
 EXE = WSP.EXECUTION
-TOOLS = WSP.TOOLS
-ONESHOT = WSP.ONESHOT
 GEN2 = os.path.join(WSP.DATA_PIPELINE, 'gen')
 GEN4 = os.path.join(WSP.DATA_VOCAB, 'gen_mine')
 CAND = os.path.join(WSP.DATA_VOCAB, 'mine_candidates.json')
@@ -75,6 +77,26 @@ NEEDS2 = os.path.join(GEN2, 'needs_llm.json')
 NEEDS4 = os.path.join(GEN4, 'needs_llm.json')
 PER_BATCH = 14               # 阶段二/四的批大小（口径见 SKILL.md）
 DECK_EXAMPLE = '0-日本语学习::2-例句'
+
+# 编排引用的兄弟脚本：唯一来源。启动时 check_scripts() 验证存在性
+# （2026-10-31 的 retag 死链就是路径散落 + 没人检查造成的）。
+SCRIPTS = {
+    'pipeline': os.path.join(EXE, 'pipeline.py'),
+    'mine': os.path.join(EXE, 'mine.py'),
+    'mine_audio': os.path.join(EXE, 'mine_audio.py'),
+    'ruby_engine': os.path.join(WSP.COMMON, 'ruby_engine.py'),
+}
+
+
+def missing_scripts():
+    return [p for p in SCRIPTS.values() if not os.path.exists(p)]
+
+
+def check_scripts():
+    missing = missing_scripts()
+    if missing:
+        raise SystemExit('❌ 编排引用的脚本不存在：%s'
+                         % '、'.join(os.path.relpath(p, WSP.ROOT) for p in missing))
 
 
 # ============================================================================
@@ -92,6 +114,11 @@ def run(script, args, label=None, allow=(0,)):
     if rc not in allow:
         print('⛔ 上一步退出码 %d（不在允许集合 %s）' % (rc, allow))
     return rc
+
+
+def run_stage(name, args, label=None, allow=(0,)):
+    """跑 SCRIPTS 里登记的一个兄弟脚本（路径只在这张表里）。"""
+    return run(SCRIPTS[name], args, label, allow=allow)
 
 
 def batches(n, per=PER_BATCH):
@@ -138,19 +165,19 @@ def stage2(a, rep):
         return 'skipped'
     print('\n[阶段二] 待生成 %d 张（%d 批）' % (todo, batches(todo)))
     extra = ['--srt', a.srt] if a.srt else (['--plan', a.plan] if a.plan else [])
-    rc = run(os.path.join(EXE, 'pipeline.py'), ['split', '--tag', scope,
-                                                '--batches', batches(todo)])
+    rc = run_stage('pipeline', ['split', '--tag', scope,
+                                '--batches', batches(todo)])
     if rc:
         return 'failed'
-    rc = run(os.path.join(EXE, 'pipeline.py'), ['gen'])
+    rc = run_stage('pipeline', ['gen'])
     if rc:
         return 'failed'
     if os.path.exists(os.path.join(GEN2, 'failed.json')):
-        run(os.path.join(EXE, 'pipeline.py'), ['gen', '--fix-failed', '--per-request', '3'],
-            label='pipeline.py gen --fix-failed')
+        run_stage('pipeline', ['gen', '--fix-failed', '--per-request', '3'],
+                  label='pipeline.py gen --fix-failed')
     # ★ 确定性修复：文本骨架 + 缺的 ruby 一律代码补，不问模型
-    run(os.path.join(WSP.COMMON, 'ruby_engine.py'),
-        ['repair', '--gen', GEN2, '--write'] + extra, label='ruby_engine.py repair')
+    run_stage('ruby_engine', ['repair', '--gen', GEN2, '--write'] + extra,
+              label='ruby_engine.py repair')
     left = stage2_leftovers()
     dump_needs(NEEDS2, '这些卡结构上修不回来（通常是模型没返回/内容为空）—— 纯语义问题，'
                        '交给强模型按本文件补 output_NN.json 后重跑 episode.py', 'cards', left)
@@ -162,7 +189,7 @@ def stage2(a, rep):
     if not a.commit:
         print('\n[阶段二] 演练：产出已就绪，未写库（加 --commit 才写）')
         return 'dry'
-    rc = run(os.path.join(EXE, 'pipeline.py'), ['write'])
+    rc = run_stage('pipeline', ['write'])
     rep['stage2']['written'] = 'pipeline.py write'
     return 'failed' if rc else 'done'
 
@@ -203,7 +230,7 @@ def stage4(a, rep):
     if not count('deck:"%s" tag:"%s"' % (DECK_EXAMPLE, scope)):
         print('\n[阶段四] tag:%s 下没有例句卡 → 跳过' % scope)
         return 'skipped'
-    rc = run(os.path.join(EXE, 'mine.py'), ['scan', '--tag', scope])
+    rc = run_stage('mine', ['scan', '--tag', scope])
     if rc:
         return 'failed'
     cands = json.load(open(CAND, encoding='utf-8'))['candidates']
@@ -211,15 +238,15 @@ def stage4(a, rep):
     if not cands:
         print('\n[阶段四] 没有候选 → 跳过')
         return 'skipped'
-    rc = run(os.path.join(EXE, 'mine.py'), ['split', '--batches', batches(len(cands))])
+    rc = run_stage('mine', ['split', '--batches', batches(len(cands))])
     if rc:
         return 'failed'
-    rc = run(os.path.join(EXE, 'mine.py'), ['gen'])
+    rc = run_stage('mine', ['gen'])
     if rc:
         return 'failed'
     if os.path.exists(os.path.join(GEN4, 'failed.json')):
-        run(os.path.join(EXE, 'mine.py'), ['gen', '--fix-failed', '--per-request', '3'],
-            label='mine.py gen --fix-failed')
+        run_stage('mine', ['gen', '--fix-failed', '--per-request', '3'],
+                  label='mine.py gen --fix-failed')
     left = mine_leftovers()
     dump_needs(NEEDS4, '候选词的词典形/是否成词属于语义判断，判定方没给出一致答案 —— '
                        '交给强模型按本文件补 output_NN.json 后重跑 episode.py', 'entries', left)
@@ -227,7 +254,7 @@ def stage4(a, rep):
     if left:
         print('\n[阶段四] 只有 %d 条需要语言模型：%s' % (len(left), rel(NEEDS4)))
         return 'needs_llm'
-    rc = run(os.path.join(EXE, 'mine.py'), ['write'])          # 演练：出 dryrun_notes.json
+    rc = run_stage('mine', ['write'])          # 演练：出 dryrun_notes.json
     rep['mine']['payload'] = rel(os.path.join(GEN4, 'dryrun_notes.json'))
     if rc:
         return 'failed'
@@ -235,7 +262,7 @@ def stage4(a, rep):
         print('\n[阶段四] 演练：载荷见 %s，未写库' % rep['mine']['payload'])
         return 'dry'
     before_ids = set(AK.find_notes('note:"Japanese Vocabulary"'))
-    rc = run(os.path.join(EXE, 'mine.py'), ['write', '--commit'])
+    rc = run_stage('mine', ['write', '--commit'])
     if rc:
         return 'failed'
     after_ids = set(AK.find_notes('note:"Japanese Vocabulary"'))
@@ -293,24 +320,27 @@ def stage_audio(a, rep):
         rep['audio'] = {'scope': '(跳过：无目标)'}
         return 'skipped'
     print('\n[阶段五] 生词配音（%s）' % label)
-    rc = run(os.path.join(EXE, 'mine_audio.py'), ['plan'] + args)
+    rc = run_stage('mine_audio', ['plan'] + args)
     if rc:
         return 'failed'
-    rc = run(os.path.join(EXE, 'mine_audio.py'), ['apply'] + args)
+    rc = run_stage('mine_audio', ['apply'] + args)
     if rc:
         return 'failed'
     if not a.commit:
         print('\n[阶段五] 演练：音频已合成到 output/audio/，未写库')
         return 'dry'
-    rc = run(os.path.join(EXE, 'mine_audio.py'), ['apply', '--commit'] + args)
+    rc = run_stage('mine_audio', ['apply', '--commit'] + args)
     rep['audio'] = {'scope': label, 'committed': not rc}
     return 'failed' if rc else 'done'
 
 
 def stage_rank(a, rep):
     print('\n[排名字段] JitenAnimeRank（--all-notes，幂等：只改值不对的）')
-    args = ['field', '--plan', JITEN_PLAN, '--all-notes'] + (['--commit'] if a.commit else [])
-    rc = run(os.path.join(WSP.ANALYSIS, 'vocab_cover', 'freq_external.py'), args)
+    try:
+        rc = FEX.field_all_notes(JITEN_PLAN, commit=a.commit)
+    except SystemExit as exc:                 # 脚本式退出：等价于子进程非 0
+        print('⛔ 排名字段阶段退出：%s' % exc)
+        rc = 2
     rep['rank'] = {'committed': bool(a.commit and not rc)}
     return 'failed' if rc else ('done' if a.commit else 'dry')
 
@@ -318,12 +348,12 @@ def stage_rank(a, rep):
 def stage_ruby(a, rep):
     extra = ['--srt', a.srt] if a.srt else (['--plan', a.plan] if a.plan else [])
     print('\n[振假名] 体检：结构不合格 / 读音冲突 / 待复核')
-    rc = run(os.path.join(WSP.COMMON, 'ruby_engine.py'),
-             ['check', '--query', 'tag:%s' % a.tag] + extra, allow=(0, 1))
+    rc = run_stage('ruby_engine',
+                   ['check', '--query', 'tag:%s' % a.tag] + extra, allow=(0, 1))
     if a.commit:
-        rc2 = run(os.path.join(WSP.COMMON, 'ruby_engine.py'),
-                  ['apply', '--query', 'tag:%s' % a.tag, '--mode', 'fix', '--fix-ainote',
-                   '--commit'] + extra)
+        rc2 = run_stage('ruby_engine',
+                        ['apply', '--query', 'tag:%s' % a.tag, '--mode', 'fix',
+                         '--fix-ainote', '--commit'] + extra)
         rep['ruby'] = {'fixed': not rc2}
         if rc2:
             return 'failed'
@@ -332,19 +362,29 @@ def stage_ruby(a, rep):
 
 
 def stage_retag(a, rep):
+    """改标签：内存里调 AK.replace_tags，不再外挂 oneshot 脚本。
+
+    2026-11-01：原实现 subprocess 调一个后来被移入 ``archive/`` 的 oneshot 脚本，
+    标准用法 ``--input-tag 待标记`` 会在最后一阶段必失败。改成直接调 ``anki_api``，
+    顺带省掉一次进程启动和对外部脚本路径的依赖。
+    """
     if not a.input_tag or a.input_tag == a.tag:
         print('\n[改标签] 没有 --input-tag（或与 --tag 相同）→ 跳过')
         return 'skipped'
-    n = count('tag:%s' % a.input_tag)
-    if not n:
+    ids = AK.find_notes('tag:%s' % a.input_tag)
+    if not ids:
         print('\n[改标签] tag:%s 下已经没有卡（多半是上一次已经改过）→ 跳过' % a.input_tag)
         return 'skipped'
-    args = ['--query', 'tag:%s' % a.input_tag, '--remove', a.input_tag, '--add', a.tag]
-    if a.commit:
-        args.append('--commit')
-    rc = run(os.path.join(ONESHOT, 'retag_notes.py'), args)
-    rep['retag'] = {'from': a.input_tag, 'to': a.tag, 'committed': bool(a.commit and not rc)}
-    return 'failed' if rc else ('done' if a.commit else 'dry')
+    print('\n[改标签] %d 张：%s → %s' % (len(ids), a.input_tag, a.tag))
+    if not a.commit:
+        rep['retag'] = {'from': a.input_tag, 'to': a.tag, 'count': len(ids),
+                        'committed': False}
+        return 'dry'
+    wb_rep = WB.write_tags(ids, add=[a.tag], remove=[a.input_tag], commit=True,
+                           label='retag')
+    rep['retag'] = {'from': a.input_tag, 'to': a.tag, 'count': len(ids),
+                    'committed': wb_rep['ok'], 'backup': wb_rep['backup']}
+    return 'done' if wb_rep['ok'] else 'failed'
 
 
 # ============================================================================
@@ -371,6 +411,8 @@ def main():
     unknown = [s for s in want if s not in dict(STAGES)]
     if unknown:
         raise SystemExit('未知阶段：%s（可选 %s）' % (unknown, [s for s, _ in STAGES]))
+
+    check_scripts()          # 编排引用的脚本必须都在：缺一个就在启动时停，别跑到一半才炸
 
     print('=' * 88)
     print('每集流水线驱动 ｜ 集标签 %s ｜ 导入标签 %s' % (a.tag, a.input_tag or '（同集标签）'))

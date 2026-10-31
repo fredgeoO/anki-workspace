@@ -65,6 +65,7 @@ import llm_out as OUT         # noqa: E402  模型产出的吸收层
 import local_llm as LLM       # noqa: E402  本地模型客户端
 import ruby_engine as RE      # noqa: E402  确定性振假名引擎
 import pipeline as PL         # noqa: E402  提示词与生成循环的正本（这里只复用，不复制）
+import writeback as WB        # noqa: E402  写库事务（演练/备份/回读）
 
 DECK = '0-日本语学习::2-例句'
 F_SENT, F_WORD, F_SRC = 'Sentence', 'Word', 'Source'
@@ -279,18 +280,10 @@ def commit(records, a):
             for i in clash[:10])
         raise SystemExit('这些卡的目标字段已有内容，拒绝覆盖（加 --overwrite）：%s' % detail)
 
-    for n, rec in enumerate(records, 1):
-        AK.update_note_fields(rec['noteId'], {'AINote': rec['AINote'],
-                                              'Sentence HTML': rec['SentenceHTML']})
-        if n % 25 == 0:
-            print('  已写入 %d/%d' % (n, len(records)))
     want = {int(r['noteId']): {'AINote': r['AINote'],
                                'Sentence HTML': r['SentenceHTML']} for r in records}
-    bad = AK.verify_note_fields(want, settle=0.5)
-    print('写入 %d 张；回读不一致 %d 张' % (len(records), len(bad)))
-    for nid, fields in sorted(bad.items()):
-        print('  ✗ noteId %s  %s' % (nid, '、'.join(fields)))
-    return bad
+    rep = WB.write_fields(want, commit=True, label='cards')
+    return rep['bad']
 
 
 # ============================================================================

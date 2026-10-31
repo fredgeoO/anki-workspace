@@ -65,6 +65,7 @@ sys.path.insert(0, _HERE)
 from _deps import DATA_DIR, WSP, add_pylibs, write_json  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import anki_api as AK  # noqa: E402  Anki 读写唯一接口（code/common/anki_api.py）
+import writeback as WB  # noqa: E402  写库事务（演练/备份/回读）
 from _norm import norm_word, primary_form  # noqa: E402
 
 FREQ_DIR = os.path.join(WSP.DATA, 'freq')
@@ -478,35 +479,31 @@ def _cmd_field_tag(args) -> int:
         return 0
 
     # 写库
-    done, written_ids, failed = 0, [], []
-    for n, v in todo.items():
-        try:
-            AK.update_note_fields(n, {args.field: v})
-            written_ids.append(n)
-            done += 1
-        except Exception as exc:                   # noqa: BLE001
-            failed.append((n, str(exc)[:60]))
-    print('已写入 %d / %d，失败 %d' % (done, len(todo), len(failed)))
-    if failed:
-        print('  失败样例：%s' % failed[:5])
+    rep = WB.write_fields(todo, commit=True, label='freq_external:tag',
+                          backup=False, settle=1.0, chunk=2000)
+    if not rep['ok']:
+        print('  失败样例：%s' % list(rep['bad'].items())[:5])
 
-    # 摘 tag：只有「值已经对」的才摘；有失败就整批不摘，避免把没补上的卡也清掉
+    # 摘 tag：只有「整批都写成功」才摘；有失败就整批不摘，避免把没补上的卡也清掉
+    tag_ok = True
     if args.remove_tag:
-        if failed:
+        if not rep['ok']:
             print('有写入失败，这次不摘 tag：先修掉失败的卡，再跑一次。')
         else:
-            ids = written_ids + ok_ids
-            try:
-                AK.remove_tags(ids, args.tag)
-                left = AK.find_notes('tag:%s' % args.tag)
-                print('已从 %d 个笔记摘掉 tag「%s」；该 tag 下还剩 %d 个' % (
-                    len(ids), args.tag, len(left)))
-            except Exception as exc:               # noqa: BLE001
-                print('✗ 摘 tag 失败：%s' % exc)
+            ids = list(want)          # 刚写好的 + 值本来就对的
+            trep = WB.write_tags(ids, remove=[args.tag], commit=True,
+                                 label='freq_external:tag:remove', backup=False)
+            if trep['ok']:
+                left = len(AK.find_notes('tag:%s' % args.tag))
+                print('已从 %d 个笔记摘掉 tag「%s」；该 tag 下还剩 %d 个'
+                      % (len(ids), args.tag, left))
+            else:
+                tag_ok = False
+                print('✗ 摘 tag 失败：%d 张未摘净' % len(trep['bad']))
 
     print('字段值格式：%%06d（补零，文本序=数值序）；%s = 词表里查不到、排在队尾'
           % args.no_rank)
-    return 0
+    return 0 if (rep['ok'] and tag_ok) else 1
 
 
 def _cmd_field_models(args) -> int:
@@ -608,25 +605,10 @@ def _cmd_field_models(args) -> int:
     if snap_path and (time.time() - os.path.getmtime(snap_path)) > SNAP_FRESH_SECONDS:
         print('  ⚠ 这份基准超过 1 小时了，diff 可能混入之后的正常复习活动')
 
-    done, failed = 0, []
-    for n, v in todo.items():
-        try:
-            AK.update_note_fields(n, {args.field: v})
-            done += 1
-        except Exception as exc:                   # noqa: BLE001
-            failed.append((n, str(exc)[:60]))
-        if done and done % 2000 == 0:
-            print('   ...%d' % done, flush=True)
-    print('已写入 %d / %d，失败 %d' % (done, len(todo), len(failed)))
-    if failed:
-        print('  失败样例：%s' % failed[:5])
-
-    # 写后回读（铁律 7）：只回读这次写过的笔记
-    bad = AK.verify_note_fields({n: {args.field: v} for n, v in todo.items()}, settle=1.0)
-    if bad:
-        print('✗ 回读不一致：%d 个（样例 %s）' % (len(bad), list(bad.items())[:3]))
-    else:
-        print('✓ 回读一致：%d 个笔记的 %s' % (len(todo), args.field))
+    rep = WB.write_fields(todo, commit=True, label='freq_external:models',
+                          backup=False, settle=1.0, chunk=2000)
+    if not rep['ok']:
+        print('  失败样例：%s' % list(rep['bad'].items())[:5])
 
     # 写后自检：字段写**不应该**碰调度列
     if snap_path:
@@ -634,7 +616,7 @@ def _cmd_field_models(args) -> int:
 
     print('字段值格式：%%06d（补零，文本序=数值序）；%s = 词表里查不到、排在队尾'
           % args.no_rank)
-    return 0 if not failed and not bad else 1
+    return 0 if rep['ok'] else 1
 
 
 def cmd_field(args) -> int:
@@ -787,18 +769,10 @@ def cmd_field(args) -> int:
         if snap_path and (time.time() - os.path.getmtime(snap_path)) > SNAP_FRESH_SECONDS:
             print('  ⚠ 这份基准超过 1 小时了，diff 可能混入之后的正常复习活动')
 
-    done, failed = 0, []
-    for n, v in todo.items():
-        try:
-            MAP.ac('updateNoteFields', note={'id': n, 'fields': {args.field: v}})
-            done += 1
-        except Exception as exc:
-            failed.append((n, str(exc)[:60]))
-        if done and done % 2000 == 0:
-            print('   ...%d' % done, flush=True)
-    print('已写入 %d / %d，失败 %d' % (done, len(todo), len(failed)))
-    if failed:
-        print('  失败样例：%s' % failed[:5])
+    rep = WB.write_fields(todo, commit=True, label='freq_external:all-notes',
+                          backup=False, settle=1.0, chunk=2000)
+    if not rep['ok']:
+        print('  失败样例：%s' % list(rep['bad'].items())[:5])
 
     # ---- 写后自检：字段写**不应该**碰调度列
     if snap_path:
@@ -806,7 +780,16 @@ def cmd_field(args) -> int:
 
     print('字段值格式：%%06d（补零，文本序=数值序）；%s = 词表里查不到、排在队尾'
           % args.no_rank)
-    return 0
+    return 0 if rep['ok'] else 1
+
+
+def field_all_notes(plan, *, field='JitenAnimeRank', media='Anime', commit=False,
+                    no_rank='999999'):
+    """给 episode 直接调用的入口：等价于 ``field --plan <plan> --all-notes``。"""
+    return cmd_field(argparse.Namespace(
+        plan=plan, field=field, media=media, words_file=None, models=None,
+        all_notes=True, tag=None, remove_tag=False, no_rank=no_rank,
+        add_field=False, commit=commit))
 
 
 # --------------------------------------------------------------- 4. compare
