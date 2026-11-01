@@ -60,7 +60,9 @@ $TN = "$WS\code\execution\today_new.py"
 ```
 
 - api key 查找顺序（找到第一个就用）：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`（全局正本；工作区 `.dsh/local-llm.json` 可选覆盖）。NInfer 默认不校验 key。
-- `models` 里配置的模型若显示「已加载 = False」，用 `--model <已加载的模型 id>` 临时覆盖；**不要改配置文件**。
+- **模型默认沿用端点当时在用的那个**（`~/.dsh/local-llm.json` 里 `pin_active: true`）：`gen` 发请求前先问一次 `/props`，把 model 对齐到当前在服务的模型——讲义是卡片类任务，同一批词要用同一个模型讲完。配置里写的 `qwen3.8-27b` 只是声明，服务换了它不会跟着变。
+- **不要为了换模型用 `--model`**：那等于绕过对齐去切模型，同一天的讲义会混两种风格与窗口。真要换端点用 `--profile ninfer|strata`（或 `$env:DSH_LOCAL_LLM_PROFILE`），且那是用户决定的事。临时关掉对齐：`$env:DSH_LOCAL_LLM_PIN='0'`。
+- `models` 里配置的模型若显示「已加载 = 否」，先看它报的「端点当前在服务 …」那行：**通常什么都不用改**，脚本会自动沿用；只有明确要指定档位时才给 `--model`。**不要改配置文件**。
 - key 只放 `~/.dsh/local-llm.json`（或环境变量），不要写进脚本或文档。
 
 ---
@@ -216,7 +218,8 @@ stderr 末尾再集中报一次（`check_quality`）：
 | `--per-batch N` | `plan` / `gen` | 每请求几张卡（默认 1；`0` = 一次全给） |
 | `--only-words "词,词"` | `gen` | 只处理这些卡（词形或 note id） |
 | `--restart[=词,词]` | `gen` | 全部 / 只这些词重来 |
-| `--model` / `--base-url` / `--api-key` | `gen` / `models` | 临时覆盖端点配置 |
+| `--model` / `--base-url` / `--api-key` | `gen` / `models` | 临时覆盖端点配置。**卡片任务别给 `--model`**：它绕过「沿用端点当前在用的模型」，等于中途换模型 |
+| `--profile ninfer\|strata` | `gen` / `models` | 用 `~/.dsh/local-llm.json` 里 profiles 的哪一项（也可 `$env:DSH_LOCAL_LLM_PROFILE`）；换端点走这个 |
 | `--no-json-mode` | `gen` | 端点不认 JSON 模式时用 |
 | `--no-stream` | `gen` | 关流式（默认流式） |
 | `--retries-per-card N` | `gen` | 每张卡最多重生成几次（默认 2） |
@@ -257,7 +260,8 @@ stderr 末尾再集中报一次（`check_quality`）：
 | `端点返回 HTTP 401/403` | api key 不对或没提供。检查 `~/.dsh/local-llm.json`（NInfer 默认不校验） |
 | `端点返回 HTTP 404` | `base_url` / 模型名 / 路由不对（脚本打 `<base_url>/responses`） |
 | `端点返回 HTTP 400` | 若是 `No input provided` → 发成了 chat 形状；若 JSON 模式不认 → 加 `--no-json-mode` |
-| `配置的模型不在列表里` | 用 `--model` 换一个已加载的 |
+| `配置的模型不在列表里` | **一般不用管**：脚本会自动沿用端点当前在服务的模型（看「📌 沿用端点当前在用的模型」那行）。只有显式指定档位时才给 `--model`；换端点用 `--profile` |
+| `没探到端点当前在服务的模型（/props 拿不到）` | 端点没暴露 llama.cpp 兼容的 `/props`。按配置里的 model 跑；先 `models` 看一眼实际是哪个，必要时 `--profile` 选对档位 |
 | `merge` 报「还有 N 个请求没有产出」 | 那几个请求没跑成。**重跑 `gen` 就只补它们** |
 | `merge` 报「有 N 张卡没有讲解」 | 某张卡最终没拿到讲解。`gen --only-words "<那个词>" --restart` |
 | `merge` 报「多出 N 个不属于今天的 id」 | 隔天剩下的 `NN_out.json`。`plan` 会自动清，手动删也行 |

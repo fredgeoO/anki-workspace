@@ -226,8 +226,7 @@ def analyze_source(vocab, jiten, cw, item: dict, examples: int) -> dict:
 def snapshot_info(state_path: str) -> dict:
     info = {'path': os.path.relpath(state_path, WSP.ROOT).replace('\\', '/')}
     try:
-        with open(state_path, encoding='utf-8') as fh:
-            data = json.load(fh)
+        data = textio.load_json(state_path)
         decks = data.get('decks') or {}
         info['generated_at'] = data.get('generated_at')
         info['source'] = data.get('source')
@@ -526,8 +525,7 @@ def pending_words(words: list, ep_map: dict) -> list:
 def apply_decisions(path: str, genre_path: str = '', work_path: str = '',
                     not_vocab_path: str = '') -> int:
     """把代理（或人）填好的 decisions 回写到三份词表。"""
-    with open(path, encoding='utf-8') as fh:
-        data = json.load(fh)
+    data = textio.load_json(path)
     work_key = data.get('work_key') or ''
     decisions = data.get('decisions') or {}
     if not decisions:
@@ -535,8 +533,7 @@ def apply_decisions(path: str, genre_path: str = '', work_path: str = '',
         return 1
 
     def load(p):
-        with open(p, encoding='utf-8') as fh:
-            return json.load(fh)
+        return textio.load_json(p)
 
     genre_path = genre_path or crosswork.GENRE_JSON
     work_path = work_path or crosswork.WORK_JSON
@@ -579,9 +576,10 @@ def apply_decisions(path: str, genre_path: str = '', work_path: str = '',
             print(f'[警告] 未知 kind={kind!r}（{word}），跳过。', file=sys.stderr)
 
     for path_, obj in ((genre_path, genre), (work_path, work), (not_vocab_path, notv)):
-        with open(path_, 'w', encoding='utf-8') as fh:
-            json.dump(obj, fh, ensure_ascii=False, indent=2)
-            fh.write('\n')
+        # 落盘字节等价：text-mode open + json.dump(indent=2) + 末尾 '\n' → CRLF 结尾换行，
+        # 正本 dump_json（indent=1、LF）对不上，所以显式传参还原。
+        textio.write_text(path_, json.dumps(obj, indent=2, ensure_ascii=False) + '\n',
+                          newline='\r\n')
     print(f"回写完成：题材词 {done['genre']} · 作品专有 {done['work']} · "
           f"功能词 {done['grammar']} · 拟声 {done['onomatopoeia']} · "
           f"已判不挖 {done['ignored']} · 跳过 {done['skip']}")
@@ -626,15 +624,13 @@ def build_argparser() -> argparse.ArgumentParser:
 
 
 def _write(path: str, text: str) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', encoding='utf-8', newline='') as fh:
-        fh.write(text)
+    # write_text 默认 LF、无 BOM，与原来 text-mode open(newline='') 逐字节一致
+    return textio.write_text(path, text)
 
 
 def _dump(path: str, obj) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as fh:
-        json.dump(obj, fh, ensure_ascii=False, indent=1)
+    # 落盘字节等价：text-mode open + json.dump(indent=1)、**不写末尾换行**
+    return textio.write_text(path, json.dumps(obj, indent=1, ensure_ascii=False))
 
 
 def main() -> int:

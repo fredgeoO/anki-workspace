@@ -65,6 +65,7 @@ sys.path.insert(0, _HERE)
 from _deps import DATA_DIR, WSP, add_pylibs, write_json  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import anki_api as AK  # noqa: E402  Anki 读写唯一接口（code/common/anki_api.py）
+import jp_decks as JD  # noqa: E402  牌组常量 + 词形字段候选（正本在 code/common/jp_decks.py）
 import writeback as WB  # noqa: E402  写库事务（演练/备份/回读）
 from _norm import norm_word, primary_form  # noqa: E402
 
@@ -79,7 +80,7 @@ COUNT_SCALE = 10 ** 6
 MEDIA_HELP = 'Global / Anime / Drama / Movie / Manga / Novel / VisualNovel / VideoGame / WebNovel / YouTube / Audio / NonFiction / Kanji'
 
 # 词字段候选（与 make_activate_plan.py WORD_FIELDS 一致），取第一个非空。
-WORD_FIELDS = ('Word', 'VocabKanji', 'Expression', 'Front', 'Vocabulary', '単語')
+WORD_FIELDS = JD.WORD_FIELDS_CORE      # 含 '単語'（正本：code/common/jp_decks.py）
 
 # 已知笔记类型的词字段映射（与 cmd_field 的 --all-notes 路径一致）。
 KNOWN_WORD_FIELD = {
@@ -208,14 +209,13 @@ def _write_readme(media, dest, url, server_name, rows, sha) -> None:
             '重建：`python code/analysis/vocab_cover/freq_external.py download --media Anime --force`\n\n')
     old = ''
     if os.path.exists(path):
-        with open(path, encoding='utf-8') as fh:
-            old = fh.read()
+        old = textio.read_text(path)
     # 同一 media 重复下载时替换旧条目，别越堆越多
     blocks = [b for b in old.split('\n### ')[1:]] if old.startswith(head) else []
     kept = [b for b in blocks if not b.startswith(media + '\n')]
     body = head + entry + ''.join('\n### ' + b for b in kept)
-    with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(body.rstrip() + '\n')
+    # 落盘字节等价：text-mode open（无 newline=''）→ 换行是 CRLF，正本默认 LF，显式还原
+    textio.write_text(path, body.rstrip() + '\n', newline='\r\n')
 
 
 # --------------------------------------------------------------- 2. build
@@ -663,7 +663,7 @@ def cmd_field(args) -> int:
     add_pylibs()
     import make_activate_plan as MAP  # AnkiConnect 调用只此一份
 
-    plan = json.load(open(args.plan, encoding='utf-8'))
+    plan = textio.load_json(args.plan)
     targets = plan['targets']
     want = {}
     for t in targets:
@@ -704,7 +704,7 @@ def cmd_field(args) -> int:
     if args.all_notes:
         wl = args.words_file or _plan_path(args.media)
         index = {norm_word(r['word']): r['freq_rank']
-                 for r in json.load(open(wl, encoding='utf-8'))}
+                 for r in textio.load_json(wl)}
         print('词表 %s：%d 个归一化键' % (os.path.relpath(wl, WSP.ROOT), len(index)))
         alln = []
         for m in sorted(models):
@@ -811,12 +811,12 @@ def cmd_compare(args) -> int:
 
     plan_path = args.words_file or _plan_path(args.media)
     index = {}
-    for r in json.load(open(plan_path, encoding='utf-8')):
+    for r in textio.load_json(plan_path):
         index[norm_word(r['word'])] = r['freq_rank']
     print('外部词表 %s：%d 个归一化键' % (os.path.relpath(plan_path, WSP.ROOT), len(index)))
 
-    state = json.load(open(os.path.join(DATA_DIR, 'vocab_state.json'), encoding='utf-8'))['words']
-    corpus = json.load(open(os.path.join(DATA_DIR, 'corpus_tokens.json'), encoding='utf-8'))
+    state = textio.load_json(os.path.join(DATA_DIR, 'vocab_state.json'))['words']
+    corpus = textio.load_json(os.path.join(DATA_DIR, 'corpus_tokens.json'))
     freq, works_of = corpus_freq(corpus)
     total_tokens = sum(freq.values())
 
@@ -906,8 +906,8 @@ def cmd_compare(args) -> int:
     # ---- 人读报告
     md = _render_md(result, crit, by_ext, freq, works_of, index)
     mdp = os.path.join(WSP.REPORTS, '外部词表排序对比.md')
-    with open(mdp, 'w', encoding='utf-8') as fh:
-        fh.write(md)
+    # 落盘字节等价：text-mode open（无 newline=''）→ 换行是 CRLF，正本默认 LF，显式还原
+    textio.write_text(mdp, md, newline='\r\n')
 
     # ---- 控制台（纯 ASCII，日文写进报告里看）
     print()

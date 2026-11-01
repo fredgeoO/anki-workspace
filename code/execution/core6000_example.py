@@ -321,10 +321,14 @@ def strip_outer_wrappers(html):
     return s
 
 
-def count_blocks(text):
-    """按主分隔（`<br><br>` / `</p><p>`）数块；先剥外壳、清畸形 ruby。"""
+def count_blocks(text, rx=None):
+    """按主分隔数块；先剥外壳、清畸形 ruby。
+
+    `rx` 默认 `<br><br>` / `</p><p>`（`Sentence`、`Sentence Translation`）；
+    `Sentence HTML` 传 `RE_BR1`——多句用**单个** `<br>` 分隔（2026-10-30 口径）。
+    """
     core = strip_outer_wrappers(clean_malformed_ruby(text or ''))
-    return len([x for x in RE_BLOCK.split(core) if flatten(x)])
+    return len([x for x in (rx or RE_BLOCK).split(core) if flatten(x)])
 
 
 def ruby_covers(html):
@@ -1990,8 +1994,10 @@ def gate_apply(card, entry, rendered, write=None):
         p.extend(check_sentence2_ruby(card, entry))
     if F_SENT in write and count_blocks(f[F_SENT]) != 2:
         p.append('闸门6：Sentence 渲染后 %d 块（要求 2）' % count_blocks(f[F_SENT]))
-    if F_HTML in write and count_blocks(f[F_HTML]) != 2:
-        p.append('闸门6：Sentence HTML 渲染后 %d 块（要求 2）' % count_blocks(f[F_HTML]))
+    if F_HTML in write and count_blocks(f[F_HTML], RE_BR1) != 2:
+        # Sentence HTML 的多句分隔是**单个** `<br>`（commit 664299b8，2026-10-30；库里 2065 张
+        # 双句卡全是这个口径）。`Sentence` / `Sentence Translation` 仍是 `<br><br>`。
+        p.append('闸门6：Sentence HTML 渲染后 %d 块（要求 2）' % count_blocks(f[F_HTML], RE_BR1))
     if F_AUDIO in write and len(TN.audio_files(f[F_AUDIO])) != 2:
         p.append('闸门6：Sentence Audio 有 %d 个 [sound:]（要求 2）'
                  % len(TN.audio_files(f[F_AUDIO])))
@@ -2783,7 +2789,12 @@ def add_llm_args(sp):
                     help='系统提示词文件（默认 %s）' % PROMPT_FILE)
     sp.add_argument('--base-url', default=None,
                     help='端点 base_url（默认 %s）' % TN.LLM_DEFAULT_BASE)
-    sp.add_argument('--model', default=None, help='模型名（默认 %s）' % TN.LLM_DEFAULT_MODEL)
+    sp.add_argument('--model', default=None,
+                    help='★ 模型名（覆盖配置）。**卡片任务一般不该给**：给了就等于绕过'
+                         '「沿用端点当前在用的模型」去切换模型')
+    sp.add_argument('--profile', default=None,
+                    help='用 ~/.dsh/local-llm.json 里 profiles 的哪一项（ninfer / strata…）；'
+                         '换端点走这个，不要用 --model 切')
     sp.add_argument('--api-key', default=None,
                     help='api key（优先于 $env:DSH_LOCAL_LLM_API_KEY 与 ~/.dsh/local-llm.json）')
     sp.add_argument('--no-json-mode', action='store_true',

@@ -135,16 +135,14 @@ COMMON = set()
 
 def _load_common():
     if os.path.exists(COMMON_PATH):
-        with open(COMMON_PATH, encoding='utf-8') as f:
-            return set(json.load(f)['common'])
+        return set(textio.load_json(COMMON_PATH)['common'])
     return set()
 
 
 def load_index():
     if not os.path.exists(INDEX):
         raise SystemExit('缺少已知词汇索引 %s，先跑：prefilter_subtitle.py index' % INDEX)
-    with open(INDEX, encoding='utf-8') as f:
-        d = json.load(f)
+    d = textio.load_json(INDEX)
     return d['canonical'], d['variant2c']
 
 
@@ -205,8 +203,10 @@ def cmd_index(_a):
     print('拉取「已收录词汇」全表…')
     canonical, variant2c = P.rebuild_known_index()
     os.makedirs(os.path.dirname(INDEX), exist_ok=True)
-    with open(INDEX, 'w', encoding='utf-8') as f:
-        json.dump({'canonical': canonical, 'variant2c': variant2c}, f, ensure_ascii=False)
+    # 落盘字节等价：原写法 text-mode open + json.dump(indent=None)、无末尾换行；
+    # 正本 dump_json 是 indent=1，直接换会改变这份索引文件的字节。
+    textio.write_text(INDEX, json.dumps({'canonical': canonical, 'variant2c': variant2c},
+                                        ensure_ascii=False))
     print('词典形 %d 个 / 可识别写法 %d 个 → %s' % (len(canonical), len(variant2c), INDEX))
 
 
@@ -292,8 +292,9 @@ def cmd_freq(a):
                     c[w] += 1
     common = sorted(w for w, n in c.items() if n >= a.min)
     p = os.path.join(WSP.DATA, 'evidence', 'subtitle_common.json')
-    with open(p, 'w', encoding='utf-8') as f:
-        json.dump({'common': common, 'counts': dict(c)}, f, ensure_ascii=False)
+    # 同上：indent=None、无末尾换行，与正本 dump_json（indent=1 + LF）不等价，显式还原
+    textio.write_text(p, json.dumps({'common': common, 'counts': dict(c)},
+                                    ensure_ascii=False))
     print('残差 %d 种 → 跨集出现 ≥%d 次者 %d 种（视为机械碎片）→ %s'
           % (len(c), a.min, len(common), p))
 

@@ -46,7 +46,12 @@ token 账本每次都落盘（`lessons/metrics_<日期>.json`）并打印，方�
 本地端点与 api key
 ------------------
     base_url   默认 http://127.0.0.1:8080/v1
-    model      默认 qwen3.8-27b
+    model      **默认沿用端点当时在用的模型**（配置文件里 `pin_active: true`）：
+               发请求前问一次 `/props` 的 `model_alias`，把 model 对齐到它——
+               讲义是卡片类任务，同一批词要用同一个模型讲完，中途换会混风格。
+               配置文件/profile 里写的 `qwen3.8-27b` 只是声明，服务换了它不跟着变。
+               只有显式 `--model <id>` 或 `$env:DSH_LOCAL_LLM_MODEL` 才覆盖（那是人在指定）；
+               临时关掉对齐：`$env:DSH_LOCAL_LLM_PIN='0'`。**换端点用 --profile，不要用 --model 切。**
     api key    按下面顺序找，找到第一个就用：
                  1. --api-key
                  2. 环境变量  $env:DSH_LOCAL_LLM_API_KEY
@@ -375,6 +380,10 @@ KANJI = RT.KANJI
 to_ruby = RT.to_ruby
 strip_ruby_base = RT.strip_ruby_base
 plain_jp = RT.plain_jp
+# 这两个是 ruby_text 内部的 ruby 占位工具，core6000_example.clean_label 直接用到（2026-11-01 补）：
+# 漏了它们，scan/apply 一进 parse_sections 就 AttributeError。
+_extract_existing_ruby = RT._extract_existing_ruby
+_put_back_ruby = RT._put_back_ruby
 
 
 # 振假名解析与纯文本提取的实现：common/ruby_text.py（2026-11-01 抽出）
@@ -784,11 +793,64 @@ class LLMError(RuntimeError):
     pass
 
 
+def llm_pin_enabled(file_cfg, cli_model=None):
+    """这次要不要把 model 对齐到端点**当前在服务**的那个（卡片任务：沿用当时在用的模型）。
+
+    与全局技能 `local_llm.pin_active` 同一套口径：**配置文件里写了 `pin_active` 才算数**
+    （正本 `~/.dsh/local-llm.json` 已写 true → 开；没写就不对齐，保持原行为）
+    + 环境变量 `DSH_LOCAL_LLM_PIN=0` 关掉；显式给了 `--model` / `$env:DSH_LOCAL_LLM_MODEL`
+    也不对齐（那是人在明确指定）。本脚本不 import 技能模块，所以这里复刻判定，
+    **改口径要两边一起改**。
+    """
+    env = os.environ.get('DSH_LOCAL_LLM_PIN')
+    if env is not None and env.strip().lower() in ('0', 'false', 'no', 'off'):
+        return False
+    if cli_model or os.environ.get('DSH_LOCAL_LLM_MODEL'):
+        return False
+    try:
+        return bool(file_cfg.get('pin_active', False))
+    except (TypeError, ValueError):
+        return False
+
+
+def llm_active_model(base_url, api_key='', timeout=20):
+    """端点当前实际在服务的模型 id（只读，不切换）。
+
+    取 llama.cpp 兼容的 `/props` → `model_alias`。**不用 `/v1/models` 的 `loaded` 标记兜底**：
+    路由器上那个标记会滞后（实测 NInfer 在服务时仍把上一个 Strata 档位标成 loaded），
+    拿它改 model 等于把请求发到 A 进程却写着 B 模型（必 400）。拿不到返回 None。
+    """
+    try:
+        req = urllib.request.Request(base_url.rsplit('/v1', 1)[0] + '/props',
+                                     headers=llm_headers({'api_key': api_key}))
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return (json.loads(resp.read().decode('utf-8')) or {}).get('model_alias')
+    except Exception:
+        return None
+
+
+def llm_window_for(base_url, model, api_key='', timeout=20):
+    """某个模型 id 在端点上的窗口（/v1/models 里查；拿不到返回 None）。"""
+    try:
+        cfg = {'base_url': base_url, 'api_key': api_key}
+        for m in (llm_list_models(cfg, timeout) or {}).get('data') or []:
+            if m.get('id') == model:
+                return int(m.get('context_window') or m.get('max_model_len')
+                           or m.get('context_length') or 0) or None
+    except Exception:
+        pass
+    return None
+
+
 def load_llm_config(args):
     """api key / base_url / model 的来源与优先级，见文件头。
 
     配置文件读两份：全局 `~/.dsh/local-llm.json`（机器级正本）打底，
     工作区 `.dsh/local-llm.json` 若存在则覆盖（临时特例才需要）。
+
+    **卡片类任务的口径：沿用端点当时在用的本地模型，不切换**（配置文件里
+    `pin_active: true`，没写这一项就不对齐）。profile 名只是「我以为在用谁」，服务换了它不会自己跟着换；
+    这里发请求前问一次 `/props`，把 model 对齐到事实。显式 `--model` / `_MODEL` 时以显式为准。
     """
     file_cfg = {}
     for path in (LLM_GLOBAL_CONFIG_FILE, LLM_CONFIG_FILE):
@@ -811,13 +873,38 @@ def load_llm_config(args):
             return file_cfg[key]
         return default
 
-    return {
+    # profile 与全局技能 local-llm.py 对齐：DSH_LOCAL_LLM_PROFILE / 文件里的 "profile"
+    profs = file_cfg.get('profiles')
+    prof_name = (getattr(args, 'profile', None) or os.environ.get('DSH_LOCAL_LLM_PROFILE')
+                 or (file_cfg.get('profile') if isinstance(profs, dict) else ''))
+    if prof_name and isinstance(profs, dict) and isinstance(profs.get(prof_name), dict):
+        file_cfg.update({k: v for k, v in profs[prof_name].items()
+                         if not str(k).startswith('_')})
+
+    declared = pick(getattr(args, 'model', None), ['DSH_LOCAL_LLM_MODEL'],
+                    'model', LLM_DEFAULT_MODEL)
+    cfg = {
         'base_url': pick(getattr(args, 'base_url', None), ['DSH_LOCAL_LLM_BASE_URL'],
                          'base_url', LLM_DEFAULT_BASE).rstrip('/'),
-        'model': pick(getattr(args, 'model', None), ['DSH_LOCAL_LLM_MODEL'],
-                      'model', LLM_DEFAULT_MODEL),
+        'model': declared,
         'api_key': pick(getattr(args, 'api_key', None), LLM_KEY_ENV, 'api_key', ''),
+        'declared_model': declared,
+        'profile': prof_name or '',
     }
+    if llm_pin_enabled(file_cfg, getattr(args, 'model', None)):
+        alias = llm_active_model(cfg['base_url'], cfg['api_key'])
+        if alias and alias != declared:
+            print('📌 沿用端点当前在用的模型：%s（配置里写的是 %s，profile=%s）——不切换'
+                  % (alias, declared, prof_name or '（顶层默认）'), file=sys.stderr)
+            cfg['model'] = alias
+            window = llm_window_for(cfg['base_url'], alias, cfg['api_key'])
+            if window:
+                # 账本里记下端点实读窗口，避免拿 profile 里的旧窗口做判断
+                cfg['endpoint_ctx'] = window
+        elif not alias:
+            print('提示：没探到端点当前在服务的模型（/props 拿不到），按配置里的 %s 跑。'
+                  % declared, file=sys.stderr)
+    return cfg
 
 
 def llm_headers(cfg):
@@ -1992,8 +2079,19 @@ def cmd_gen(args):
     # ---- token 账本（累加：只补跑几张卡时不要把整天的账本覆盖掉）----
     if all_rows:
         metrics = load_metrics(p['metrics'])
-        if metrics and (metrics.get('model') != cfg['model']
-                        or str(metrics.get('date')) != str(manifest['date'])):
+        prev_model = (metrics or {}).get('model')
+        if metrics and str(metrics.get('date')) != str(manifest['date']):
+            metrics = None
+        if metrics and prev_model and prev_model != cfg['model']:
+            # 端点中途换了服务（NInfer ↔ Strata）：同一份账本会把两个模型的 token 混在一起。
+            # 生成物不拦（还是当天这批卡），只把旧账本另存一份，核对时看得见。
+            alt = p['metrics'].replace('.json', '_%s.json' % prev_model)
+            print('⚠️ 今天的账本记的是 %s，本次是 %s（端点换过了）。旧账本另存 %s，新账本只记本次。'
+                  % (prev_model, cfg['model'], alt), file=sys.stderr)
+            try:
+                write_json(alt, metrics)
+            except OSError as e:
+                print('（旧账本没存成：%s）' % e, file=sys.stderr)
             metrics = None
         metrics = metrics or {'date': manifest['date'], 'model': cfg['model'],
                               'base_url': cfg['base_url'], 'per_batch': args.per_batch,
@@ -2179,13 +2277,24 @@ def cmd_models(args):
         window = (m.get('context_window') or m.get('context_length')
                   or m.get('max_model_len') or '—')
         loaded = m.get('loaded')
+        if loaded is None:
+            # 路由器（本机 Strata）用 status.value 标「正在服务」的是哪一条
+            loaded = (m.get('status') or {}).get('value') == 'loaded'
         print('%-44s %-12s %-10s %s'
               % (m.get('id'), m.get('quant') or '—', window,
                  '—' if loaded is None else ('是' if loaded else '否')))
     ids = [m.get('id') for m in data.get('data') or []]
     if cfg['model'] not in ids:
         print()
-        print('⚠️ 配置的模型 %s 不在上面的列表里，用 --model 换一个。' % cfg['model'])
+        print('⚠️ 配置的模型 %s 不在上面的列表里。' % cfg['model'])
+    active = llm_active_model(cfg['base_url'], cfg['api_key'])
+    if active and active != cfg.get('declared_model'):
+        aligned = '已经自动对齐，实际发的就是它' if active == cfg['model'] else \
+                  '本次**没**对齐（显式给了 --model，或 pin 被关）：实际发的是 %s' % cfg['model']
+        print()
+        print('ℹ️ 端点当前在服务 %s，配置里声明的是 %s（profile=%s）——%s。'
+              '卡片类任务沿用当前在用的模型，**不要用 --model 单独换档位**；要换端点用 --profile。'
+              % (active, cfg.get('declared_model'), cfg.get('profile') or '（顶层默认）', aligned))
     return 0
 
 
@@ -2406,7 +2515,12 @@ def add_gen_args(sp):
                     help='每个请求塞几张卡（默认 %d；0 或负数 = 一次全给）。'
                          '调大省 system 前缀，但输出更长、更易截断' % PER_BATCH)
     sp.add_argument('--base-url', default=None, help='端点 base_url（默认 %s）' % LLM_DEFAULT_BASE)
-    sp.add_argument('--model', default=None, help='模型名（默认 %s）' % LLM_DEFAULT_MODEL)
+    sp.add_argument('--model', default=None,
+                    help='★ 模型名（覆盖配置）。**卡片任务一般不该给**：给了就等于绕过'
+                         '「沿用端点当前在用的模型」去切换模型（默认自动对齐，见 --profile）')
+    sp.add_argument('--profile', default=None,
+                    help='用 ~/.dsh/local-llm.json 里 profiles 的哪一项（ninfer / strata…）；'
+                         '也可用 $env:DSH_LOCAL_LLM_PROFILE。换端点走这个，不要用 --model 切')
     sp.add_argument('--api-key', default=None, help='api key（优先于环境变量与配置文件）')
     sp.add_argument('--system-prompt', default=None,
                     help='替换系统提示词文件（默认 %s）' % SYSTEM_PROMPT_FILE)
@@ -2471,7 +2585,12 @@ def main():
 
     sp = sub.add_parser('models', help='探端点：api key 对不对、有哪些模型、ctx 多大')
     sp.add_argument('--base-url', default=None, help='端点 base_url（默认 %s）' % LLM_DEFAULT_BASE)
-    sp.add_argument('--model', default=None, help='模型名（默认 %s）' % LLM_DEFAULT_MODEL)
+    sp.add_argument('--model', default=None,
+                    help='★ 模型名（覆盖配置）。**卡片任务一般不该给**：给了就等于绕过'
+                         '「沿用端点当前在用的模型」去切换模型（默认自动对齐，见 --profile）')
+    sp.add_argument('--profile', default=None,
+                    help='用 ~/.dsh/local-llm.json 里 profiles 的哪一项（ninfer / strata…）；'
+                         '也可用 $env:DSH_LOCAL_LLM_PROFILE。换端点走这个，不要用 --model 切')
     sp.add_argument('--api-key', default=None, help='api key')
     sp.set_defaults(func=cmd_models)
 

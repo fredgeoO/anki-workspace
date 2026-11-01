@@ -53,6 +53,17 @@ DECK_GRAMMAR = DECK_ROOT + '::1-语法'
 DECK_EXAMPLE = DECK_ROOT + '::2-例句'
 
 # ============================================================================
+# 词汇卡片的「词形字段」候选（按顺序取第一个非空）
+# ============================================================================
+# 各分析脚本都要认「这个词写在哪个字段」，历史上五处各写一份元组，内容还差一个
+# `単語`。两份常量的区别**只在有没有 `単語`**，字段顺序照原样保留：
+#   WORD_FIELDS_CORE   —— 含 `単語`（vocab_cover：collect_vocab / make_activate_plan / freq_external）
+#   WORD_FIELDS_NO_JP  —— 不含 `単語`（tools/tag_freq_stop）
+# 多一个少一个字段都会改变「取到哪个字段」的结果，所以两边不许并成一份。
+WORD_FIELDS_CORE = ('Word', 'VocabKanji', 'Expression', 'Front', 'Vocabulary', '単語')
+WORD_FIELDS_NO_JP = ('Word', 'VocabKanji', 'Expression', 'Front', 'Vocabulary')
+
+# ============================================================================
 # 考级词汇：级别 / 频段
 # ============================================================================
 KAOKYU_MODEL = 'eggrolls-JLPT10k-v3.5'
@@ -88,7 +99,6 @@ OLD_SUBDECKS = [
 ]
 # [(级别, 频段)]，顺序沿用旧子 deck 的编号顺序；N5/N4 的频段是 None
 KAOKYU_UNITS = [(lv, band) for lv, band, _ in OLD_SUBDECKS]
-_OLD_NAME = {(lv, band): name for lv, band, name in OLD_SUBDECKS}
 
 
 def level_tag(level, band=None):
@@ -117,11 +127,6 @@ def deck_query_tag(deck, tag=None):
     """牌组 + 任意标签的 Anki 搜索串（tag 直接给标签名，不含 tag: 前缀）。"""
     q = 'deck:"%s"' % deck
     return q + (' tag:%s' % tag if tag else '')
-
-
-def old_subdeck(level, band=None):
-    """该 (级别, 频段) 在扁平化之前对应的子 deck 名（旧输出兼容用）。"""
-    return _OLD_NAME.get((level, band))
 
 
 def level_from_tags(tags, loose=True):
@@ -158,16 +163,6 @@ def band_from_tags(tags, loose=True):
                     if m.group(2) == m.group(1) + b:
                         return b
     return None
-
-
-def level_band_from_tags(tags, loose=True):
-    """(级别, 频段)，任一认不出来就是 None。"""
-    return (level_from_tags(tags, loose=loose), band_from_tags(tags, loose=loose))
-
-
-def sort_key(level, band=None):
-    """(级别, 频段) 的排序键：级别由易到难，同级高频在前。"""
-    return (RANK.get(level, len(LEVELS)), BAND_ORDER.get(band, len(BANDS)))
 
 
 def is_level_tag(tag):

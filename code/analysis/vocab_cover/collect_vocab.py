@@ -51,6 +51,7 @@ sys.path.insert(0, _HERE)
 from _norm import norm_word, primary_form, reading_keys  # noqa: E402
 from _deps import DATA_DIR, STATE_JSON, WSP  # noqa: E402
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
+import anki_api as AK  # noqa: E402  Anki 唯一通道（分批切片 helper 的正本也在这里）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 OUT_JSON = STATE_JSON
@@ -63,7 +64,7 @@ DECK_SPECS = {
     'mined': ['0-日本语学习::0-词汇::0-素材生词', '0-日本语学习::2-例句'],
 }
 
-WORD_FIELDS = ('Word', 'VocabKanji', 'Expression', 'Front', 'Vocabulary', '単語')
+WORD_FIELDS = JD.WORD_FIELDS_CORE      # 含 '単語'（正本：code/common/jp_decks.py）
 READING_FIELDS = ('Transliteration', 'VocabFurigana', 'Reading', 'Kana')
 INDEX_FIELDS = ('Index', 'NoteID', 'Order')
 MATURE_DAYS = 21          # Anki 的「成熟卡」阈值
@@ -84,8 +85,8 @@ def ac(action: str, **params):
 
 
 def chunks(seq, n=BATCH):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
+    """切块：实现走正本 ``AK.chunks``（批大小仍由本文件的 BATCH 决定，口径不变）。"""
+    return AK.chunks(seq, n)
 
 
 def clean_field(value: str) -> str:

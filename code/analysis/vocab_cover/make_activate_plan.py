@@ -41,6 +41,8 @@ import urllib.request
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from _deps import DATA_DIR, WSP, add_pylibs, write_json  # noqa: E402
+import jp_decks as JD  # noqa: E402  牌组常量 + 词形字段候选（正本在 code/common/jp_decks.py）
+import anki_api as AK  # noqa: E402  Anki 唯一通道（分批切片 helper 的正本也在这里）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 from _norm import norm_word, primary_form  # noqa: E402
 
@@ -55,7 +57,7 @@ DECK_GROUPS = {
     'jlpt': ['0-日本语学习::0-词汇::2-考级词汇'],
     'mined': ['0-日本语学习::0-词汇::0-素材生词', '0-日本语学习::2-例句'],
 }
-WORD_FIELDS = ('Word', 'VocabKanji', 'Expression', 'Front', 'Vocabulary', '単語')
+WORD_FIELDS = JD.WORD_FIELDS_CORE      # 含 '単語'（正本：code/common/jp_decks.py）
 PREFER = {'core6000': 0, 'jlpt': 1, 'mined': 2}
 
 
@@ -70,8 +72,8 @@ def ac(action: str, **params):
 
 
 def batched(seq, n=BATCH):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
+    """切块：实现走正本 ``AK.chunks``（批大小仍由本文件的 BATCH 决定，口径不变）。"""
+    return AK.chunks(seq, n)
 
 
 def clean_field(v: str) -> str:

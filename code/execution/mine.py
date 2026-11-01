@@ -527,10 +527,12 @@ def cmd_scan(a):
         cands = cands[:a.limit]
         print('按 --limit 截断为 %d 个' % len(cands))
 
-    json.dump({'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
-               'query': q,
-               'candidates': cands},
-              open(CAND, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    # 落盘字节等价于迁移前：text-mode open + json.dump(indent=1) → 正文 LF、末尾换行 CRLF。
+    # 正本 textio.dump_json 写 LF + LF，直接换会改变这批断点续跑文件的字节。
+    textio.write_text(CAND, json.dumps(
+        {'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
+         'query': q,
+         'candidates': cands}, indent=1, ensure_ascii=False) + '\n', newline='\r\n')
 
     with open(REPORT, 'w', encoding='utf-8') as f:
         f.write('# 素材生词候选（%d 个）\n\n' % len(cands))
@@ -628,7 +630,7 @@ MINE_MAX_TOKENS = 8192        # 单次请求的输出上限
 
 
 def cmd_split(a):
-    data = json.load(open(CAND, encoding='utf-8'))
+    data = textio.load_json(CAND)
     cands = data['candidates']
     if not cands:
         raise SystemExit('候选为空，先跑：python mine.py scan')
@@ -824,14 +826,14 @@ def patch_outputs(done):
     """
     if not done:
         return 0
-    manifest = json.load(open(os.path.join(GEN, 'manifest.json'), encoding='utf-8'))
+    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
     n = 0
     used = {}                                    # fix 条目 key → 改到了哪条记录
     for m in manifest:
         p = os.path.join(GEN, m['output'])
         if not os.path.exists(p):
             continue
-        out = json.load(open(p, encoding='utf-8'))
+        out = textio.load_json(p)
         exact = {P.norm(r.get('word') or '') for r in out}   # 本批已有记录的原词
         changed = False
         for i, rec in enumerate(out):
@@ -856,6 +858,8 @@ def patch_outputs(done):
             n += 1
             print('  并回 %s ← %s（%s匹配，原词 %r）' % (vk, where, how, rec.get('word')))
         if changed:
+            # 保留原写法：output_NN.json 是断点续跑文件，既有落盘带 **CRLF** 末尾换行
+            # （text-mode open + json.dump），正本 dump_json 写 LF；改了就破坏旧批次的字节等价。
             json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     missing = sorted(k for k in done if k not in used)
     if missing:
@@ -868,7 +872,7 @@ def fix_failed(a, cfg, LLM):
     """只重跑 failed.json 里的候选（本地模型逐条再试），修好的并回 output_NN.json。"""
     if not os.path.exists(MINE_FAILED):
         raise SystemExit('没有 %s（本地模型没有遗留失败项）' % MINE_FAILED)
-    doc = json.load(open(MINE_FAILED, encoding='utf-8'))
+    doc = textio.load_json(MINE_FAILED)
     cands = doc.get('candidates') or []
     if not cands:
         print('failed.json 是空的，没有要重跑的。')
@@ -922,7 +926,7 @@ def cmd_merge_fix(a):
     path = a.file if os.path.isabs(a.file) else os.path.join(GEN, a.file)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = json.load(open(path, encoding='utf-8'))
+    merge = textio.load_json(path)
     if isinstance(merge, dict):
         merge = merge.get('entries') or merge.get('outputs') or []
     ok, bad = {}, {}
@@ -950,7 +954,7 @@ def cmd_merge_fix(a):
     for w, why in sorted(bad.items())[:10]:
         print('  ✗ %s %s' % (w, why[:160]))
     if os.path.exists(MINE_FAILED):
-        doc = json.load(open(MINE_FAILED, encoding='utf-8'))
+        doc = textio.load_json(MINE_FAILED)
 
         def _fixed(w):
             k = P.norm(w)
@@ -958,7 +962,7 @@ def cmd_merge_fix(a):
 
         save_failed([c for c in (doc.get('candidates') or []) if not _fixed(c['word'])])
         print('failed.json 已更新（剩余 %d 条）'
-              % len(json.load(open(MINE_FAILED, encoding='utf-8'))['candidates']))
+              % len(textio.load_json(MINE_FAILED)['candidates']))
     print('下一步：python mine.py write')
 
 
@@ -979,9 +983,9 @@ def output_matches_input(m):
     if not os.path.exists(op):
         return False
     try:
-        src = json.load(open(ip, encoding='utf-8'))
-        got = json.load(open(op, encoding='utf-8'))
-    except (ValueError, TypeError):
+        src = textio.load_json(ip)
+        got = textio.load_json(op)
+    except (ValueError, TypeError, OSError):
         return False
     if len(src) != len(got):
         return False
@@ -1111,19 +1115,19 @@ def build_payload():
     「是否已在已有牌组里」判定再跑一遍（还要重建一次 1.7 万张的索引），
     同一件事查两遍；现在只在这里查一次，write 直接复用 verified.json。
     """
-    manifest = json.load(open(os.path.join(GEN, 'manifest.json'), encoding='utf-8'))
+    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
     canonical, variant2c, _heads = build_index()
 
     merged, missing = [], []
     expected = []
     for m in manifest:
-        src = json.load(open(os.path.join(GEN, m['input']), encoding='utf-8'))
+        src = textio.load_json(os.path.join(GEN, m['input']))
         expected.extend(src)
         p = os.path.join(GEN, m['output'])
         if not os.path.exists(p):
             missing.append(m['output'])
             continue
-        merged.extend(json.load(open(p, encoding='utf-8')))
+        merged.extend(textio.load_json(p))
     if missing:
         raise SystemExit('尚未生成：%s' % ', '.join(missing))
 
@@ -1234,8 +1238,10 @@ def build_payload():
         print('存在问题，未通过。修掉上面带 ✗/⊘ 的条目后重跑。')
         raise SystemExit(1)
 
-    json.dump(payload, open(os.path.join(GEN, 'verified.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    # 落盘字节等价：text-mode open + json.dump(indent=1) → 正文 LF、末尾换行 CRLF
+    textio.write_text(os.path.join(GEN, 'verified.json'),
+                      json.dumps(payload, indent=1, ensure_ascii=False) + '\n',
+                      newline='\r\n')
     print()
     print('全部通过。待入库 %d 条（已写入 verified.json）。' % len(payload))
     return payload
@@ -1248,7 +1254,7 @@ def verified_fresh():
         return False
     t = os.path.getmtime(p)
     try:
-        manifest = json.load(open(os.path.join(GEN, 'manifest.json'), encoding='utf-8'))
+        manifest = textio.load_json(os.path.join(GEN, 'manifest.json'))
     except Exception:
         return False
     files = [os.path.join(GEN, 'manifest.json'), CAND]
@@ -1303,7 +1309,7 @@ def load_jiten_index(path=None):
     if not os.path.exists(path):
         return {}
     return {norm_word(r['word']): r['freq_rank']
-            for r in json.load(open(path, encoding='utf-8'))}
+            for r in textio.load_json(path)}
 
 
 def jiten_rank(word, index=None):
@@ -1344,7 +1350,7 @@ def cmd_write(a):
         print('复用 %s（比全部产出文件都新，不再重跑一遍校验）' % path)
     else:
         build_payload()          # 产出有变动（或还没校验过）：在这里一次校验到位
-    payload = json.load(open(path, encoding='utf-8'))
+    payload = textio.load_json(path)
     deck = a.deck or P.CFG['mine_deck']
     model = P.CFG['mine_model']
 
@@ -1407,7 +1413,9 @@ def cmd_write(a):
 
     if not a.commit:
         dump = os.path.join(GEN, 'dryrun_notes.json')
-        json.dump(final, open(dump, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        # 落盘字节等价：text-mode open + json.dump(indent=1) → 正文 LF、末尾换行 CRLF
+        textio.write_text(dump, json.dumps(final, indent=1, ensure_ascii=False) + '\n',
+                          newline='\r\n')
         print()
         print('演练结束，未写任何数据。载荷已存：%s' % dump)
         print('确认无误后加 --commit 重跑。')

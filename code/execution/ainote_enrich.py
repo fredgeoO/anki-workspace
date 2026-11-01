@@ -425,6 +425,9 @@ def cmd_show(args):
 
 
 def _llm_cfg(args):
+    """走技能那份 `load_config`：配置里 `pin_active: true`，所以 model/ctx 会自动对齐到
+    **端点当前在服务的模型**（卡片任务沿用当时在用的模型，不切换）。
+    只有显式给了 `--model` 才绕过对齐——那是人在指定档位，不是脚本自己换。"""
     import local_llm as LLM
     return LLM.load_config(model=getattr(args, 'model', None))
 
@@ -586,7 +589,8 @@ def add_target_args(sp):
 
 
 def add_llm_args(sp):
-    sp.add_argument('--model', help='本地模型名（默认读 .dsh/local-llm.json）')
+    sp.add_argument('--model', help='★ 本地模型名（覆盖配置）。**卡片任务一般不该给**：'
+                                    '默认会沿用端点当前在服务的模型，给了就等于切换')
 
 
 def main(argv=None):

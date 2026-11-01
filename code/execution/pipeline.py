@@ -416,8 +416,9 @@ def cmd_prepare(_a):
 
     cache = {'word_lv': word_lv, 'grammar': grammar, 'reference': ref}
     os.makedirs(GEN, exist_ok=True)
-    json.dump(cache, open(os.path.join(GEN, 'cache.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False)
+    # indent=None + 补一个换行：与迁移前的落盘字节一致（正本默认 indent=1、无尾换行）
+    textio.write_text(os.path.join(GEN, 'cache.json'),
+                      json.dumps(cache, ensure_ascii=False) + '\n')
     print('已缓存到 %s' % os.path.join(GEN, 'cache.json'))
 
 
@@ -425,7 +426,7 @@ def load_cache():
     p = os.path.join(GEN, 'cache.json')
     if not os.path.exists(p):
         raise SystemExit('缺少 %s，先运行：python pipeline.py prepare' % os.path.join(GEN, 'cache.json'))
-    return json.load(open(p, encoding='utf-8'))
+    return textio.load_json(p)
 
 
 # ============================================================================
@@ -571,7 +572,10 @@ def cmd_triage(a):
         'drop_dup_vs_existing': [r['noteId'] for r in drop if r['dup'].startswith('与deck')],
         'batch_size': None,
     }
-    json.dump(plan, open(PLAN, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    # 迁移前是 text-mode `open(...,'w')` + json.dump(indent=1)：LF + **CRLF** 末尾换行。
+    # 正本 dump_json 写的是 LF + LF，所以这里用 write_text(newline='\r\n') 逐字节还原。
+    textio.write_text(PLAN, json.dumps(plan, indent=1, ensure_ascii=False) + '\n',
+                      newline='\r\n')
 
     with open(DROP_MD, 'w', encoding='utf-8') as f:
         f.write('# 待弃候选（%d 条）\n\n' % len(drop))
@@ -595,7 +599,7 @@ def cmd_triage(a):
 
 
 def cmd_apply(a):
-    plan = json.load(open(PLAN, encoding='utf-8'))
+    plan = textio.load_json(PLAN)
     drop = [int(x) for x in plan['drop']]
     if not drop:
         print('plan.json 里没有待弃条目')
@@ -715,11 +719,6 @@ def cmd_split(a):
 # ============================================================================
 # 阶段 2 · 本地模型生成（gen）
 # ============================================================================
-def chunked(seq, n):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
-
-
 def group_payload(group):
     """这组卡发给模型的 JSON 正文（分组估算与真实请求**共用同一份**，口径不许漂）。"""
     return json.dumps([{'noteId': int(c['noteId']), 'sentence': c['sentence'],
@@ -935,9 +934,9 @@ def output_matches_input(m):
     if not os.path.exists(op):
         return False
     try:
-        want = {int(c['noteId']) for c in json.load(open(ip, encoding='utf-8'))}
-        got = {int(c['noteId']) for c in json.load(open(op, encoding='utf-8'))}
-    except (ValueError, KeyError, TypeError):
+        want = {int(c['noteId']) for c in textio.load_json(ip)}
+        got = {int(c['noteId']) for c in textio.load_json(op)}
+    except (ValueError, KeyError, TypeError, OSError):
         return False
     return want == got
 
@@ -1001,7 +1000,7 @@ def fix_failed(a, cfg, LLM, manifest):
     """只重跑 failed.json 里的卡（本地模型逐张再试一遍），修好的直接并回 output_NN.json。"""
     if not os.path.exists(FAILED):
         raise SystemExit('没有 %s（本地模型没有遗留失败项）' % FAILED)
-    doc = json.load(open(FAILED, encoding='utf-8'))
+    doc = textio.load_json(FAILED)
     cards = [{'noteId': c['noteId'], 'sentence': c['sentence'],
               'word': c.get('word', ''), 'source': c.get('source', '')}
              for c in doc['cards']]
@@ -1036,13 +1035,13 @@ def patch_outputs(done):
     """把 {noteId: 记录} 并回对应批次的 output_NN.json。返回改动的卡数。"""
     if not done:
         return 0
-    manifest = json.load(open(os.path.join(GEN, 'manifest.json'), encoding='utf-8'))
+    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
     n = 0
     for m in manifest:
         p = os.path.join(GEN, m['output'])
         if not os.path.exists(p):
             continue
-        out = json.load(open(p, encoding='utf-8'))
+        out = textio.load_json(p)
         changed = False
         for i, rec in enumerate(out):
             v = done.get(int(rec['noteId']))
@@ -1051,6 +1050,8 @@ def patch_outputs(done):
                 changed = True
                 n += 1
         if changed:
+            # 保留原写法：output_NN.json 是断点续跑文件，既有落盘带 **CRLF** 末尾换行
+            # （text-mode open + json.dump），正本 dump_json 写 LF；改了就破坏旧批次的字节等价。
             json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return n
 
@@ -1065,7 +1066,7 @@ def cmd_merge_fix(a):
         path = os.path.join(GEN, path)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = json.load(open(path, encoding='utf-8'))
+    merge = textio.load_json(path)
     if isinstance(merge, dict):                       # 容忍 {"cards":[…]}
         merge = merge.get('cards') or merge.get('outputs') or []
     by_id = {}
@@ -1093,7 +1094,7 @@ def cmd_merge_fix(a):
         print('  其中 %d 张的 Sentence HTML 有机械问题（讲解照收）→ 跑 '
               'ruby_engine.py repair --gen "%s" --write 重渲染' % (len(mech), GEN))
     if os.path.exists(FAILED):
-        doc = json.load(open(FAILED, encoding='utf-8'))
+        doc = textio.load_json(FAILED)
         remain = [c for c in doc['cards'] if int(c['noteId']) not in ok]
         if remain:
             save_failed(remain)
@@ -1108,16 +1109,16 @@ def collect_outputs():
 
     返回 (merged, expected_noteIds, 缺失的批次文件)。
     """
-    manifest = json.load(open(os.path.join(GEN, 'manifest.json'), encoding='utf-8'))
+    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
     merged, expected, missing = [], set(), []
     for m in manifest:
-        for c in json.load(open(os.path.join(GEN, m['input']), encoding='utf-8')):
+        for c in textio.load_json(os.path.join(GEN, m['input'])):
             expected.add(int(c['noteId']))
         p = os.path.join(GEN, m['output'])
         if not os.path.exists(p):
             missing.append(m['output'])
             continue
-        merged.extend(json.load(open(p, encoding='utf-8')))
+        merged.extend(textio.load_json(p))
     return merged, expected, missing
 
 

@@ -222,7 +222,7 @@ def resolve_run(explicit=''):
         return p
     if not os.path.exists(LATEST):
         raise SystemExit('还没有任何 run（先跑 proper.py scan）')
-    info = json.load(open(LATEST, encoding='utf-8'))
+    info = textio.load_json(LATEST)
     p = os.path.join(ROOT, info['run'])
     if not os.path.isdir(p):
         raise SystemExit('latest.json 指向的目录不存在：%s' % p)
@@ -237,7 +237,17 @@ def load_candidates(run):
     p = os.path.join(run, 'candidates.json')
     if not os.path.exists(p):
         raise SystemExit('没有 candidates.json（先跑 proper.py scan）')
-    return json.load(open(p, encoding='utf-8'))
+    return textio.load_json(p)
+
+
+def dump_crlf(obj, path):
+    """落盘字节等价于迁移前的 ``json.dump(..., open(p,'w',encoding='utf-8'), indent=1)``。
+
+    原写法走 text-mode open：正文 LF、**末尾换行是 CRLF**。正本 ``textio.dump_json``
+    写的是 LF + LF，直接换会改变这批断点续跑文件的字节，所以在这里显式还原。
+    """
+    return textio.write_text(path, json.dumps(obj, indent=1, ensure_ascii=False) + '\n',
+                             newline='\r\n')
 
 
 def tag_safe(s):
@@ -576,13 +586,12 @@ def cmd_scan(a):
     cands = sorted(kept.values(), key=lambda x: (-x['count'], x['word']))
     run = os.path.join(ROOT, run_slug(work, files, a.episode))
     os.makedirs(run, exist_ok=True)
-    json.dump(cands, open(os.path.join(run, 'candidates.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
-    json.dump({'run': os.path.basename(run),
+    dump_crlf(cands, os.path.join(run, 'candidates.json'))
+    dump_crlf({'run': os.path.basename(run),
                'created': dt.datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
                'work': work, 'files': [os.path.basename(f) for f in files],
                'episodes': sorted({episode_of(f, a.episode) for f in files} - {''})},
-              open(LATEST, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+              LATEST)
     write_report(os.path.join(run, 'report.md'), work, files, cands,
                  skipped_known, skipped_have, no_occ, issues, a)
 
@@ -629,7 +638,7 @@ def works_synopsis():
         p = os.path.join(WSP.DATA_VOCAB, 'proper_works.json')
         try:
             _WORKS = {k: str(v) for k, v in
-                      (json.load(open(p, encoding='utf-8')).get('works') or {}).items()}
+                      (textio.load_json(p).get('works') or {}).items()}
         except (OSError, ValueError):
             _WORKS = {}
     return _WORKS
@@ -705,12 +714,10 @@ def cmd_split(a):
         if not chunk:
             continue
         name = 'input_%02d.json' % (b + 1)
-        json.dump(chunk, open(os.path.join(gd, name), 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
+        dump_crlf(chunk, os.path.join(gd, name))
         manifest.append({'batch': b + 1, 'input': name,
                          'output': 'output_%02d.json' % (b + 1), 'count': len(chunk)})
-    json.dump(manifest, open(os.path.join(gd, 'manifest.json'), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    dump_crlf(manifest, os.path.join(gd, 'manifest.json'))
     print('已切分 %d 批 / %d 个候选（约 %d 个/批）' % (len(manifest), len(cands), size))
     print('下一步：proper.py gen')
 
@@ -870,9 +877,9 @@ def output_matches_input(m, gd):
     if not os.path.exists(op):
         return False
     try:
-        src = json.load(open(ip, encoding='utf-8'))
-        got = json.load(open(op, encoding='utf-8'))
-    except (ValueError, TypeError):
+        src = textio.load_json(ip)
+        got = textio.load_json(op)
+    except (ValueError, TypeError, OSError):
         return False
     if len(src) != len(got):
         return False
@@ -891,7 +898,7 @@ def cmd_gen(a):
         raise SystemExit('没有 manifest.json，先跑：proper.py split --batches N')
     import local_llm as LLM
     cfg = LLM.load_config()
-    manifest = json.load(open(mp, encoding='utf-8'))
+    manifest = textio.load_json(mp)
     if a.fix_failed:
         return fix_failed(run, a, cfg, LLM)
 
@@ -913,7 +920,7 @@ def cmd_gen(a):
     tp = tc = req = 0
     failed = []
     for m in todo:
-        cands = json.load(open(os.path.join(gd, m['input']), encoding='utf-8'))
+        cands = textio.load_json(os.path.join(gd, m['input']))
         done, bad = {}, {}
         pending, rounds = list(cands), 0
         while pending:
@@ -954,8 +961,7 @@ def cmd_gen(a):
                 'word': c['word'], 'reading': '', 'categories': [], 'meaning': '',
                 'intro': '', 'intro_translation': '', 'a_note': '', 'related': [],
                 'include': False, 'reason': PLACEHOLDER})
-        json.dump(out, open(os.path.join(gd, m['output']), 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
+        dump_crlf(out, os.path.join(gd, m['output']))
         n_inc = sum(1 for e in out if e.get('include'))
         print('  批%02d 写出 %s：收录 %d / 排除 %d'
               % (m['batch'], m['output'], n_inc, len(out) - n_inc))
@@ -995,8 +1001,7 @@ def save_failed(run, entries):
            'note': '这些候选本地模型重试后仍未通过 check_proper；'
                    '用 proper.py merge-fix --file <产出> 并回，或人工处理',
            'candidates': entries}
-    json.dump(doc, open(os.path.join(gen_dir(run), FAILED), 'w', encoding='utf-8'),
-              ensure_ascii=False, indent=1)
+    dump_crlf(doc, os.path.join(gen_dir(run), FAILED))
     return doc
 
 
@@ -1005,14 +1010,14 @@ def patch_outputs(run, done):
     if not done:
         return 0
     gd = gen_dir(run)
-    manifest = json.load(open(os.path.join(gd, 'manifest.json'), encoding='utf-8'))
+    manifest = textio.load_json(os.path.join(gd, 'manifest.json'))
     n = 0
     used = {}
     for m in manifest:
         p = os.path.join(gd, m['output'])
         if not os.path.exists(p):
             continue
-        out = json.load(open(p, encoding='utf-8'))
+        out = textio.load_json(p)
         exact = {P.norm(r.get('word') or '') for r in out}
         changed = False
         for i, rec in enumerate(out):
@@ -1036,7 +1041,7 @@ def patch_outputs(run, done):
             n += 1
             print('  并回 %s ← %s' % (vk, used[vk]))
         if changed:
-            json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            dump_crlf(out, p)
     missing = sorted(k for k in done if k not in used)
     if missing:
         print('  ⚠ %d 条 fix 没落到任何记录上：%s' % (len(missing), '、'.join(missing)))
@@ -1047,7 +1052,7 @@ def fix_failed(run, a, cfg, LLM):
     p = os.path.join(gen_dir(run), FAILED)
     if not os.path.exists(p):
         raise SystemExit('没有 failed.json（本地模型没有遗留失败项）')
-    doc = json.load(open(p, encoding='utf-8'))
+    doc = textio.load_json(p)
     cands = doc.get('candidates') or []
     if not cands:
         print('failed.json 是空的。')
@@ -1088,7 +1093,7 @@ def cmd_merge_fix(a):
     path = a.file if os.path.isabs(a.file) else os.path.join(gen_dir(run), a.file)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = json.load(open(path, encoding='utf-8'))
+    merge = textio.load_json(path)
     if isinstance(merge, dict):
         merge = merge.get('entries') or merge.get('outputs') or []
     ok, bad = {}, {}
@@ -1125,14 +1130,14 @@ def load_outputs(run):
     manifest_p = os.path.join(gd, 'manifest.json')
     if not os.path.exists(manifest_p):
         raise SystemExit('没有 manifest.json，先跑 proper.py split')
-    manifest = json.load(open(manifest_p, encoding='utf-8'))
+    manifest = textio.load_json(manifest_p)
     merged, missing = [], []
     for m in manifest:
         p = os.path.join(gd, m['output'])
         if not os.path.exists(p):
             missing.append(m['output'])
             continue
-        merged.extend(json.load(open(p, encoding='utf-8')))
+        merged.extend(textio.load_json(p))
     if missing:
         raise SystemExit('尚未生成：%s' % ', '.join(missing))
     return merged
@@ -1336,7 +1341,7 @@ def cmd_verify(a):
         print('存在问题，未通过。修掉上面带 ✗ 的条目后重跑（或把问题条目改成 include=false）。')
         raise SystemExit(1)
     p = os.path.join(gen_dir(run), 'verified.json')
-    json.dump(cards, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    dump_crlf(cards, p)
     print()
     print('全部通过。载荷 %d 张（已写入 %s）' % (len(cards), p))
     return cards
@@ -1349,7 +1354,7 @@ def verified_fresh(run):
     t = os.path.getmtime(p)
     gd = gen_dir(run)
     try:
-        manifest = json.load(open(os.path.join(gd, 'manifest.json'), encoding='utf-8'))
+        manifest = textio.load_json(os.path.join(gd, 'manifest.json'))
     except (OSError, ValueError):
         return False
     files = [os.path.join(gd, 'manifest.json'), os.path.join(run, 'candidates.json')]
@@ -1386,7 +1391,7 @@ def write_cards(cards, commit, run=None):
             print('        标签：%s' % '  '.join(c['tags']))
         out = os.path.join(gen_dir(run), 'dryrun_notes.json') if run else None
         if out:
-            json.dump(cards, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            dump_crlf(cards, out)
             print('载荷已存：%s' % out)
         print('确认无误后加 --commit 重跑。')
         return cards
@@ -1463,15 +1468,14 @@ def cmd_write(a):
     if verified_fresh(run):
         p = os.path.join(gen_dir(run), 'verified.json')
         print('复用 %s（比全部产出都新，不再校验一遍）' % p)
-        cards = json.load(open(p, encoding='utf-8'))
+        cards = textio.load_json(p)
     else:
         cards = cmd_verify(argparse.Namespace(run=getattr(a, 'run', ''),
                                              include_known=getattr(a, 'include_known', False)))
     write_cards(cards, a.commit, run)
     if a.commit and cards:
         p = os.path.join(gen_dir(run), 'written.json')
-        json.dump([{'word': c['word'], 'tags': c['tags']} for c in cards],
-                  open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        dump_crlf([{'word': c['word'], 'tags': c['tags']} for c in cards], p)
 
 
 # ============================================================================
