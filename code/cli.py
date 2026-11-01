@@ -97,6 +97,8 @@ GROUPS = {
     'backup':    os.path.join(WSP.TOOLS, 'backup_anki.py'),
     'tagfreq':   os.path.join(WSP.TOOLS, 'tag_freq_stop.py'),
     'today-new': os.path.join(WSP.TOOLS, 'today_new_words.py'),
+    'rank':      os.path.join(WSP.TOOLS, 'rank_gate.py'),
+    'unranked':  os.path.join(WSP.TOOLS, 'unranked.py'),
     'r':         os.path.join(AN, 'ankir.py'),
 }
 

@@ -39,6 +39,7 @@ import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths / textio
+sys.path.insert(0, _HERE)                                            # unranked 等同区模块
 import paths as WSP  # noqa: E402  工作区路径的唯一来源
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
@@ -333,6 +334,23 @@ def check_doc_status(report, show_all):
             print('      · %s' % rel)
 
 
+# ── 6b. JAR 待办清单 ───────────────────────────────────────────────────────
+def check_unranked(report, show_all):
+    """JAR 超范围/无排名的词不进今天的选择，但 doctor 每天提醒还剩多少个等建卡。"""
+    try:
+        import unranked as UR
+        n, lines = UR.summary(top=20 if show_all else 5)
+    except Exception as exc:            # noqa: BLE001  清单坏了不能挡体检
+        report.warn('待建卡清单（data/daily_new/unranked.json）读不了', [str(exc)])
+        return
+    if not n:
+        report.ok('没有待建卡词（JAR 全部在范围内）')
+        return
+    report.warn('%d 个词 JAR 超范围 / 无排名，等你建生词卡或补 JAR' % n,
+                ['看全表：python code/cli.py unranked --all（%s）' % _rel(UR.PATH)]
+                + lines)
+
+
 # ── 7. 技能 preflight（并入）─────────────────────────────────────────────
 def check_preflight(report, tag, skip_anki, show_all):
     if not os.path.isfile(PREFLIGHT):
@@ -463,6 +481,7 @@ def main():
     check_deprecated(report, a.all)
     check_snapshots(report, a.all)
     check_doc_status(report, a.all)
+    check_unranked(report, a.all)
     if not a.no_preflight:
         check_preflight(report, a.tag, a.skip_anki, a.all)
     if not a.quiet:

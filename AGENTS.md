@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（19 个独立脚本，纯离线，全部几秒）：
+改过代码还要跑回归测试（20 个独立脚本，纯离线，全部几秒）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -102,7 +102,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | 给一个词找**真实**例句（jisho，不造句） | `jisho-example` |
 | 专有名词收集 → `3-专有词汇`（不进队列） | `jp-anki-proper-noun` |
 | 字幕/文字里没学过的词打 `复习::<名称>` | `jp-anki-subtitle-tag` |
-| 每天从文字/字幕挑 N 个今天要学的生词（`今天学习生词`，按 Jiten 升序） | `jp-anki-today-new` |
+| 每天从文字/字幕挑 N 个今天要学的生词（`今天学习生词`；Sudachi 抽候选 + 本地模型按「动漫对白实用度」精排，公式兜底） | `jp-anki-today-new` |
 | 把短上下文脏活外包给本机模型（省 token） | `local-llm` |
 | **主对话上下文吃紧 / 长流程只做调度与验收** | `context-offload` |
 | **词义/读音/词性/近义拿不准，要先澄清语义** | `jmdict-lookup` |
@@ -134,7 +134,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/execution/lesson_text.py` | 讲义 teach 整形 / 接续清洗 / Markdown 渲染（从 `today_new.py` 抽出） |
 | `code/execution/core6000_text.py` | core6000 补例句②的纯渲染：词性中文化 / 注音 / 词表（从 `core6000_example.py` 抽出） |
 | `code/execution/lesson_check.py` | 讲义的机械判定：词形/读音/词性、内容问题、渲染后闸门（从 `today_new.py` 抽出，不渲染） |
-| `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `proper_extract.py` `jisho_example.py` |
+| `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `rank_gate.py`（选词精排）`unranked.py`（待建卡清单）`proper_extract.py` `jisho_example.py` |
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
 | `code/tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
@@ -205,7 +205,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
 6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
 7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   19 个都 0 才算完；只改文档就不用。
+   20 个都 0 才算完；只改文档就不用。
 
 `docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
 

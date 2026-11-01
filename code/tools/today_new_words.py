@@ -1,37 +1,29 @@
 # -*- coding: utf-8 -*-
-"""每天从一整部作品的字幕里挑 30 个「今天要学」的词，只打一个标签 ``今天学习生词``。
+"""每天从一整部作品的字幕里挑「今天要学」的词，只打一个标签 ``今天学习生词``。
 
 它解决的是什么
 ------------
-「今天学哪 N 个词」每天都要重新决定。2026-10-29 起口径改成**一个连续打分公式**，
-不再维护 A/B/D/E 分池表：
+「今天学哪 N 个词」每天都要重新决定。**2026-11-01 起分工改成四段**，模型只管
+「值不值得学」，机械部分全留给代码：
 
-1. **统计窗口 = 整部作品**（同目录所有字幕，含还没看的集）。给一集字幕，脚本会
-   把同目录其它集一起扫掉，用来算「出现次数」和「跨了几集」。
-2. **候选 = Anki 已有、且至少有一张未学笔记的词**。
-   「学过」按**笔记**判断：同一词形下，已学的那张排除，别的未学笔记照选照标。
-3. **打分**（纯代码，无模型）::
-
-       S = ln(1+occ) + MU*ln(1+eps) + LAM*ln(JAR_MAX/JAR)
-
-   等价乘积形式 ``(1+occ) * (1+eps)^MU * (JAR_MAX/JAR)^LAM``。
-
-   * ``occ`` 本作出现次数，``eps`` 出现集数，``JAR`` JitenAnimeRank（越小越常见）；
-   * 三者都取对数：次数与排名都是重尾分布，线性相加会被量纲吃掉；
-   * **参数是可换算的**：次数翻倍 = ``ln2``，JAR 前移 k 倍 = ``LAM*ln k``。
-     令两者相等得 ``k = 2**(1/LAM)``——默认 ``LAM=0.3`` 即「次数翻一倍 ≈
-     JAR 排名前移 10 倍」；
-   * JAR 是**次级加分 + 同分排序器**，不是主项：JAR 300 以内多是 おっ / くっ /
-     やっぱ 这类填词，LAM 拉到 0.8 会把它们顶到第 1 名；
-   * ``MU`` 按集数轻微折价：一集里念 11 遍 ≠ 跨 4 集念 6 遍（后者语境更多）。
-
-4. **取 N 个词**：按分数降序取前 N。名额按**词**算；一个词名下的未学笔记全部
-   打标签，所以标签数可能多于 N。候选不足 N 时有几个取几个，**不硬凑**。
-5. **JAR 门槛**：只处理 ``1 ≤ JAR ≤ 30000`` 的词；无排名（空 / 0 / 999999）与
-   JAR >30000 的一律排除（``--max-jar 0`` 可关掉这个门槛）。
-6. **不去重**：复合词各自独立（``魔神`` / ``魔神族`` 都算候选），同词多写法也不合并。
+1. **Sudachi 负责不漏词**：**默认只扫你指定的这一集**（给目录或加 ``--season`` 才整季）；
+   逐句分词 → 词典形 → 对 Anki 三个词汇牌组的词表，连续词素拼成的复合词再查一次。
+2. **代码负责排除懂的**：按**笔记**判「学过」（任一卡 ``type != 0`` → learned；
+   全挂起 → suspended）；JAR 门槛 ``1–30000``；读音闸（卡片读音与字幕读音取交集，
+   判不了就放行）。
+3. **LLM 负责选词**（``rank_gate.py``）：**一集一次调用**，模型读整集台词 + 本集候选，
+   按「① 动漫对白实用度 ② 学习/编卡价值 ③ 一般通用度」排出有序名单；跨集按
+   归一化名次合并（多集都排得高 → 分高）。名额仍是「内容词 N 个 + 助词/感动词
+   ``--particles`` 个」，语气词不会挤掉内容词。
+4. **公式只做兜底**：``S = ln(1+occ) + MU*ln(1+eps) + LAM*ln(JAR_MAX/JAR)``。
+   模型不可用 / 候选为空 / ``--no-llm-rank`` 时才用它定序；平时只作同分参考与报告列。
+5. **义项闸**（``sense_gate.py``）：卡片释义与字幕句义项对不上就不打 tag，
+   被剔的词用后面的候选补位。
+6. **JAR 超范围 / 无排名**：不进今天的名单（没有可比位置），但登记到
+   ``data/daily_new/unranked.json`` 等建卡；``doctor`` 每天用「提示」报数量 + 前 5 个。
 7. **全量替换**：先把全库旧的 ``今天学习生词`` 摘掉，再给今天选中的打上。
-8. **词性过滤默认关**：``--drop-phrases`` 才会挡掉 Anki 标为惯用句/成句/词缀/
+8. **不去重**：复合词各自独立（``魔神`` / ``魔神族`` 都算候选），同词多写法也不合并。
+9. **词性过滤默认关**：``--drop-phrases`` 才会挡掉 Anki 标为惯用句/成句/词缀/
    代词的词（会连带挡掉 おっ / にゃあ 这类想学的词，所以不默认）。
 
 边界
@@ -61,15 +53,17 @@
     $PY code\\tools\\today_new_words.py --clear --commit
     $PY code\\tools\\today_new_words.py --revert --commit
 
-    # 调权重：次数权重固定为 1，mu 管集数、lam 管 JAR
-    $PY code\\tools\\today_new_words.py "字幕.srt" --lam 0.5      # 更看重高频词
-    $PY code\\tools\\today_new_words.py "字幕.srt" --mu 0         # 不看跨集
+    # 不用模型（离线 / 省时间）：退回公式排序
+    $PY code\\tools\\today_new_words.py "字幕.srt" --no-llm-rank
+    $PY code\\tools\\today_new_words.py "字幕.srt" --no-rank-cache   # 强制重排
 
 产物
 ----
-* ``data/daily_new/<日期>/picked.json`` —— 本次入选词 / 分数拆解 / 笔记 id（讲义据此排顺序）
+* ``data/daily_new/<日期>/picked.json`` —— 入选词 / 精排名次 + 模型理由 / 分数拆解 / 笔记 id
 * ``output/daily/today_new_words.md`` —— 给人看的稳定路径报告
 * ``data/daily_new/state.json`` —— 回退记录（运行前 / 运行后的 noteId 集合）
+* ``data/daily_new/unranked.json`` —— JAR 超范围 / 无排名的待建卡清单（``cli.py unranked`` 看）
+* ``data/daily_new/rank_cache.json`` —— 精排缓存（同一集同一候选集不重复问模型）
 """
 from __future__ import annotations
 
@@ -87,7 +81,9 @@ sys.path.insert(0, _HERE)
 import anki_api as AK            # noqa: E402  Anki 唯一通道
 import jp_decks as JD            # noqa: E402  牌组常量
 import paths as WSP              # noqa: E402  工作区路径
+import rank_gate as RG           # noqa: E402  LLM 精排（一集一次）
 import textio                    # noqa: E402  UTF-8 唯一入口
+import unranked as UR            # noqa: E402  JAR 超范围/无排名的待办清单
 import subtitle_new_words as SW  # noqa: E402  字幕解析 / 分词 / 词表匹配
 
 # ============================================================================
@@ -109,6 +105,9 @@ DEFAULT_PARTICLES = 2                 # 每天最多带出几个助词/感动词
 DATA_ROOT = os.path.join(WSP.DATA, 'daily_new')
 STATE_PATH = os.path.join(DATA_ROOT, 'state.json')
 REPORT_PATH = os.path.join(WSP.OUTPUT, 'daily', 'today_new_words.md')
+# JAR 超范围 / 无排名的词：不进今天的选择，但记在这儿等建卡（doctor 会提醒）
+UNRANKED_PATH = os.path.join(DATA_ROOT, 'unranked.json')
+DEFAULT_RANK_K = 40             # 每集让模型给回多少个候选（= 名额 + 缓冲）
 
 
 # ============================================================================
@@ -261,12 +260,13 @@ def fmt_rank(r):
 # ============================================================================
 # 候选：整部作品扫一遍
 # ============================================================================
-def episode_sources(path):
+def episode_sources(path, season=False):
     """输入 → [(标签, 路径)]。
 
-    字幕（.srt/.vtt/.ass/.ssa）**扩展到同目录整季**（统计窗口 = 整部作品）；
-    纯文本 / stdin 只算这一份（集数按 1 算）。子目录（如 ``anki/``）不扫，
-    避免同一集被数两遍。
+    **默认只筛这一集**（2026-11-01 用户口径）：给一集字幕就只读这一集，不去扫同目录
+    其它集——「今天的词」就该只来自今天看的这集，别的集没看过、也不该影响统计。
+    要整季得显式说：给**目录**，或对单集加 ``season=True``（CLI ``--season``）。
+    子目录（如 ``anki/``）永远不扫，避免同一集被数两遍。
     """
     if path == '-':
         return [('-', '-')]
@@ -277,7 +277,7 @@ def episode_sources(path):
                  and os.path.isfile(os.path.join(path, n))]
     else:
         ext = os.path.splitext(path)[1].lower()
-        if ext in SUBTITLE_EXT:
+        if season and ext in SUBTITLE_EXT:
             folder = os.path.dirname(os.path.abspath(path))
             files = [os.path.join(folder, n) for n in sorted(os.listdir(folder))
                      if os.path.splitext(n)[1].lower() in SUBTITLE_EXT
@@ -310,9 +310,11 @@ def collect_stats(sources, index, include_names=False, extra_pos=()):
                 rec = stats.setdefault(h.word, {
                     'occ': 0, 'eps': set(), 'first': None, 'examples': [],
                     'readings': set(), 'pos': h.pos0, 'pos1': h.pos1,
+                    'per_ep': {},
                 })
                 rec['occ'] += 1
                 rec['eps'].add(label)
+                rec['per_ep'][label] = rec['per_ep'].get(label, 0) + 1
                 if h.pos0 and not rec.get('pos'):
                     rec['pos'] = h.pos0
                 if h.pos1 and not rec.get('pos1'):
@@ -335,11 +337,18 @@ def collect_stats(sources, index, include_names=False, extra_pos=()):
 def build_candidates(stats, index, max_jar=DEFAULT_MAX_JAR, mu=DEFAULT_MU,
                      lam=DEFAULT_LAM, drop_phrases=False):
     """统计 → 候选词（JAR 在范围内、有未学笔记）→ (items, skipped)。"""
-    items, skipped = [], {'jar': [], 'no_notes': [], 'phrases': [], 'reading': []}
+    items, skipped = [], {'jar': [], 'no_notes': [], 'phrases': [], 'reading': [],
+                          'jar_items': []}
     for word, st in stats.items():
         jar = rank_of(word, index)
         if max_jar and int(max_jar) > 0 and jar > int(max_jar):
             skipped['jar'].append(word)
+            skipped['jar_items'].append({
+                'word': word, 'reading': '', 'jiten': jar,
+                'occurrences': int(st.get('occ') or 0),
+                'episodes': len(st.get('eps') or ()),
+                'first': st.get('first'),
+            })
             continue
         if drop_phrases:
             ents = index.entries.get(word) or ()
@@ -377,6 +386,7 @@ def build_candidates(stats, index, max_jar=DEFAULT_MAX_JAR, mu=DEFAULT_MU,
             'jiten': jar,
             'occurrences': occ,
             'episodes': eps,
+            'per_ep': dict(st.get('per_ep') or {}),
             'first': st['first'],
             'examples': st['examples'],
             'score': score_of(occ, eps, jar, mu=mu, lam=lam),
@@ -418,6 +428,55 @@ def plan_pick(items, n, particles=0):
     """
     picked = pick_with_quota(items, n, particles)
     return picked, sorted(items, key=item_key)
+
+
+def pick_from_order(order, n, particles=DEFAULT_PARTICLES, require_notes=True):
+    """按**给定顺序**取词（LLM 精排的结果用它）：内容词 n 个 + 助词/感动词 particles 个。
+
+    与 :func:`pick_with_quota` 的区别只在「谁定序」：这个不重算分数，顺着传进来的
+    顺序走，所以模型排第一的词就是第一个。名额规则不变（语气词不能挤掉内容词）。
+    """
+    words, parts = [], []
+    n, particles = max(0, int(n)), max(0, int(particles))
+    for it in order:
+        if require_notes and not it.get('notes'):
+            continue
+        if _is_particle(it):
+            if len(parts) < particles:
+                parts.append(it)
+        elif len(words) < n:
+            words.append(it)
+        if len(words) >= n and len(parts) >= particles:
+            break
+    return words + parts
+
+
+def group_by_episode(items, sources, stats):
+    """候选 → 每集一组 ``{'label', 'text', 'items'}``，供 rank_gate 一集一次调用。
+
+    每集的候选只放**该集出现过的词**，并把 ``occurrences`` 换成**该集次数**：
+    模型判的是「这一集里这个词实不实用」，拿全作次数会误导。
+    """
+    by_ep = {}
+    for it in items:
+        for label in (stats.get(it['word'], {}).get('eps') or ()):
+            by_ep.setdefault(label, []).append(it)
+    groups = []
+    for label, path in sources:
+        if label not in by_ep:
+            continue
+        try:
+            text = '\n'.join(c.text for c in SW.load_cues(path))
+        except Exception:           # noqa: BLE001  读不了台词就不给语境，不挡流程
+            text = ''
+        sub = []
+        for it in by_ep[label]:
+            x = dict(it)
+            x['ep_occ'] = (stats.get(it['word'], {}).get('per_ep') or {}).get(
+                label, it['occurrences'])
+            sub.append(x)
+        groups.append({'label': label, 'text': text, 'items': sub})
+    return groups
 
 
 def describe(item, index):
@@ -479,18 +538,23 @@ def _first_text(w, limit=40):
     return text if len(text) <= limit else text[:limit] + '…'
 
 
-def print_picked(items):
+def print_picked(items, why_of=None, rank_of=None):
     if not items:
         return
+    why_of, rank_of = why_of or {}, rank_of or {}
     print('')
-    print('今天要学的词（内容词按分数降序，助词/感动词排在最后；分=次数项+集数项+频率项）：')
+    print('今天要学的词（按精排顺序；内容词在前，助词/感动词在后；分=公式兜底分）：')
     for i, w in enumerate(items, 1):
         first = _first_text(w)
+        extra = ''
+        if w['word'] in why_of:
+            extra = '｜模型第 %d｜%s' % (rank_of.get(w['word']) or 0, why_of[w['word']])
+        elif first:
+            extra = '｜「%s」' % first
         print('  %2d. %-10s %-12s JAR %-6s ｜%2d 次/%d 集｜分 %.2f｜%d 张笔记%s'
               % (i, w['word'], w.get('reading') or '—', fmt_rank(w.get('jiten')),
                  int(w.get('occurrences') or 0), int(w.get('episodes') or 0),
-                 float(w.get('score') or 0), len(w.get('notes') or []),
-                 ('｜「%s」' % first) if first else ''))
+                 float(w.get('score') or 0), len(w.get('notes') or []), extra))
 
 
 def _score_rule(mu, lam):
@@ -499,7 +563,15 @@ def _score_rule(mu, lam):
             % (mu, lam, JAR_MAX, flip_ratio(lam)))
 
 
-def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None):
+def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None,
+               why_of=None):
+    why_of = why_of or {}
+    if counts.get('ranked_by') == 'llm':
+        rank_line = ('- 排序：**LLM 精排**（一集一次调用；%s 次 / %s 秒%s）'
+                     % (counts.get('rank_calls'), counts.get('rank_secs'),
+                        '，命中缓存' if counts.get('rank_cached') else ''))
+    else:
+        rank_line = '- 排序：公式兜底（%s）' % _score_rule(counts['mu'], counts['lam'])
     lines = [
         '# 今天学习生词 · %s' % dt.date.today().isoformat(),
         '',
@@ -510,10 +582,10 @@ def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None):
         % (len(picked), sum(len(w['notes']) for w in picked), n),
         '- 旧标签：%d 个（保留 %d / 摘除 %d）；本次新增 %d'
         % (len(plan['old']), len(plan['keep']), len(plan['remove']), len(plan['add'])),
-        '- 公式：%s' % _score_rule(counts['mu'], counts['lam']),
+        rank_line,
     ]
     if counts.get('score_top') is not None:
-        lines.append('- 分数：入选最高 %.2f / 最低 %.2f%s'
+        lines.append('- 参考分（公式）：入选最高 %.2f / 最低 %.2f%s'
                      % (counts['score_top'], counts['score_min'],
                         ('；第 %d 名 %.2f' % (n + 1, counts['score_next']))
                         if counts.get('score_next') is not None else ''))
@@ -521,15 +593,15 @@ def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None):
         '',
         '## 今天要学',
         '',
-        '| # | 词 | 读音 | 分 | JAR | 次数 | 集数 | 笔记 | 首句 |',
-        '|---|---|---|---:|---:|---:|---:|---:|---|',
+        '| # | 词 | 读音 | 模型理由 | 分 | JAR | 次数 | 集数 | 笔记 |',
+        '|---|---|---|---|---:|---:|---:|---:|---:|',
     ]
     for i, w in enumerate(picked, 1):
-        lines.append('| %d | %s | %s | %.2f | %s | %d | %d | %d | %s |' % (
-            i, w['word'], w.get('reading') or '', float(w.get('score') or 0),
-            fmt_rank(w.get('jiten')),
-            int(w['occurrences']), int(w['episodes']), len(w['notes']),
-            _first_text(w, 60).replace('|', '\\|')))
+        lines.append('| %d | %s | %s | %s | %.2f | %s | %d | %d | %d |' % (
+            i, w['word'], w.get('reading') or '',
+            (why_of.get(w['word']) or '—').replace('|', '\\|'),
+            float(w.get('score') or 0), fmt_rank(w.get('jiten')),
+            int(w['occurrences']), int(w['episodes']), len(w['notes'])))
     lines.append('')
     if sense_dropped:
         lines += ['## 义项核验被剔除', '',
@@ -567,17 +639,28 @@ def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None):
     return '\n'.join(lines)
 
 
-def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None):
+def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None,
+                  rank_meta=None, why_of=None):
     today = dt.date.today().isoformat()
     out_dir = os.path.join(DATA_ROOT, today)
     os.makedirs(out_dir, exist_ok=True)
     json_path = os.path.join(out_dir, 'picked.json')
+    why_of = why_of or {}
+    rank_of = (rank_meta or {}).get('rank_of') or {}
     textio.dump_json({
         'tag': TAG,
         'source': source,
         'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
         'n': n,
         'counts': counts,
+        'ranking': {
+            'by': counts.get('ranked_by'),
+            'calls': counts.get('rank_calls'),
+            'secs': counts.get('rank_secs'),
+            'cached': counts.get('rank_cached'),
+            'rubric': '动漫对白实用度 > 学习/编卡价值 > 一般通用度',
+            'per_episode': (rank_meta or {}).get('per_episode'),
+        },
         'formula': {'mu': counts['mu'], 'lam': counts['lam'], 'jar_max': JAR_MAX,
                     'flip_ratio': flip_ratio(counts['lam'])},
         'plan': {'old': len(plan['old']), 'keep': len(plan['keep']),
@@ -586,6 +669,8 @@ def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None):
             'word': w['word'], 'reading': w.get('reading') or '',
             'pos': w.get('pos') or '', 'deck': w.get('deck') or '',
             'level': w.get('level') or '',
+            'rank': rank_of.get(w['word']),
+            'why': why_of.get(w['word']) or '',
             'score': round(float(w.get('score') or 0), 4),
             'score_parts': [round(x, 4) for x in score_parts(
                 w['occurrences'], w['episodes'], w['jiten'], counts['mu'],
@@ -606,28 +691,25 @@ def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None):
     }, json_path)
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     textio.write_text(REPORT_PATH, _report_md(source, picked, dropped, plan, n,
-                                              counts, sense_dropped))
+                                              counts, sense_dropped, why_of))
     return json_path, REPORT_PATH
 
 
 # ============================================================================
 # 主流程
 # ============================================================================
-def sense_filter(picked, ranked, n, index, buffer=15, particles=0, quiet=False):
+def sense_filter(picked, order, n, index, buffer=15, particles=0, quiet=False):
     """义项核验：卡片释义和字幕句义项对不上的词剔掉，用后面的词补位。
 
     只有模型明确判 ``False`` 才剔；词典查不到 / 模型判不了 → 放行（``None``）。
 
-    补位必须沿用 ``plan_pick`` 的两路名额，**不能直接切 ``ranked[:n]``**：感动词频次
-    极高（`ん` 一期 400 次），按分数直切会让它们把内容词全挤掉，用户要的是
-    「语气词每天 2 个，其余留给内容」。没有笔记的词（待建卡的助词）也不进池，
-    否则会占着名额却打不出标签。
+    ``order`` 是**精排顺序**（LLM 或公式兜底），补位顺着它走；名额仍是
+    「内容词 n 个 + 助词/感动词 particles 个」，不能让语气词补位挤掉内容词。
     → (保留的词, 被剔的记录)
     """
     import sense_gate as SG
 
-    # 判池与补位都沿用「内容词 n 个 + 助词/感动词 particles 个」的两路名额
-    pool = pick_with_quota(ranked, int(n) + int(buffer),
+    pool = pick_from_order(order, int(n) + int(buffer),
                            max(0, int(particles)) + int(buffer), require_notes=True)
     rows = SG.to_inputs(pool, index)
     if not rows:
@@ -653,26 +735,41 @@ def sense_filter(picked, ranked, n, index, buffer=15, particles=0, quiet=False):
                 'sense_gloss': gloss,
                 'why': it['sense_why'],
             })
-    kept = pick_with_quota([it for it in pool if it['word'] not in bad],
+    kept = pick_from_order([it for it in pool if it['word'] not in bad],
                            n, particles, require_notes=True)
     return kept, dropped
 
 
 def do_pick(a):
     index = SW.VocabIndex.load(scopes=SCOPES)
-    sources = episode_sources(a.input)
+    sources = episode_sources(a.input, season=a.season)
     stats = collect_stats(sources, index, include_names=a.include_names,
                           extra_pos=PARTICLE_POS if a.particles > 0 else ())
     items, skipped = build_candidates(stats, index, a.max_jar, mu=a.mu, lam=a.lam,
                                       drop_phrases=a.drop_phrases)
-    picked, ranked = plan_pick(items, a.n, particles=a.particles)
-    pending = [w for w in picked if not w.get('notes')]
-    picked = [w for w in picked if w.get('notes')]
+    formula_order = sorted(items, key=item_key)
+
+    # ---- 精排：一集一次调用，模型给有序名单；失败/关闭 → 公式顺序兜底 ----
+    order, rank_meta, why_of = formula_order, None, {}
+    if a.llm_rank and items:
+        groups = group_by_episode(items, sources, stats)
+        ranked_pairs, rank_meta = RG.rank_groups(
+            groups, k=max(a.n + DEFAULT_RANK_K - DEFAULT_N, a.n + 10),
+            use_cache=not a.no_rank_cache)
+        if ranked_pairs:
+            order = [it for it, _why, _s in ranked_pairs]
+            why_of = {it['word']: _why for it, _why, _s in ranked_pairs}
+            rank_meta['rank_of'] = {it['word']: n + 1
+                                    for n, (it, _w, _s) in enumerate(ranked_pairs)}
+
+    picked = pick_from_order(order, a.n, a.particles)
+    pending = [it for it in formula_order
+               if _is_particle(it) and not it.get('notes')][:max(0, a.particles)]
 
     sense_dropped = []
     if a.sense_check and picked:
         before = [w['word'] for w in picked]
-        picked, sense_dropped = sense_filter(picked, ranked, a.n, index,
+        picked, sense_dropped = sense_filter(picked, order, a.n, index,
                                              particles=a.particles, quiet=False)
         if sense_dropped:
             print('')
@@ -703,12 +800,16 @@ def do_pick(a):
         'max_jar': a.max_jar,
         'mu': a.mu,
         'lam': a.lam,
+        'ranked_by': 'llm' if rank_meta and rank_meta.get('returned') else 'formula',
+        'rank_calls': (rank_meta or {}).get('calls'),
+        'rank_secs': (rank_meta or {}).get('secs'),
+        'rank_cached': (rank_meta or {}).get('cached'),
         'occ5': sum(1 for w in items if w['occurrences'] >= 5),
         'eps3': sum(1 for w in items if w['episodes'] >= 3),
         'jar4k': sum(1 for w in items if w['jiten'] <= 4000),
         'score_top': round(max(float(w['score']) for w in picked), 2) if picked else None,
         'score_min': round(min(float(w['score']) for w in picked), 2) if picked else None,
-        'score_next': next((round(float(w['score']), 2) for w in ranked
+        'score_next': next((round(float(w['score']), 2) for w in formula_order
                             if not _is_particle(w)
                             and w['word'] not in {p['word'] for p in picked}
                             and w['word'] not in {d['word'] for d in sense_dropped}),
@@ -716,12 +817,27 @@ def do_pick(a):
     }
 
     print('来源：%s' % a.input)
-    print('窗口：%d 集（同目录整部作品）' % counts['episodes'])
+    if len(sources) > 1:
+        print('窗口：%d 集（整季/整目录）' % counts['episodes'])
+    else:
+        print('窗口：1 集（只筛这一集；要看整季请给目录或加 --season）')
     print('候选：%d 个词（JAR 1–%d、有未学笔记）' % (counts['candidates'], a.max_jar))
     print('  排除：JAR 超范围 %d / 没有未学笔记 %d / 读音对不上 %d'
           % (counts['skipped_jar'], counts['skipped_notes'],
              counts['skipped_reading']))
-    print('公式：%s' % _score_rule(a.mu, a.lam))
+    if rank_meta and rank_meta.get('returned'):
+        if rank_meta.get('cached'):
+            print('排序：LLM 精排（%d 集 / 命中缓存，未重新调用）'
+                  % (rank_meta.get('episodes') or len(sources)))
+        else:
+            print('排序：LLM 精排（%d 集 / %d 次调用 / %.1fs / %d 路并行）'
+                  % (rank_meta.get('episodes') or len(sources),
+                     rank_meta.get('calls') or 0, rank_meta.get('secs') or 0,
+                     rank_meta.get('workers') or 1))
+    else:
+        print('排序：公式兜底（%s）' % ('模型未给出可用名单' if a.llm_rank
+                                        else '已 --no-llm-rank'))
+        print('公式：%s' % _score_rule(a.mu, a.lam))
     print('分布：出现≥5 %d 个 / 跨集≥3 %d 个 / JAR≤4000 %d 个'
           % (counts['occ5'], counts['eps3'], counts['jar4k']))
     print('入选：%d 个词 / %d 张笔记（上限 %d 个词）'
@@ -753,7 +869,7 @@ def do_pick(a):
     notes = [nid for w in picked for nid in w['notes']]
     plan = diff_ids(tagged_note_ids(), notes)
 
-    print_picked(picked)
+    print_picked(picked, why_of, (rank_meta or {}).get('rank_of'))
     if pending:
         print('')
         print('本作高分助词/感动词（库里没有卡，待建卡；名额 %d）：' % a.particles)
@@ -764,13 +880,38 @@ def do_pick(a):
                      ((w.get('first') or {}).get('text') or '')[:24]))
     print('')
     if counts['score_min'] is not None:
-        print('分数：入选最高 %.2f / 最低 %.2f%s'
-              % (counts['score_top'], counts['score_min'],
-                 ('；第 %d 名 %.2f' % (a.n + 1, counts['score_next']))
-                 if counts['score_next'] is not None else ''))
+        if counts.get('ranked_by') == 'llm':
+            print('排序：模型定序；公式分仅作参考（入选 %.2f–%.2f）'
+                  % (counts['score_min'], counts['score_top']))
+        else:
+            print('分数：入选最高 %.2f / 最低 %.2f%s'
+                  % (counts['score_top'], counts['score_min'],
+                     ('；第 %d 名 %.2f' % (a.n + 1, counts['score_next']))
+                     if counts['score_next'] is not None else ''))
     print('旧标签：%d 个；保留 %d；摘除 %d；新增 %d'
           % (len(plan['old']), len(plan['keep']),
              len(plan['remove']), len(plan['add'])))
+
+    # ---- JAR 超范围 / 无排名：登记待办（演练只报数，不落盘） ----
+    jar_items = [it for it in (skipped.get('jar_items') or []) if it.get('word')]
+    counts['unranked'] = len(jar_items)
+    if jar_items:
+        for it in jar_items:
+            if not it.get('reading'):
+                it['reading'] = SW.word_reading(it['word'])
+        if a.commit:
+            resolved = [w for w in stats
+                        if 0 < rank_of(w, index) <= int(a.max_jar or JAR_MAX)]
+            gone = UR.prune(resolved)
+            reg = UR.remember(jar_items, source=a.input)
+            counts['unranked_total'] = reg['total']
+            print('待建卡清单：%d 个词 JAR 超范围 / 无排名 → 新增 %d / 更新 %d / 共 %d%s'
+                  % (len(jar_items), reg['added'], reg['updated'], reg['total'],
+                     ('；已补上 JAR 出清 %d 个（%s）' % (len(gone), '、'.join(gone[:8])))
+                     if gone else ''))
+        else:
+            print('待建卡清单：%d 个词 JAR 超范围 / 无排名（演练不落盘，--commit 才登记）'
+                  % len(jar_items))
     print('')
     print('模式：%s' % ('★ 真写库' if a.commit else '演练（不写库，加 --commit 才写）'))
     if not a.commit:
@@ -811,7 +952,8 @@ def do_pick(a):
         print('  先跑 --revert --commit 恢复到运行前，再把上面几个 noteId 报给用户。')
 
     json_path, report_path = write_outputs(a.input, picked, dropped, plan, a.n,
-                                           counts, sense_dropped)
+                                           counts, sense_dropped,
+                                           rank_meta=rank_meta, why_of=why_of)
     print('')
     print('产物：')
     print('  %s' % json_path)
@@ -897,10 +1039,16 @@ def main(argv=None):
     ap.add_argument('--particles', type=int, default=DEFAULT_PARTICLES,
                     help='助词/感动词单独占几个名额（默认 %d；0 = 不选这类词）'
                          % DEFAULT_PARTICLES)
+    ap.add_argument('--season', action='store_true',
+                    help='给单集时扩到同目录整季（默认只筛这一集）')
     ap.add_argument('--drop-phrases', action='store_true',
                     help='挡掉 Anki 标为惯用句/成句/词缀/代词的词（会连带挡掉 おっ/にゃあ 这类词）')
     ap.add_argument('--no-sense-check', dest='sense_check', action='store_false',
                     help='跳过义项核验（默认开：卡片释义与字幕句义项对不上就不打 tag）')
+    ap.add_argument('--no-llm-rank', dest='llm_rank', action='store_false',
+                    help='关掉 LLM 精排，退回公式排序（离线/省时间用）')
+    ap.add_argument('--no-rank-cache', action='store_true',
+                    help='精排不吃缓存，强制重新问模型')
     ap.add_argument('--include-names', action='store_true',
                     help='保留人名/专有名词（默认过滤）')
     ap.add_argument('--clear', action='store_true', help='清空「%s」标签' % TAG)
