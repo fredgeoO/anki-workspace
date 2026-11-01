@@ -72,9 +72,17 @@ DEFAULT_SCOPES = (JD.DECK_VOCAB,)          # 0-日本语学习::0-词汇，含�
 DEFAULT_OUT_ROOT = os.path.join(WSP.DATA, 'subtitle_review')
 
 # 值得做成词汇卡的内容词性（Sudachi 的 pos[0]）
-CONTENT_POS = {'名詞', '動詞', '形容詞', '形容動詞', '副詞'}
+# ⚠ Sudachi 把**な形容词/形容动词**标成 `形状詞`，它的 POS 集里没有 `形容動詞`
+#   （那个名字是别的分词器/学究叫法）。2026-11-01 之前这里只有 `形容動詞`，
+#   于是 大丈夫/好き/当然/大切/素直 这一整类被静默丢弃；`形状詞` 是补上这一格。
+CONTENT_POS = {'名詞', '動詞', '形容詞', '形容動詞', '形状詞', '副詞'}
 # 名詞里这些子类不是「词」而是语法/数量
 DROP_NOUN_POS1 = {'代名詞', '数詞'}
+# 形状詞里的语法语干（そう/よう/みたい）不是可讲的词
+DROP_SHAPEWORD_POS1 = {'助動詞語幹'}
+# Sudachi 把 `<こんな|そんな|あんな|どんな>` 也标成 `形状詞-一般`；它们是
+# 代词性连体词，与 DROP_NOUN_POS1 里的 代名詞 同口径，不进候选。
+DEMONSTRATIVE = {'こんな', 'そんな', 'あんな', 'どんな'}
 KANJI = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
 KANA_ONLY = re.compile(r'^[\u3041-\u3096\u30a1-\u30fa\u30fc\u309d\u309eー]+$')
 DIGIT_PUNCT = re.compile(r'^[\d\s\W_]+$', re.UNICODE)
@@ -377,6 +385,9 @@ def is_content_token(t, extra_pos=()):
         return False
     if t.pos0 == '名詞' and t.pos1 in DROP_NOUN_POS1:
         return False
+    if t.pos0 == '形状詞':
+        if t.pos1 in DROP_SHAPEWORD_POS1 or t.base in DEMONSTRATIVE:
+            return False
     if not t.base or DIGIT_PUNCT.match(t.base):
         return False
     is_extra = bool(extra_pos) and t.pos0 in tuple(extra_pos)
