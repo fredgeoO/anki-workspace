@@ -57,6 +57,7 @@ for _p in (os.path.join(_CODE, 'common'), _HERE,
 
 import textio  # noqa: E402  UTF-8 stdio 唯一入口
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
+import batchjob as BJ  # noqa: E402  批处理清单层 + 收尾层（split / 断点续跑 / 并回 / failed.json）
 import check_proper as CP  # noqa: E402  专名条目的唯一规则实现
 import jp_decks as JD  # noqa: E402  牌组路径的唯一来源
 import llm_out as OUT  # noqa: E402  模型产出吸收层
@@ -245,6 +246,10 @@ def dump_crlf(obj, path):
 
     原写法走 text-mode open：正文 LF、**末尾换行是 CRLF**。正本 ``textio.dump_json``
     写的是 LF + LF，直接换会改变这批断点续跑文件的字节，所以在这里显式还原。
+
+    proper 的整个 run 目录（candidates / input / manifest / output / failed）历史上
+    就是这套换行，所以它作为**落盘函数**传给 `batchjob`（``dump=dump_crlf``），
+    而不是把整目录换成 LF —— 收敛的是代码，不是盘面。
     """
     return textio.write_text(path, json.dumps(obj, indent=1, ensure_ascii=False) + '\n',
                              newline='\r\n')
@@ -705,19 +710,9 @@ def cmd_split(a):
     cands = load_candidates(run)
     if not cands:
         raise SystemExit('候选为空（scan 一个都没抽到？）')
-    gd = gen_dir(run)
-    os.makedirs(gd, exist_ok=True)
-    size = (len(cands) + a.batches - 1) // a.batches
-    manifest = []
-    for b in range(a.batches):
-        chunk = cands[b * size:(b + 1) * size]
-        if not chunk:
-            continue
-        name = 'input_%02d.json' % (b + 1)
-        dump_crlf(chunk, os.path.join(gd, name))
-        manifest.append({'batch': b + 1, 'input': name,
-                         'output': 'output_%02d.json' % (b + 1), 'count': len(chunk)})
-    dump_crlf(manifest, os.path.join(gd, 'manifest.json'))
+    # 清单层正本 common/batchjob.py；落盘换行按目录选：proper 整目录是 dump_crlf
+    manifest = BJ.split(gen_dir(run), cands, a.batches, dump=dump_crlf)
+    size = (len(cands) + a.batches - 1) // max(1, a.batches)   # 与 BJ.split 同一口径
     print('已切分 %d 批 / %d 个候选（约 %d 个/批）' % (len(manifest), len(cands), size))
     print('下一步：proper.py gen')
 
@@ -871,23 +866,18 @@ FAILED = 'failed.json'
 PLACEHOLDER = '模型未能给出合格判定，留待人工'
 
 
+def _key_of_word(rec):
+    """收尾层的匹配键：词形归一（与 mine 同一口径，走 `P.norm`）。"""
+    return P.norm((rec or {}).get('word') or '')
+
+
 def output_matches_input(m, gd):
-    """这一批产出是不是当前输入的产出（断点续跑判据，口径同 mine.py）。"""
-    ip, op = os.path.join(gd, m['input']), os.path.join(gd, m['output'])
-    if not os.path.exists(op):
-        return False
-    try:
-        src = textio.load_json(ip)
-        got = textio.load_json(op)
-    except (ValueError, TypeError, OSError):
-        return False
-    if len(src) != len(got):
-        return False
-    for a, b in zip(src, got):
-        w1, w2 = P.norm(a.get('word') or ''), P.norm(b.get('word') or '')
-        if not w2 or not (w1 == w2 or w1 in w2 or w2 in w1):
-            return False
-    return True
+    """这一批产出是不是当前输入的产出（断点续跑判据，口径同 mine.py）。
+
+    判据本体在 `common/batchjob.same_source`（三份同构，2026-11-02 issue #3 收敛）；
+    proper 的工作目录按 run 走（`resolve_run` / `gen_dir`），所以 workdir 由调用方给。
+    """
+    return BJ.same_source(m, gd, _key_of_word)
 
 
 def cmd_gen(a):
@@ -898,20 +888,16 @@ def cmd_gen(a):
         raise SystemExit('没有 manifest.json，先跑：proper.py split --batches N')
     import local_llm as LLM
     cfg = LLM.load_config()
-    manifest = textio.load_json(mp)
+    manifest = BJ.load_manifest(gd)     # 清单正本 common/batchjob.py（文案不变，判据走 BJ）
     if a.fix_failed:
         return fix_failed(run, a, cfg, LLM)
 
     print('本地模型：%s @ %s（每请求最多 %d 条）' % (cfg['model'], cfg['base_url'], a.per_request))
-    todo = []
-    for m in manifest:
-        if a.force or not os.path.exists(os.path.join(gd, m['output'])):
-            todo.append(m)
-        elif output_matches_input(m, gd):
-            print('  批%02d 已存在且与输入同源 → 跳过（--force 重做）' % m['batch'])
-        else:
-            print('  ⚠ 批%02d 存在但与输入对不上 → 重做' % m['batch'])
-            todo.append(m)
+    # 文案逐字保留 proper 迁移前的措辞（不带产出文件名），见 batchjob.todo 的说明
+    todo = BJ.todo(manifest, gd, force=a.force,
+                   same_source=lambda m: output_matches_input(m, gd),
+                   skip_fmt='  批%02d 已存在且与输入同源 → 跳过（--force 重做）',
+                   redo_fmt='  ⚠ 批%02d 存在但与输入对不上 → 重做')
     if not todo:
         print('没有要判定的批次。下一步：proper.py verify')
         return
@@ -976,9 +962,7 @@ def cmd_gen(a):
         print('有 %d 条没判出来 → %s' % (len(failed), os.path.join(gd, FAILED)))
         print('下一步：proper.py gen --fix-failed，或让强模型出 fix_output.json 后 merge-fix')
     else:
-        p = os.path.join(gd, FAILED)
-        if os.path.exists(p):
-            os.remove(p)
+        BJ.clear_failed(gd)
         print('全部一次判定通过。下一步：proper.py verify')
 
 
@@ -996,56 +980,27 @@ def dump_raw(run, batch, rounds, group, res):
         print('    模型原始回复已存：%s' % p)
 
 
+def _is_placeholder(rec):
+    """这条产出是不是 gen 判定失败留下的占位条目（前缀回退只认它，同 mine.is_placeholder）。"""
+    return bool(rec) and not rec.get('include') and PLACEHOLDER in (rec.get('reason') or '')
+
+
 def save_failed(run, entries):
-    doc = {'generated_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
-           'note': '这些候选本地模型重试后仍未通过 check_proper；'
-                   '用 proper.py merge-fix --file <产出> 并回，或人工处理',
-           'candidates': entries}
-    dump_crlf(doc, os.path.join(gen_dir(run), FAILED))
-    return doc
+    """写 failed.json。骨架在 `common/batchjob.save_failed`；落盘换行按目录走 dump_crlf。"""
+    return BJ.save_failed(
+        gen_dir(run), entries, key='candidates', dump=dump_crlf,
+        note=('这些候选本地模型重试后仍未通过 check_proper；'
+              '用 proper.py merge-fix --file <产出> 并回，或人工处理'))
 
 
 def patch_outputs(run, done):
-    """把 {归一化 word: 条目} 并回对应批次产出（精确命中优先，前缀回退只认占位条目）。"""
-    if not done:
-        return 0
-    gd = gen_dir(run)
-    manifest = textio.load_json(os.path.join(gd, 'manifest.json'))
-    n = 0
-    used = {}
-    for m in manifest:
-        p = os.path.join(gd, m['output'])
-        if not os.path.exists(p):
-            continue
-        out = textio.load_json(p)
-        exact = {P.norm(r.get('word') or '') for r in out}
-        changed = False
-        for i, rec in enumerate(out):
-            key = P.norm(rec.get('word') or '')
-            v = done.get(key)
-            if v is None and (not rec.get('include')
-                              and PLACEHOLDER in (rec.get('reason') or '')):
-                longer = sorted((k for k in done if k.startswith(key) and len(k) > len(key)
-                                 and k not in exact), key=len)
-                if longer:
-                    v = done[longer[-1]]
-            if not v:
-                continue
-            vk = P.norm(v.get('word') or '')
-            if vk in used:
-                print('  ⚠ %s 已改过 %s，又命中 %s → 跳过' % (vk, used[vk], m['output']))
-                continue
-            out[i] = v
-            used[vk] = '%s 第 %d 条' % (m['output'], i + 1)
-            changed = True
-            n += 1
-            print('  并回 %s ← %s' % (vk, used[vk]))
-        if changed:
-            dump_crlf(out, p)
-    missing = sorted(k for k in done if k not in used)
-    if missing:
-        print('  ⚠ %d 条 fix 没落到任何记录上：%s' % (len(missing), '、'.join(missing)))
-    return n
+    """把 {归一化 word: 条目} 并回对应批次产出（精确命中优先，前缀回退只认占位条目）。
+
+    骨架在 `common/batchjob.patch_outputs`（2026-11-02 issue #3 收敛）：匹配键 = 归一化
+    word、门槛 = `_is_placeholder`、落盘 = dump_crlf（proper 的 run 目录整目录 CRLF）。
+    """
+    return BJ.patch_outputs(gen_dir(run), done, key_of=_key_of_word,
+                            is_placeholder=_is_placeholder, dump=dump_crlf)
 
 
 def fix_failed(run, a, cfg, LLM):
@@ -1088,33 +1043,35 @@ def fix_failed(run, a, cfg, LLM):
     print('本轮修好 %d 条，仍剩 %d 条' % (len(done), len(remain)))
 
 
+def _fix_parse_proper(item):
+    """一条 fix → (归一化 word, 待校验条目)；不是对象/没有词就返回 None。"""
+    if not isinstance(item, dict):
+        return None
+    w = P.norm(item.get('word') or '')
+    if not w:
+        return None
+    entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
+             'categories': item.get('categories') or [],
+             'meaning': item.get('meaning') or '', 'intro': item.get('intro') or '',
+             'intro_translation': item.get('intro_translation') or '',
+             'a_note': item.get('a_note') or '', 'related': item.get('related') or [],
+             'include': OUT.as_bool(item.get('include')),
+             'reason': item.get('reason') or ''}
+    return w, entry
+
+
 def cmd_merge_fix(a):
+    """强模型补做的产出并回（校验器仍是 check_proper，与 gen 同一份）。
+
+    「解析 → 校验」骨架在 common/batchjob.merge_fix；这里只给 parse/validate。
+    """
     run = resolve_run(getattr(a, 'run', ''))
     path = a.file if os.path.isabs(a.file) else os.path.join(gen_dir(run), a.file)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = textio.load_json(path)
-    if isinstance(merge, dict):
-        merge = merge.get('entries') or merge.get('outputs') or []
-    ok, bad = {}, {}
-    for item in merge:
-        if not isinstance(item, dict):
-            continue
-        w = P.norm(item.get('word') or '')
-        if not w:
-            continue
-        entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
-                 'categories': item.get('categories') or [],
-                 'meaning': item.get('meaning') or '', 'intro': item.get('intro') or '',
-                 'intro_translation': item.get('intro_translation') or '',
-                 'a_note': item.get('a_note') or '', 'related': item.get('related') or [],
-                 'include': OUT.as_bool(item.get('include')),
-                 'reason': item.get('reason') or ''}
-        hard, _soft = CP.check(entry)
-        if hard:
-            bad[w] = '；'.join(hard)
-        else:
-            ok[w] = entry
+    ok, bad, _total = BJ.merge_fix(path, parse=_fix_parse_proper,
+                                   validate=lambda rec: CP.check(rec)[0],
+                                   dict_keys=('entries', 'outputs'))
     n = patch_outputs(run, ok)
     print('并入 %d 条（不合格 %d 条）' % (n, len(bad)))
     for w, why in sorted(bad.items())[:10]:
@@ -1127,10 +1084,8 @@ def cmd_merge_fix(a):
 # ============================================================================
 def load_outputs(run):
     gd = gen_dir(run)
-    manifest_p = os.path.join(gd, 'manifest.json')
-    if not os.path.exists(manifest_p):
-        raise SystemExit('没有 manifest.json，先跑 proper.py split')
-    manifest = textio.load_json(manifest_p)
+    # 清单读取正本 common/batchjob.py（缺文件时的 SystemExit 文案不变）
+    manifest = BJ.load_manifest(gd, hint='先跑 proper.py split')
     merged, missing = [], []
     for m in manifest:
         p = os.path.join(gd, m['output'])

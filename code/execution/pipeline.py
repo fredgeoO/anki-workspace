@@ -919,6 +919,11 @@ def gen_loop(a, cfg, LLM, cards, batch_no, tag=''):
     return done, bad, (req, tp, tc)
 
 
+def _key_of_note(rec):
+    """收尾层的匹配键：noteId（不是模型产出的一部分，所以同源判据可以要求集合相等）。"""
+    return int((rec or {})['noteId'])
+
+
 def output_matches_input(m):
     """这一批的 output_NN.json 是不是**当前 input** 的产出（断点续跑的唯一判据）。
 
@@ -927,18 +932,10 @@ def output_matches_input(m):
     的产出，照它跳过就等于整批不生成；后面 `stage2_leftovers()` 还会拿这份旧产出验出"合格"，
     `write` 则报"漏卡/多卡"（信息里看不出根因）。2026-10-11 第二次冒烟实测踩到。
 
-    noteId 不是模型产出的一部分，所以这里可以要求**集合相等**。
+    判据本体在 `common/batchjob.same_source`（三份同构，2026-11-02 issue #3 收敛）；
+    noteId 不是模型产出的一部分，所以按 noteId 的同源实际就是**集合相等**。
     """
-    ip = os.path.join(GEN, m['input'])
-    op = os.path.join(GEN, m['output'])
-    if not os.path.exists(op):
-        return False
-    try:
-        want = {int(c['noteId']) for c in textio.load_json(ip)}
-        got = {int(c['noteId']) for c in textio.load_json(op)}
-    except (ValueError, KeyError, TypeError, OSError):
-        return False
-    return want == got
+    return BJ.same_source(m, GEN, _key_of_note)
 
 
 def cmd_gen(a):
@@ -1032,60 +1029,54 @@ def fix_failed(a, cfg, LLM, manifest):
 
 
 def patch_outputs(done):
-    """把 {noteId: 记录} 并回对应批次的 output_NN.json。返回改动的卡数。"""
-    if not done:
-        return 0
-    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
-    n = 0
-    for m in manifest:
-        p = os.path.join(GEN, m['output'])
-        if not os.path.exists(p):
-            continue
-        out = textio.load_json(p)
-        changed = False
-        for i, rec in enumerate(out):
-            v = done.get(int(rec['noteId']))
-            if v:
-                out[i] = v
-                changed = True
-                n += 1
-        if changed:
-            # 保留原写法：output_NN.json 是断点续跑文件，既有落盘带 **CRLF** 末尾换行
-            # （text-mode open + json.dump），正本 dump_json 写 LF；改了就破坏旧批次的字节等价。
-            json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return n
+    """把 {noteId: 记录} 并回对应批次的 output_NN.json。返回改动的卡数。
+
+    骨架在 `common/batchjob.patch_outputs`（2026-11-02 issue #3 收敛）：匹配键 = noteId，
+    **不传** `is_placeholder` → 只做精确命中（noteId 没有"残差补成词典形"这回事）。
+    """
+    return BJ.patch_outputs(GEN, done, key_of=_key_of_note)
+
+
+def _fix_parse_pipeline(item):
+    """一条 fix → (noteId, 待校验记录)；不是对象/没有 noteId 就返回 None。
+
+    同一 noteId 后写的覆盖先写的（与迁移前 `by_id[nid] = c` 一致）：dict 的键天然去重，
+    `merge_fix` 按后写覆盖处理，所以这里不需要额外记账。
+    """
+    if not isinstance(item, dict) or item.get('noteId') is None:
+        return None
+    nid = int(item['noteId'])
+    rec = {'noteId': nid, 'sentence': item.get('sentence', ''),
+           'AINote': item.get('AINote', ''), 'SentenceHTML': item.get('SentenceHTML', '')}
+    return nid, rec
 
 
 def cmd_merge_fix(a):
     """把强模型（deepseek）补做的 fix 产出并回 output_NN.json。
 
-    校验口径与生成时**同一份**（check_cards）—— 不是第二道网，是接收入库产出的唯一一道。
+    「解析 → 校验 → 并回」的骨架在 common/batchjob（2026-11-02 issue #3 收敛）；
+    这里只给两件事：匹配键/记录怎么拼（noteId），以及**与生成时同一份**的校验口径
+    （check_cards —— 不是第二道网，是接收入库产出的唯一一道）。Sentence HTML 的
+    机械问题不在这里挡（讲解照收，HTML 交给 ruby_engine repair），所以 validate
+    只把 AINote 侧硬问题算不合格，HTML 侧单独收进 `mech` 供提示。
     """
     path = a.file
     if not os.path.isabs(path):
         path = os.path.join(GEN, path)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = textio.load_json(path)
-    if isinstance(merge, dict):                       # 容忍 {"cards":[…]}
-        merge = merge.get('cards') or merge.get('outputs') or []
-    by_id = {}
-    for c in merge:
-        if not isinstance(c, dict) or c.get('noteId') is None:
-            continue
-        by_id[int(c['noteId'])] = c
-    print('fix 文件 %s：%d 条' % (path, len(by_id)))
-    ok, bad, mech = {}, {}, {}
-    for nid, c in by_id.items():
-        rec = {'noteId': nid, 'sentence': c.get('sentence', ''),
-               'AINote': c.get('AINote', ''), 'SentenceHTML': c.get('SentenceHTML', '')}
+
+    mech = {}
+
+    def _validate(rec):
         ai_hard, html_hard, _soft = check_cards.split_hard(rec)
-        if ai_hard:
-            bad[nid] = '；'.join(ai_hard)
-        else:
-            if html_hard:
-                mech[nid] = '；'.join(html_hard)
-            ok[nid] = rec
+        if not ai_hard and html_hard:
+            mech[rec['noteId']] = '；'.join(html_hard)
+        return ai_hard
+
+    ok, bad, total = BJ.merge_fix(path, parse=_fix_parse_pipeline, validate=_validate,
+                               dict_keys=('cards', 'outputs'))
+    print('fix 文件 %s：%d 条' % (path, total))
     n = patch_outputs(ok)
     print('并入 %d 张（不合格 %d 张）' % (n, len(bad)))
     for nid, why in sorted(bad.items())[:10]:

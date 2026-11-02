@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """回归测试：batchjob 清单层（split / todo / failed）。
 
-挡四件事：
+挡五件事：
 1. 分批数、每批条数、manifest 与落盘一致；
 2. 断点续跑只跳过「同源」产出，不同源必须重做；
 3. --force 全部重做；
-4. failed.json 的 key 形状（pipeline=cards / mine=candidates）与清理。
+4. failed.json 的 key 形状（pipeline=cards / mine=candidates）与清理；
+5. todo 的两条提示文案：默认措辞与 proper 传入的旧措辞都逐字不变（非目标：不改 stdout）。
 
 纯离线：只写 temp/test_batchjob，不碰 Anki、不碰 data/。
 跑法：& $PY code\\tests\\test_batchjob.py
@@ -76,6 +77,43 @@ def test_todo():
     check('--force → 全部重做', [x['batch'] for x in todo] == [1, 2, 3], todo)
 
 
+def test_todo_msg_shapes():
+    """todo 的两条提示：默认（mine/pipeline）与 proper 自定义措辞都逐字不变。
+
+    proper 迁移前自己写循环，措辞只有一个占位符（不带产出文件名）；收敛后它把
+    这两条旧文案原样传给 `skip_fmt` / `redo_fmt` —— 参数个数按 fmt 里真实的
+    % 转换符数（%02d），不是数 '%s' 字面量，所以措辞里有字面 %s 也不会误判。
+    """
+    reset_bd()
+    m = BJ.split(BD, [{'word': 'a'}], 1)
+    BJ.write_output(BD, m[0]['output'], [{'ok': 1}])
+
+    def say(**kw):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            BJ.todo(m, BD, **kw)
+        return buf.getvalue()
+
+    check('默认 skip 行带产出文件名（迁移前 BJ 措辞）',
+          say(same_source=lambda x: True)
+          == '  批01 output_01.json 已存在且与输入同源 → 跳过（--force 重做）\n',
+          repr(say(same_source=lambda x: True)))
+    check('默认 redo 行（迁移前 BJ 措辞）',
+          say(same_source=lambda x: False)
+          == '  ⚠ 批01 output_01.json 已存在但与本批输入对不上（同一批号的旧产出）→ 重做\n',
+          repr(say(same_source=lambda x: False)))
+    proper_skip = '  批%02d 已存在且与输入同源 → 跳过（--force 重做）'
+    proper_redo = '  ⚠ 批%02d 存在但与输入对不上 → 重做'
+    check('proper 旧 skip 措辞逐字不变',
+          say(same_source=lambda x: True, skip_fmt=proper_skip, redo_fmt=proper_redo)
+          == '  批01 已存在且与输入同源 → 跳过（--force 重做）\n',
+          repr(say(same_source=lambda x: True, skip_fmt=proper_skip, redo_fmt=proper_redo)))
+    check('proper 旧 redo 措辞逐字不变',
+          say(same_source=lambda x: False, skip_fmt=proper_skip, redo_fmt=proper_redo)
+          == '  ⚠ 批01 存在但与输入对不上 → 重做\n',
+          repr(say(same_source=lambda x: False, skip_fmt=proper_skip, redo_fmt=proper_redo)))
+
+
 def test_failed():
     reset_bd()
     BJ.save_failed(BD, [{'noteId': 1}], note='n', key='cards')
@@ -121,7 +159,8 @@ def test_run_all_ok_clears():
 
 
 def main():
-    for fn in (test_split, test_split_more_batches_than_items, test_todo, test_failed,
+    for fn in (test_split, test_split_more_batches_than_items, test_todo,
+               test_todo_msg_shapes, test_failed,
                test_run, test_run_all_ok_clears):
         print(fn.__name__)
         fn()

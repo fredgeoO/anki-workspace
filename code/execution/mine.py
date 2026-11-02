@@ -635,8 +635,9 @@ def cmd_split(a):
     if not cands:
         raise SystemExit('候选为空，先跑：python mine.py scan')
     manifest = BJ.split(GEN, cands, a.batches)
+    # 每批条数由 batchjob.split 决定（向上取整），这里按同一口径回显，不再自留 size
     print('已切分为 %d 批，共 %d 个候选（约 %d 个/批）'
-          % (len(manifest), len(cands), size))
+          % (len(manifest), len(cands), (len(cands) + a.batches - 1) // max(1, a.batches)))
     if not a.print_prompts:
         print('下一步：python mine.py gen      # 由本地模型逐批判定（不花云端 token）')
         return
@@ -808,8 +809,16 @@ def save_failed(entries):
               '用 mine.py merge-fix --file <产出> 并回，或人工处理'))
 
 
+def _key_of_word(rec):
+    """收尾层的匹配键：词形归一（正本 `_norm.norm_word`，经 `P.norm`）。"""
+    return P.norm((rec or {}).get('word') or '')
+
+
 def patch_outputs(done):
     """把 {归一化 word: 条目} 并回对应批次的 output_NN.json。返回改动条数。
+
+    骨架在 `common/batchjob.patch_outputs`（2026-11-02 issue #3 收敛），这里只给两个参数：
+    匹配键 = 归一化 word，前缀回退的门槛 = `is_placeholder`。
 
     匹配只有两条路（2026-10-12 修事故：前缀回退曾把同批另一条真实判定整条覆盖）：
 
@@ -824,48 +833,8 @@ def patch_outputs(done):
     另加一条完整性网：一个 fix 条目只改一条记录，命中第二条就跳过并告警
     （同一批出现两条同词记录本身就是坏数据，不该继续往上盖）；fix 条目一条都没落上也会告警。
     """
-    if not done:
-        return 0
-    manifest = BJ.load_manifest(GEN)     # 正本：common/batchjob.py（断点续跑清单层）
-    n = 0
-    used = {}                                    # fix 条目 key → 改到了哪条记录
-    for m in manifest:
-        p = os.path.join(GEN, m['output'])
-        if not os.path.exists(p):
-            continue
-        out = textio.load_json(p)
-        exact = {P.norm(r.get('word') or '') for r in out}   # 本批已有记录的原词
-        changed = False
-        for i, rec in enumerate(out):
-            key = P.norm(rec.get('word') or '')
-            v, how = done.get(key), '精确'
-            if v is None and is_placeholder(rec):
-                longer = sorted((k for k in done if k.startswith(key) and len(k) > len(key)
-                                 and k not in exact), key=len)
-                if longer:
-                    v, how = done[longer[-1]], '前缀'
-            if not v:
-                continue
-            vk = P.norm(v.get('word') or '')
-            where = '%s 第 %d 条' % (m['output'], i + 1)
-            if vk in used:
-                print('  ⚠ %s 已改过 %s，又命中 %s → 跳过（一条 fix 只改一条记录）'
-                      % (vk, used[vk], where))
-                continue
-            out[i] = v
-            used[vk] = where
-            changed = True
-            n += 1
-            print('  并回 %s ← %s（%s匹配，原词 %r）' % (vk, where, how, rec.get('word')))
-        if changed:
-            # 保留原写法：output_NN.json 是断点续跑文件，既有落盘带 **CRLF** 末尾换行
-            # （text-mode open + json.dump），正本 dump_json 写 LF；改了就破坏旧批次的字节等价。
-            json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    missing = sorted(k for k in done if k not in used)
-    if missing:
-        print('  ⚠ %d 条 fix 没落到任何记录上（word 与占位条目对不上，产出未改）：%s'
-              % (len(missing), '、'.join(missing)))
-    return n
+    return BJ.patch_outputs(GEN, done, key_of=_key_of_word,
+                            is_placeholder=is_placeholder)
 
 
 def fix_failed(a, cfg, LLM):
@@ -921,34 +890,35 @@ def fix_failed(a, cfg, LLM):
           if remain else '下一步：python mine.py write')
 
 
+def _fix_parse_mine(item):
+    """一条 fix → (归一化 word, 待校验条目)；不是对象/没有词就返回 None。"""
+    if not isinstance(item, dict):
+        return None
+    w = P.norm(item.get('word') or '')
+    if not w:
+        return None
+    entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
+             'pos': item.get('pos') or '', 'meaning': item.get('meaning') or '',
+             'translation': item.get('translation') or '',
+             'a_note': item.get('a_note') or '', 'include': CM.as_bool(item.get('include')),
+             'reason': item.get('reason') or ''}
+    return w, entry
+
+
+def _validate_mine(rec):
+    """收尾校验：与 gen 同一份 check_mine；返回硬性问题的列表。"""
+    hard, _soft = CM.check(rec)
+    return hard
+
+
 def cmd_merge_fix(a):
     """把强模型（deepseek）补做的 fix 产出并回 output_NN.json（同一份 check_mine 校验）。"""
     path = a.file if os.path.isabs(a.file) else os.path.join(GEN, a.file)
     if not os.path.exists(path):
         raise SystemExit('找不到 %s' % path)
-    merge = textio.load_json(path)
-    if isinstance(merge, dict):
-        merge = merge.get('entries') or merge.get('outputs') or []
-    ok, bad = {}, {}
-    for item in merge:
-        if not isinstance(item, dict):
-            continue
-        w = P.norm(item.get('word') or '')
-        if not w:
-            continue
-        entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
-                 'pos': item.get('pos') or '', 'meaning': item.get('meaning') or '',
-                 'translation': item.get('translation') or '',
-                 'a_note': item.get('a_note') or '', 'include': CM.as_bool(item.get('include')),
-                 'reason': item.get('reason') or ''}
-        try:
-            hard, _soft = CM.check(entry)
-        except Exception as e:                  # 校验器出意外也要报成不合格，不中断
-            hard = ['校验异常：%s: %s' % (type(e).__name__, e)]
-        if hard:
-            bad[w] = '；'.join(hard)
-        else:
-            ok[w] = entry
+    # 「解析 → 校验」骨架在 common/batchjob.merge_fix；这里只给 parse/validate
+    ok, bad, _total = BJ.merge_fix(path, parse=_fix_parse_mine, validate=_validate_mine,
+                                   dict_keys=('entries', 'outputs'))
     n = patch_outputs(ok)
     print('fix 文件 %s：并入 %d 条（不合格 %d 条）' % (path, n, len(bad)))
     for w, why in sorted(bad.items())[:10]:
@@ -975,25 +945,13 @@ def output_matches_input(m):
     新输入按下标比形状，把差异写成"模型把候选改成了别的形状""条数不一致" →
     误报成 needs_llm（语义问题）。2026-10-11 第二次冒烟实测踩到。
 
+    判据本体在 `common/batchjob.same_source`（三份同构，2026-11-02 issue #3 收敛），
+    这里只给匹配键 = 归一化 word。
+
     判据只能用**同源**不能相等：判定的职责恰恰是把残差补成词典形
     （`満ち溢`→`満ち溢れる`），字面本来就会变；口径与 `episode.mine_leftovers` 一致。
     """
-    ip = os.path.join(GEN, m['input'])
-    op = os.path.join(GEN, m['output'])
-    if not os.path.exists(op):
-        return False
-    try:
-        src = textio.load_json(ip)
-        got = textio.load_json(op)
-    except (ValueError, TypeError, OSError):
-        return False
-    if len(src) != len(got):
-        return False
-    for a, b in zip(src, got):
-        w1, w2 = P.norm(a.get('word') or ''), P.norm(b.get('word') or '')
-        if not w2 or not (w1 == w2 or w1 in w2 or w2 in w1):
-            return False
-    return True
+    return BJ.same_source(m, GEN, _key_of_word)
 
 
 def cmd_gen(a):

@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-11-01
+> 状态：active ｜ 最后核实：2026-11-02
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（21 个独立脚本，纯离线，全部几秒）：
+改过代码还要跑回归测试（`code/tests/` 现 24 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -121,7 +121,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/common/paths.py` | 路径唯一来源（`WSP.DATA_PIPELINE`、`WSP.TEMP` …） |
 | `code/common/anki_api.py` | **Anki 唯一通道**：`find_notes` / `notes_info` / `update_note_fields` / `verify_note_fields` / `Snapshot.open(live_copy=True)` / 命令行 `check`、`audit`、`count`、`revlog` |
 | `code/common/writeback.py` | **写库事务**：演练 / 备份 / 写 / 回读；只暴露字段与标签，结构上不碰调度列 |
-| `code/common/batchjob.py` | **批处理清单层**：split / manifest / 断点续跑 / failed.json（mine 与 pipeline 共用） |
+| `code/common/batchjob.py` | **批处理清单层 + 收尾层**：split / manifest / 断点续跑 / failed.json / 「解析 → 校验 → 并回」（mine、pipeline、proper 共用；匹配键 `key_of`、校验器 `validate`、落盘 `dump=` 参数化。生成循环与 `fix_failed` 仍在各自脚本） |
 | `code/common/textio.py` | UTF-8 stdio 与容错解码；`read_text` / `dump_json` / `run` / `audit --strict` |
 | `code/common/jp_decks.py` | 牌组名、考级级别标签解析（`level_from_tags`）。**别拼子 deck 路径** |
 | `code/common/ruby_engine.py` | 拿原句当骨架**确定性**渲染/修复 `Sentence HTML` |
@@ -205,7 +205,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
 6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
 7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   21 个都 0 才算完；只改文档就不用。
+   全都 0 才算完（缺第三方依赖的测试按 ImportError 判定，不算回归）；只改文档就不用。
 
 `docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
 
