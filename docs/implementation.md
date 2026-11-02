@@ -1,6 +1,6 @@
 # 实现与内部机制（implementation）
 
-> 状态：active ｜ 最后核实：2026-11-01
+> 状态：active ｜ 最后核实：2026-11-02
 
 **这是什么**：从根 [README](../README.md) 迁出的实现细节——数据流、流水线各阶段、选词打分、
 覆盖率口径、测试矩阵、仓库边界。README 只留使用者要的「怎么用」，想知道「它到底怎么算、产物落在哪、
@@ -151,6 +151,7 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
 | `test_writeback.py` | 写库事务：演练不写、提交备份、回读失败上报、分块/quiet、调度接口不出现 |
 | `test_batchjob.py` | 批处理清单：分批/manifest、同源跳过、`--force`、failed 形状与清理 |
+| `test_batchjob_patch.py` | 收尾层三份实现（mine/pipeline/proper）的共同契约：批号相同但输入已换必须判不同源、missing 告警点名、并回落盘逐字节（dump_json / dump_crlf）、merge-fix 的解析→校验→并回（2026-11-02 issue #3 收敛前的漂移钉死） |
 | `test_episode_retag.py` | 编排 retag：走 `write_tags` 双向回读、演练不写 |
 | `test_episode_scripts.py` | 编排脚本表存在性 + `rank` 进程内调用 |
 | `test_cli_entries.py` | cli 入口表存在性、`list --check`、`resolve` 路径 |
@@ -158,7 +159,9 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_core6000_text.py` | core6000 ② 的纯渲染：词性中文化、注音、词表目标行/去重，且只实现一份 |
 
 跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。动过 `common/` 或
-`execution/` 就把 `code\tests\*.py` 全跑一遍，19 个都 0 才算完；只改文档不用跑。
+`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 24 个），与本环境无关的
+都应 0 才算完；缺依赖的那几个（`sudachipy` / `requests` / `jmdictpy` / 全局技能 local-llm）
+按各自的 ImportError 判定，不算回归。只改文档不用跑。
 
 ## 6. 仓库边界与数据安全
 
