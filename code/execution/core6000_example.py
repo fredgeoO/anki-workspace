@@ -157,6 +157,11 @@ import edge_tts_min as TTS    # noqa: E402
 # ② 的纯渲染（词性/注音/词表）：实现在 core6000_text.py；这里 import 是为了模块级
 # 名字不变（测试与探针脚本仍用 CE.ruby_word / CE.gloss_lines / CE.pos_cn）。
 from core6000_text import POS_CN, gloss_lines, pos_cn, ruby_word  # noqa: E402,F401
+# 三块能力（共享小工具 / Jisho 例句源 / 字段渲染）在旁边的模块里，见下面各板块的 import。
+import core6000_text2          # noqa: E402  （正则 + JSON/文本小工具的唯一实现）
+import core6000_jisho          # noqa: E402
+import core6000_gates           # noqa: E402
+import core6000_render         # noqa: E402
 
 # ============================================================================
 # 常量：路径 / 字段名 / 范围
@@ -192,6 +197,7 @@ TOUCH_FIELDS = (F_SENT, F_HTML, F_NOTE, F_TRANS, F_AUDIO)
 SCOPE_SENT = 'missing-sentence'
 SCOPE_RUBY = 'missing-ruby'
 SCOPE_MERGE = 'not-merged'
+core6000_text2.SCOPE_MERGE = SCOPE_MERGE   # 闸门 1 读这一份（同一个模块对象）
 SCOPES = (SCOPE_SENT, SCOPE_RUBY, SCOPE_MERGE)
 # 默认不含 not-merged：契约 §5.3「该范围默认不参与，必须显式 --only not-merged」。
 DEFAULT_SCOPES = (SCOPE_SENT, SCOPE_RUBY)
@@ -203,7 +209,7 @@ DEFECT_TRANS = 'translation-empty'   # 中文翻译字段是空的
 VOICE = 'ja-JP-NanamiNeural'
 MIN_MP3_BYTES = 1024          # 小于它视为没合成功
 AUDIO_BPS = 48000             # edge-tts 输出 audio-24khz-48kbitrate-mono-mp3 → 48 kbps
-SENT_MIN, SENT_MAX = 6, 45    # 闸门 2：新句长度（去空白）
+# SENT_MIN / SENT_MAX（闸门 2 的新句长度）随例句源能力搬到 core6000_jisho。
 GATE_KEY_LEN = 12             # 闸门 8：原文首 12 字
 NOTE_CHUNK = 200              # notesInfo 批量
 
@@ -211,9 +217,11 @@ NOTE_CHUNK = 200              # notesInfo 批量
 # 新句一律来自 jisho.org 的 Sentence 搜索（Tatoeba / Jreibun 人工语料），
 # 由 code/tools/jisho_example.py 抓取 + 渲染振假名；模型只写讲解（cn2/grammar2/…），
 # 不许改句子。`--allow-model-sentence` 才退回旧行为（模型造句）。
+# JISHO_MIN_SIMILARITY / JISHO_SOURCE_FIELD 的真值在 core6000_text2（与例句源模块共用一份），
+# 这里 import 成模块级别名，老调用方（CE.JISHO_MIN_SIMILARITY）不用改。
+from core6000_text2 import JISHO_MIN_SIMILARITY, JISHO_SOURCE_FIELD  # noqa: E402,F401
 JISHO_DIR = os.path.join(DATA_DIR, 'jisho')    # 按 noteId 缓存的候选（尊重 Jisho crawl-delay）
-JISHO_MIN_SIMILARITY = 0.72    # 与第一句的相似度**上限**：再像就是换皮，换下一条
-JISHO_SOURCE_FIELD = 'sentence_source'   # payload 里给模型看的键名
+core6000_text2.JISHO_DIR = JISHO_DIR           # 例句源模块读的就是这一份（同一个模块对象）
 
 # 板块名归一化（只用于内部对齐；渲染时仍用原卡的标签文字，见契约 §5.2）
 CANON_ALIASES = (
@@ -227,174 +235,17 @@ CANON_ORDER = ('中文翻译', '核心词汇', '语法要点', '动词变形解�
 REQUIRED_CANON = ('中文翻译', '核心词汇', '语法要点')     # 闸门 7
 
 # ============================================================================
-# 正则
+# 正则 / 小工具：JSON·文本（实现已抽到 execution/core6000_text2.py，2026-11-02）
 # ============================================================================
-RE_BR2 = re.compile(r'<br\s*/?>\s*<br\s*/?>', re.I)
-RE_BR1 = re.compile(r'<br\s*/?>', re.I)
-RE_PBOUND = re.compile(r'</p>\s*<p\b[^>]*>', re.I)
-RE_BLOCK = re.compile(r'<br\s*/?>\s*<br\s*/?>|</p>\s*<p\b[^>]*>', re.I)
-RE_RUBY = re.compile(r'<ruby\b[^>]*>(.*?)</ruby>', re.S | re.I)
-RE_RT = re.compile(r'<rt\b[^>]*>.*?</rt>', re.S | re.I)
-RE_BR_ANY = re.compile(r'<br\s*/?>', re.I)
-RE_SHELL = re.compile(r'</?(?:p|b|strong|em|i|h1|h2|h3|h4|h5|h6|ul|ol|div|span|font|center|'
-                      r'table|thead|tbody|tr|td|th|blockquote)\b[^>]*>', re.I)
-RE_MARKER = re.compile(r'<(h3|h4|h5|b|strong)\b[^>]*>(.*?)</\1\s*>', re.S | re.I)
-# 裸写在一个 <p> 里的板块名（`<p>1. 中文翻译</p>`，没有 <b>）。
-# 注意：标记扫描里**不能**把 `p` 放进 RE_MARKER 的候选里 —— finditer 是不重叠扫描，
-# `<p><b>中文翻译</b>：正文</p>` 会被整个 <p> 吃掉，里面的 <b> 就再也扫不到（踩过）。
-RE_PBLOCK = re.compile(r'<p\b[^>]*>(.*?)</p>', re.S | re.I)
-RE_NUMBER = re.compile(r'^\s*[（(\[]?\s*(?:\d+|[一二三四五六七八九十]+)\s*[.、,，)）\]:：]\s*')
-RE_LABEL_TAIL = re.compile(r'\s*[:：]\s*$')
-RE_SPACES = re.compile(r'[ \t\u3000]{2,}')
-RE_WS = re.compile(r'\s+')
-RE_KANA_ONLY = re.compile(r'^[\u3040-\u309f\u30a0-\u30ffー]+$')
+# 同一份编译结果给闸门与渲染共用；这里只是把名字接回来，模块级名字不变。
+from core6000_text2 import (  # noqa: E402,F401
+    RE_BR2, RE_BR1, RE_PBOUND, RE_BLOCK, RE_RUBY, RE_RT, RE_BR_ANY, RE_SHELL,
+    RE_MARKER, RE_PBLOCK, RE_NUMBER, RE_LABEL_TAIL, RE_SPACES, RE_WS, RE_KANA_ONLY,
+    write_text, write_json, read_json, flatten, plain, one_line, clean_malformed_ruby,
+    strip_outer_wrappers, count_blocks, ruby_covers, block_needs_ruby, block_ruby_ok,
+    split_sentence_html, split_blocks, join_blocks, dedupe)
 
 
-# ============================================================================
-# 小工具：JSON / 文本
-# ============================================================================
-def write_text(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
-    os.replace(tmp, path)
-
-
-def write_json(path, obj):
-    write_text(path, json.dumps(obj, ensure_ascii=False, indent=1))
-
-
-def read_json(path, default=None):
-    if not path or not os.path.exists(path):
-        return default
-    try:
-        with open(path, encoding='utf-8') as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError) as e:
-        print('警告：读不出 %s（%s）' % (path, e), file=sys.stderr)
-        return default
-
-
-def flatten(text):
-    """闸门用口径：整块删掉 <rt>…</rt>（读音），再剥标签，再去掉所有空白。"""
-    return RE_WS.sub('', TN.strip_ruby_readings(text or ''))
-
-
-def plain(text):
-    """人看的纯文本：去 ruby 读音、去标签、空白压成一个空格。"""
-    return RE_WS.sub(' ', TN.strip_ruby_readings(text or '')).strip()
-
-
-def one_line(text, limit=120):
-    t = plain(text)
-    return t if len(t) <= limit else t[:limit] + '…'
-
-
-def clean_malformed_ruby(html):
-    """`<ruby><br>…風<rt>かぜ</rt></ruby>` 这类畸形注音：清掉基底里的 <br>。
-
-    口径同 today_new.py::sentence_html_line（那里还会把 <br> 换成 ' / '，
-    这里是字段重建，只清 ruby 内部的换行）。
-    """
-    def drop_br(m):
-        return RE_BR_ANY.sub('', m.group(0))
-
-    return RE_RUBY.sub(drop_br, html or '')
-
-
-def strip_outer_wrappers(html):
-    """剥掉最外层唯一的 <div …> / <p …> 外壳（只剥一层壳，不拆里面的块）。"""
-    s = (html or '').strip()
-    for _ in range(4):
-        if (re.match(r'^<div\b', s, re.I) and re.search(r'</div>\s*$', s, re.I)
-                and len(re.findall(r'<div\b', s, re.I)) == 1):
-            s = re.sub(r'</div>\s*$', '', re.sub(r'^<div\b[^>]*>', '', s, count=1, flags=re.I),
-                       flags=re.I).strip()
-            continue
-        if (re.match(r'^<p\b', s, re.I) and re.search(r'</p>\s*$', s, re.I)
-                and len(re.findall(r'<p\b', s, re.I)) == 1):
-            s = re.sub(r'</p>\s*$', '', re.sub(r'^<p\b[^>]*>', '', s, count=1, flags=re.I),
-                       flags=re.I).strip()
-            continue
-        break
-    return s
-
-
-def count_blocks(text, rx=None):
-    """按主分隔数块；先剥外壳、清畸形 ruby。
-
-    `rx` 默认 `<br><br>` / `</p><p>`（`Sentence`、`Sentence Translation`）；
-    `Sentence HTML` 传 `RE_BR1`——多句用**单个** `<br>` 分隔（2026-10-30 口径）。
-    """
-    core = strip_outer_wrappers(clean_malformed_ruby(text or ''))
-    return len([x for x in (rx or RE_BLOCK).split(core) if flatten(x)])
-
-
-def ruby_covers(html):
-    """这块 HTML 是否给**所有汉字**都配了合规振假名（契约闸门 4 的口径）。
-
-    * 每个 `<ruby>` 都必须有 `<rt>`；
-    * ruby 基底不得只含假名（お/ご 这类敬语接头辞不能单独进基底）；
-    * ruby 之外不能再有汉字（否则有汉字没注音）。
-    """
-    h = clean_malformed_ruby(html or '')
-    if not h.strip():
-        return False
-    for inner in RE_RUBY.findall(h):
-        if not re.search(r'<rt\b[^>]*>.*?</rt>', inner, re.S | re.I):
-            return False
-        base = TN.strip_tags(RE_RT.sub('', inner)).strip()
-        if not base or not TN.KANJI.search(base):
-            return False
-        if RE_BR_ANY.search(base):
-            return False
-    return not TN.KANJI.search(TN.strip_tags(RE_RUBY.sub('', h)))
-
-
-def block_needs_ruby(block):
-    """去掉读音后仍有汉字 = 这块需要振假名。"""
-    return bool(TN.KANJI.search(TN.strip_tags(RE_RT.sub('', block or ''))))
-
-
-def block_ruby_ok(block):
-    return (not block_needs_ruby(block)) or ruby_covers(block)
-
-
-def split_sentence_html(html, n):
-    """把 `Sentence HTML` 切成 n 块（逐块去外壳，返回内层 HTML）。
-
-    依次试 `<br><br>` / `</p><p>` / 单个 `<br>`，取块数正好等于 n 的那一种；
-    都不等 → None（= 不可用，走模型值）。
-    """
-    s = clean_malformed_ruby(html or '')
-    if not flatten(s):
-        return None
-    core = strip_outer_wrappers(s)
-    for rx in (RE_BR2, RE_PBOUND, RE_BR1):
-        parts = [strip_outer_wrappers(x) for x in rx.split(core)]
-        parts = [x for x in parts if flatten(x)]
-        if len(parts) == n:
-            return parts
-    return None
-
-
-def split_blocks(text):
-    """按 `<br><br>` 切块（`Sentence` / `Sentence Translation` 用）。"""
-    return [x.strip() for x in RE_BR2.split(text or '') if flatten(x)]
-
-
-def join_blocks(text):
-    """把字段里的多个块用标准 `<br><br>` 重新拼起来（内容是原来的）。"""
-    return '<br><br>'.join(split_blocks(text))
-
-
-def dedupe(seq):
-    out = []
-    for x in seq:
-        if x not in out:
-            out.append(x)
-    return out
 
 
 # ============================================================================
@@ -1397,580 +1248,33 @@ def parse_response(raw, note_id):
 
 
 # ============================================================================
-# 机械闸门 1-5（gen 阶段：拿到模型产出就能判的）
+# 例句源 Jisho / 机械闸门 1-5 / 渲染（契约 §5）：三块能力已各自成模块（2026-11-02）
 # ============================================================================
-# 五段动词的行（行 = 段）：只用来把纯假名动词展开成活用形，不做词性判断。
-_GODAN_ROWS = {
-    'う': 'わいうえお', 'く': 'かきくけこ', 'ぐ': 'がぎぐげご', 'す': 'さしすせそ',
-    'つ': 'たちつてと', 'ぬ': 'なにぬねの', 'ぶ': 'ばびぶべぼ', 'む': 'まみむめも',
-    'る': 'らりるれろ',
-}
-# て/た 的音便：しゃがむ → しゃがんだ / しゃがんで；かく → かいた / かいて …
-_ONBIN_TA = {
-    'む': ('んだ', 'んで'), 'ぶ': ('んだ', 'んで'), 'ぬ': ('んだ', 'んで'),
-    'く': ('いた', 'いて'), 'ぐ': ('いだ', 'いで'),
-    'う': ('った', 'って'), 'つ': ('った', 'って'), 'る': ('った', 'って'),
-    'す': ('した', 'して'),
-}
+#   core6000_text2.py    正则 + JSON/文本小工具（这几块的公共地基）
+#   core6000_jisho.py    Jisho 真实语料例句源（抓一页 → 缓存 → 挑一条真句）
+#   core6000_gates.py    机械闸门 1-5：判模型刚交回来的 entry（gen 阶段）
+#   core6000_render.py   五个字段的渲染 + 「这次写哪几个」（契约 §5）
+# 留在本文件的是流程（scan / gen / tts / apply / revert）、板块解析（§5.2）与
+# 闸门 6-9（判写库前的现场状态）。名字全部保持原样，调用方与测试不用改。
+from core6000_jisho import (  # noqa: E402,F401
+    kana_conjugations, target_forms, load_jisho, jisho_cache_path, jisho_fetch,
+    jisho_similarity, word_written_form, pick_jisho)
+from core6000_gates import (  # noqa: E402,F401
+    check_sentence_ruby, check_sentence2_ruby, kana_norm, word_reading_in_ruby,
+    target_word_warnings, gate_gen)
+from core6000_render import (  # noqa: E402,F401
+    render_sentences, render_sentence_html, render_translation, tts_filename,
+    render_audio, both, split_merged_body, section_body_html, render_section_item,
+    render_ainote, field_defects, render_card)
+
+# 渲染要的两个「判据」在巨石这边：字段名/触碰清单是流程口径，section_map 属板块解析。
+# 注入走模块属性（单向依赖，不循环）；render 里的默认值只在单独 import 时兜底。
+core6000_render.bind_constants(
+    (F_SENT, F_HTML, F_TRANS, F_NOTE, F_AUDIO), TOUCH_FIELDS, CANON_ORDER, section_map)
 
 
-def kana_conjugations(word):
-    """纯假名动词的常见活用形（`しゃがむ` → `しゃがんだ`/`しゃがんで`/`しゃがみます`…）。
 
-    闸门 2（真含目标词）用。Jisho 的句子写的是活用形，而纯假名词没有
-    「去掉词尾送假名」的汉字骨架可用（`しゃがむ` 拆不出 `しゃがんだ`），
-    只拿词典形去比会把正确候选判成 no-target。词尾不在五段行里的
-    假名词（`あまり`、`ところ`）不展开 —— 否则 `あまり` → `あま` 这类
-    子串会把完全不相干的句子放进候选。
-    """
-    if len(word) < 2 or not RE_KANA_ONLY.match(word):
-        return set()
-    stem, last = word[:-1], word[-1]
-    row = _GODAN_ROWS.get(last)
-    if not row:
-        return set()
-    ta, te = _ONBIN_TA.get(last, ('た', 'て'))
-    out = {stem + ta, stem + te}
-    a, i, _, e, o = row
-    out |= {stem + a + 'ない', stem + a + 'なかった', stem + a + 'ないで',
-            stem + a + 'ず', stem + a + 'れる', stem + a + 'せる',
-            stem + i + 'ます', stem + i + 'ました', stem + i + 'たい', stem + i + 'そう',
-            stem + e + 'ば', stem + e + 'る', stem + o + 'う'}
-    if last == 'る':                      # 一段（たべる）也走这条路：stem+た/て/ます
-        out |= {stem + 'た', stem + 'て', stem + 'ます', stem + 'ない'}
-    return out
 
-
-def target_forms(card):
-    """目标词的可接受写法：原词、读音、每个汉字串、去掉词尾的词干、活用形。"""
-    forms = set()
-    for raw in (card['word'], card['reading']):
-        if not raw:
-            continue
-        forms.add(raw)
-        core = re.sub(r'[（）()\[\]【】\s]', '', raw).strip('〜～~-—–・')
-        if core:
-            forms.add(core)
-    word = card['word'] or ''
-    for run in re.findall(r'[\u4e00-\u9fff\u3005\u3006\u30f6]+', word):
-        forms.add(run)
-    if word and not RE_KANA_ONLY.match(word):
-        stem = re.sub(r'[するるうつくぶむぬぐずふ]$', '', word)
-        if len(stem) >= 2:
-            forms.add(stem)
-    else:
-        forms |= kana_conjugations(word)
-    forms.discard('')
-    return forms
-
-
-# ============================================================================
-# 例句源：Jisho（真实语料）。**新句不是模型写的**
-# ============================================================================
-def load_jisho():
-    """惰性导入 code/tools/jisho_example.py；导入失败返回 (None, 原因)。"""
-    try:
-        import jisho_example as JX
-        return JX, ''
-    except Exception as exc:                       # 缺 requests / 语法变了 / 路径问题
-        return None, '%s: %s' % (type(exc).__name__, exc)
-
-
-def jisho_cache_path(note_id):
-    return os.path.join(JISHO_DIR, '%s.json' % note_id)
-
-
-def jisho_fetch(card, args):
-    """抓 Jisho 例句候选（含振假名渲染），按 noteId 缓存。
-
-    返回 ``(candidates, reason)``：``reason`` 非空表示没抓到（网络/依赖/零候选）。
-    Jisho 的 robots.txt 要求 crawl-delay 40s，所以**一张卡只抓一页并落盘**，
-    重跑 gen / 重试闸门都读缓存。
-    """
-    path = jisho_cache_path(card['id'])
-    if not getattr(args, 'refresh_jisho', False):
-        cached = read_json(path)
-        if isinstance(cached, dict) and cached.get('candidates') is not None \
-                and cached.get('word') == card['word']:
-            return cached['candidates'], ''
-    JX, why = load_jisho()
-    if JX is None:
-        return [], 'jisho_example 不可用（%s）' % why
-    ns = argparse.Namespace(min_chars=SENT_MIN, max_chars=SENT_MAX, exact=False)
-    try:
-        content = JX.fetch_page(JX.search_url(card['word']),
-                                getattr(args, 'jisho_timeout', 30.0) or 30.0)
-        page = JX.parse_page(content)
-    except Exception as exc:
-        return [], '抓 Jisho 失败：%s' % exc
-    if not page['entries']:
-        return [], 'Jisho 没有返回例句（0 条或页面结构变了）'
-    try:
-        lex = JX.build_lexicon()
-    except Exception as exc:
-        return [], '初始化 Sudachi/ruby_engine 失败：%s' % exc
-    lookup = JX.build_jmdict(not getattr(args, 'no_dict', False))
-    matched, dropped = JX.filter_entries(page['entries'], card['word'], card['reading'], lex, ns)
-    out = []
-    for c in matched:
-        html, issues = JX.render_ruby(c['ja'], c['annotations'], lex, lookup)
-        out.append({'jp': c['ja'], 'en': c.get('en') or '', 'source': c.get('source') or '',
-                    'url': c.get('url') or '', 'match': c.get('match') or '',
-                    'ruby': html, 'ruby_ok': not issues, 'ruby_issues': issues})
-    write_json(path, {'noteId': card['id'], 'word': card['word'],
-                      'reading': card['reading'], 'fetched_at': dt.datetime.now().isoformat(
-                          timespec='seconds'),
-                      'query_url': JX.search_url(card['word']),
-                      'total_found': page['total'], 'dropped': dict(dropped),
-                      'candidates': out})
-    if not out:
-        return [], 'Jisho 有 %d 条但过滤后 0 条可用（%s）' % (
-            len(page['entries']), ' / '.join('%s %d' % kv for kv in dropped.items()) or '无')
-    return out, ''
-
-
-def jisho_similarity(a, b):
-    """两句的字符相似度（0–1）；用来挡「只换主语」的换皮句。"""
-    return difflib.SequenceMatcher(None, flatten(a), flatten(b)).ratio()
-
-
-def word_written_form(word):
-    """词形去掉末尾送假名后的「书写骨架」：`思い込む` → `思い込`，`適当` → `適当`。
-
-    用来在真实语料里判「这句写的是不是卡片上的那个词形」：`思い込んでいる` 命中
-    `思い込`，而只写假名的 `思いこんで` 不命中。纯假名词或骨架太短（`あまり`）返回 ''，
-    调用方据此关掉这条偏好。
-    """
-    if not word:
-        return ''
-    key = re.sub(r'[\u3041-\u3096\u30fc]+$', '', word.strip())
-    return key if len(key) >= 2 else ''
-
-
-def pick_jisho(card, args):
-    """给这张卡挑一条**真实**例句：``{jp, ruby, en, source, url, match}`` 或 ``None``。
-
-    只认：振假名结构合格 + 真含目标词 + 长度进闸门区间 + 与第一句相似度 < 阈值。
-    候选本身已由 jisho_example 按 exact>compound>phrase、句长、语料来源排过序；
-    这里先挑「**目标词写法一字不差**出现」的（`思い込む` 卡优先要 `思い込んで`，
-    而不是只写成假名的 `思いこんで`），一条都没有才退而接受活用形/假名写法。
-    """
-    cands, why = jisho_fetch(card, args)
-    if not cands:
-        return None, why
-    first = card['sentences'][0]['jp'] if card['sentences'] else ''
-    forms = target_forms(card)
-    key = word_written_form(card['word'] or '')
-    for strict in ((True, False) if key else (False,)):
-        skipped = []
-        for c in cands:
-            jp = c['jp']
-            n_chars = len(RE_WS.sub('', jp))
-            if not c.get('ruby_ok'):
-                skipped.append('ruby')
-                continue
-            if strict:
-                if key not in jp:
-                    skipped.append('kana-form')
-                    continue
-            elif not any(f in jp for f in forms):
-                skipped.append('no-target')
-                continue
-            if not (SENT_MIN <= n_chars <= SENT_MAX):
-                skipped.append('length')
-                continue
-            if first and jisho_similarity(jp, first) >= JISHO_MIN_SIMILARITY:
-                skipped.append('too-similar')
-                continue
-            return {'jp': jp, 'ruby': c['ruby'], 'en': c.get('en') or '',
-                    'source': c.get('source') or '', 'url': c.get('url') or '',
-                    'match': c.get('match') or ''}, ''
-    seen = {}
-    for s in skipped:
-        seen[s] = seen.get(s, 0) + 1
-    return None, 'Jisho 的 %d 条候选都不合适（%s）' % (
-        len(cands), ' / '.join('%s %d' % kv for kv in seen.items()))
-
-
-def check_sentence_ruby(plain_text, ruby_html, label):
-    """契约闸门 3/4：ruby 去 ruby 后等于原句；有汉字就必须有合规 ruby。"""
-    problems = []
-    if flatten(ruby_html) != flatten(plain_text):
-        problems.append('%s：去 ruby 后与正文不一致（ruby=%r）'
-                        % (label, one_line(ruby_html, 60)))
-    if TN.KANJI.search(plain_text or '') and '<ruby' not in (ruby_html or '').lower():
-        problems.append('%s：含汉字但没有 <ruby>' % label)
-    elif (ruby_html or '').strip() and not ruby_covers(ruby_html):
-        problems.append('%s：振假名不合规（有 ruby 缺 <rt> / 基底只含假名 / 有汉字漏注音）' % label)
-    return problems
-
-
-def check_sentence2_ruby(card, entry):
-    """闸门 5b：卡上已有两条例句、第二句缺/坏振假名时，`sentence2_ruby` 必须合规。
-
-    口径与 `sentence1_ruby` 对称（闸门 3/4）：**去 ruby 后必须与卡上第二句逐字一致**
-    （`check_sentence_ruby` 的第一条就是干这个的），并且每个 `<ruby>` 都有 `<rt>`、
-    基底不得只含假名、ruby 之外不得再有汉字。
-    这里**只用模型值**，不回退到 `new_sentence_ruby`：模型一旦改写了那句，
-    宁可拒绝这张卡（丢用户的原句比跳过更糟）。
-    """
-    if card['n_sent'] < 2 or not card['need_ruby2']:
-        return []                                   # 不适用：没有第二句 / 第二句振假名本来就合规
-    if not entry['sentence2_ruby']:
-        return ['闸门5b：need_sentence2_ruby=true 但 sentence2_ruby 是空的']
-    return check_sentence_ruby(card['sentences'][1]['jp'], entry['sentence2_ruby'], 'sentence2_ruby')
-
-
-def kana_norm(text):
-    """读音比对用的归一化：NFKC + 去空白 + 片假名→平假名。"""
-    s = unicodedata.normalize('NFKC', text or '')
-    s = RE_WS.sub('', s)
-    return ''.join(chr(ord(ch) - 0x60) if '\u30a1' <= ch <= '\u30f6' else ch for ch in s)
-
-
-def word_reading_in_ruby(word, ruby_html):
-    """从 `new_sentence_ruby` 里抽出**目标词**的读音；抽不出（判不了）返回 ''。
-
-    只有能**确定**这个词的读音时才返回内容：要么某个 `<ruby>` 的基底正好是目标词，
-    要么目标词被一串 `<ruby>` 基底按顺序完整拼出来（逐字标音那种）。
-    拼不齐（例如「受付ける」只标了 `受`+`付`）就返回 '' —— 判不了就不警告，宁可漏报。
-    """
-    h = clean_malformed_ruby(ruby_html or '')
-    if not word or not h:
-        return ''
-    pairs = []
-    for inner in RE_RUBY.findall(h):
-        m = re.search(r'<rt\b[^>]*>(.*?)</rt>', inner, re.S | re.I)
-        if not m:
-            continue
-        base = TN.strip_tags(RE_RT.sub('', inner)).strip()
-        rt = TN.strip_tags(m.group(1)).strip()
-        if base:
-            pairs.append((base, rt))
-    for base, rt in pairs:                 # 一词一 ruby
-        if base == word:
-            return rt
-    joined, rts = '', []                   # 逐字标音：基底按顺序拼成目标词
-    for base, rt in pairs:
-        if base and word.startswith(joined + base):
-            joined += base
-            rts.append(rt)
-            if joined == word:
-                return ''.join(rts)
-    return ''
-
-
-def target_word_warnings(card, entry):
-    """目标词读音 / 义项行的**便宜检查**（警告，不是闸门：误报绝不拦卡）。
-
-    1. 新句里出现了目标词，而它在 `new_sentence_ruby` 里被注的读音与卡上 `reading`
-       对不上 → 同一张卡里出现了第二种读音。
-    2. `new_word_gloss` 里没有目标词那一行 → ② 的义项行只能用卡上的 `Meaning` 兜底，
-       看不出新句实际用的是哪个义项（提示词要求模型把实际用的义项写进那一行）。
-    """
-    out = []
-    word, reading = card['word'], card['reading']
-    if word and reading and flatten(word) and flatten(word) in flatten(entry['new_sentence']):
-        got = word_reading_in_ruby(word, entry['new_sentence_ruby'])
-        if got and kana_norm(got) != kana_norm(reading):
-            out.append('target_reading_mismatch：新句里「%s」注的是「%s」，卡上 reading 是「%s」'
-                       % (word, got, reading))
-    if word and not any(g['w'] == word for g in entry['new_word_gloss']):
-        out.append('target_gloss_missing：new_word_gloss 里没有目标词「%s」那一行，'
-                   '② 的义项行只能用卡上 Meaning 兜底' % word)
-    contrast = entry.get('contrast') or ''
-    if contrast and not ('①' in contrast and '②' in contrast):
-        out.append('contrast_format：contrast 要求写成「①是…，②是…」，'
-                   '现在是「%s」' % one_line(contrast, 40))
-    return out
-
-
-def gate_gen(card, entry, scopes=None):
-    """闸门 1-5（契约 §6）。返回 (问题列表, 警告列表)。
-
-    注意闸门 1/2 只对**模型造的新句**有意义：原卡已有两条例句时，`new_sentence` 只是
-    把卡上第二句原样重复（用来对齐振假名与 ② 讲解），那一句是卡里的既有数据
-    （可能本来就不含目标词，如「する」的第二句「…サッカーをしている」），
-    拿闸门 1 去卡它属于误伤。
-
-    `scopes` = 本次 `--only` 选定的范围。`core1/grammar1/conjugation1/context1` 这四个键
-    是**契约 §5.3 的 not-merged 扩展**（那个范围里 ① 也要模型产出，且默认不参与）：
-    只有真的在跑 not-merged 时才是硬要求。默认范围里处理一张 `unmerged` 的卡时，
-    渲染的 ① 用的是**卡里原有的板块正文**（`section_body_html` 的 `orig`），这四个键
-    根本不参与渲染 —— 所以这里按范围判，而不是按卡判（`scopes=None` = 不知道范围，从严）。
-    """
-    p, warn = [], []
-    jp = plain(entry['new_sentence'])
-    ruby = entry['new_sentence_ruby']
-    n_chars = RE_WS.sub('', jp)
-    if card['n_sent'] == 1:
-        # 1 目标词必须出现
-        if not any(f in jp for f in target_forms(card)):
-            p.append('闸门1：新句里没有目标词「%s」' % card['word'])
-        # 2 长度 + 与原句不同
-        if not (SENT_MIN <= len(n_chars) <= SENT_MAX):
-            p.append('闸门2：新句长度 %d 字（要求 %d–%d）' % (len(n_chars), SENT_MIN, SENT_MAX))
-        if card['sentences'] and flatten(jp) == flatten(card['sentences'][0]['jp']):
-            p.append('闸门2：新句与第一句完全相同')
-    else:
-        # 已有两条例句：new_sentence 必须原样用卡上第二句（缺它的振假名时是硬要求）
-        want = card['sentences'][1]['jp']
-        if flatten(jp) != flatten(want):
-            if card['need_ruby2']:
-                p.append('闸门2：原卡已有两条例句且第二句没有可用振假名，new_sentence 必须原样用'
-                         '第二句「%s」，实际是「%s」' % (one_line(want, 40), one_line(jp, 40)))
-            else:
-                warn.append('sentence2_mismatch：② 讲的和卡上第二句不是同一句'
-                            '（卡上第二句「%s」）' % one_line(want, 40))
-    # 3/4 ruby 一致性
-    if not ruby:
-        p.append('闸门3：new_sentence_ruby 是空的')
-    else:
-        p.extend(check_sentence_ruby(jp, ruby, 'new_sentence_ruby'))
-    # 5 句①振假名（需要时）
-    if card['need_ruby1'] and card['sentences']:
-        s1 = card['sentences'][0]['jp']
-        if not entry['sentence1_ruby']:
-            p.append('闸门5：need_sentence1_ruby=true 但 sentence1_ruby 是空的')
-        else:
-            p.extend(check_sentence_ruby(s1, entry['sentence1_ruby'], 'sentence1_ruby'))
-    # 5b 句②振假名（已有两条例句、且第二句缺/坏振假名时）
-    if card['n_sent'] >= 2 and card['need_ruby2']:
-        p.extend(check_sentence2_ruby(card, entry))
-    # ② 讲解必须齐（否则渲染出来的 ② 是空的）
-    for key, name in (('cn2', '新句中文 cn2'), ('grammar2', '语法要点 grammar2'),
-                      ('conjugation2', '动词变形解析 conjugation2'),
-                      ('context2', '语境与表达风格 context2'), ('contrast', '两句对比 contrast')):
-        if not entry[key]:
-            p.append('%s 是空的' % name)
-    if card['unmerged'] and (scopes is None or SCOPE_MERGE in scopes):
-        for key in ('core1', 'grammar1', 'conjugation1', 'context1'):
-            if not entry[key]:
-                p.append('not-merged 范围缺 %s' % key)
-    if not card['sentences'][0]['cn'] and not entry['cn1']:
-        p.append('cn1 是空的（原卡没有中文翻译时必须给）')
-    # 便宜检查（警告，不拦卡）：目标词读音是否和 reading 一致 / ② 有没有给义项行
-    warn.extend(target_word_warnings(card, entry))
-    return p, warn
-
-
-# ============================================================================
-# 渲染（契约 §5）
-# ============================================================================
-def render_sentences(card, entry):
-    """`Sentence`：1 句的卡 = 原句 + 新句；已有 2 句的卡 = 原来那两句（绝不追加第三句）。"""
-    if card['n_sent'] >= 2:
-        return join_blocks(card.get('snapshot', {}).get(F_SENT, '')) or \
-            '<br><br>'.join(s['jp'] for s in card['sentences'])
-    first = card['sent_blocks'][0] if card['sent_blocks'] else card['sentences'][0]['jp']
-    return '%s<br><br>%s' % (first, plain(entry['new_sentence']))
-
-
-def render_sentence_html(card, entry):
-    """`Sentence HTML`：内容永远是「原句 ruby <br> 新句 ruby」，不加任何外壳标签。
-
-    2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳——Sentence HTML 只含例句本身，
-    多句用单个 `<br>` 分隔（不用 `<br><br>`、不用 `<p>` 包裹）。
-    """
-    ruby1 = card['sentences'][0]['ruby'] or entry['sentence1_ruby'] or ''
-    if card['n_sent'] >= 2:
-        if card['need_ruby2']:
-            # 第二句原本缺/坏振假名 → 只用模型交回的 `sentence2_ruby`
-            # （闸门 5b 已验「去 ruby 后与卡上第二句逐字一致 + 振假名合规」；
-            #  这里绝不回退到 new_sentence_ruby，也不保留原卡那段坏振假名）
-            ruby2 = entry['sentence2_ruby'] or ''
-        else:
-            ruby2 = card['sentences'][1]['ruby'] or entry['new_sentence_ruby'] or ''
-    else:
-        ruby2 = entry['new_sentence_ruby'] or ''
-    return '%s<br>%s' % (ruby1, ruby2)
-
-
-def render_translation(card, entry):
-    if card['n_sent'] >= 2:
-        return join_blocks(card.get('snapshot', {}).get(F_TRANS, '')) or \
-            '<br><br>'.join(s['cn'] for s in card['sentences'] if s['cn'])
-    orig = join_blocks(card.get('snapshot', {}).get(F_TRANS, ''))
-    if not orig:
-        orig = entry['cn1']
-    return ('%s<br><br>%s' % (orig, entry['cn2'])) if orig else entry['cn2']
-
-
-def tts_filename(note_id):
-    return 'core6000-%d-sentence-2.mp3' % note_id
-
-
-def render_audio(card):
-    """`Sentence Audio`：1 句的卡 = 原来那条 + 新句 TTS（去重，绝不重复追加）。
-
-    已有 2 句的卡 = 原样返回（音频早就齐了）。
-    """
-    orig = card.get('snapshot', {}).get(F_AUDIO, '')
-    if card['n_sent'] >= 2:
-        return orig
-    names = dedupe(list(card['audio_files']) + [tts_filename(card['id'])])
-    return ''.join('[sound:%s]' % f for f in names)
-
-
-# POS_CN / pos_cn / ruby_word / gloss_lines 已移到 core6000_text.py（纯渲染，可单独测），
-# 这里从那里 import，模块级名字保持不变。
-
-
-def both(one, two):
-    one, two = (one or '').strip(), (two or '').strip()
-    if one and two:
-        return '① %s<br>② %s' % (one, two)
-    if one:
-        return '① %s' % one
-    if two:
-        return '② %s' % two
-    return ''
-
-
-def split_merged_body(body):
-    """把**已经合并过**的板块正文拆回 ① 部分（丢掉旧的 ②）。
-
-    这一步是为了让 `--force` 重跑是**不动点**：卡里已经是 `① 原文<br>② 旧新句讲解` 时，
-    再渲染一次不能变成 `① ① 原文…② …`。我们自己渲染的形态是确定的，所以能安全地认出来。
-    返回 (① 部分, ② 部分或 None)；正文不是以 ① 开头就原样返回。
-    """
-    m = re.match(r'^\s*①\s*(.*?)(?:<br>\s*②\s*(.*))?$', body or '', re.S)
-    if not m:
-        return body or '', None
-    return m.group(1).strip(), (m.group(2) or '').strip()
-
-
-def section_body_html(canon, card, entry, known):
-    """算出某个规范板块的正文（① + ②）。known = 原卡里认出来的板块。
-
-    `orig` 取「原卡正文的 ① 部分」：卡已经被本脚本写过一次时，正文里已经带着
-    ①/②，这里要把旧 ② 丢掉再重新拼，否则 `--force` 会把 ①② 套两层。
-    """
-    sec = known.get(canon)
-    orig = split_merged_body(sec['body'])[0] if sec else ''
-    if canon == '中文翻译':
-        return both(orig or entry['cn1'], entry['cn2'])
-    if canon == '核心词汇':
-        word, reading, meaning = card['word'], card['reading'], card['meaning']
-        two = '<br>'.join(gloss_lines(word, reading, meaning, entry['new_word_gloss'],
-                                      card['pos']))
-        return both(orig or entry['core1'], two)
-    if canon == '语法要点':
-        return both(orig or entry['grammar1'], entry['grammar2'])
-    if canon == '动词变形解析':
-        return both(orig or entry['conjugation1'], entry['conjugation2'])
-    if canon == '语境与表达风格':
-        two = entry['context2']
-        if entry['contrast']:
-            two = (two + '<br>' if two else '') + '两句对比：' + entry['contrast']
-        return both(orig or entry['context1'], two)
-    return both(orig, '')
-
-
-def render_section_item(layout, label_html, body):
-    if layout == 'h3':
-        return '<h3>%s</h3><p>%s</p>' % (label_html, body)
-    if layout == 'ul':
-        lines = [x.strip() for x in RE_BR1.split(body) if x.strip()]
-        return '<p><b>%s</b></p><ul>%s</ul>' % (
-            label_html, ''.join('<li>%s</li>' % x for x in lines))
-    return '<p><b>%s</b><br>%s</p>' % (label_html, body)
-
-
-def render_ainote(card, entry):
-    """`AINote`：沿用原卡版式，每个板块 ①（原文）+ ②（新句）。"""
-    known, _unknown = section_map(card['sections'])
-    items, done = [], set()
-    for sec in card['sections']:
-        if not sec['canon']:
-            items.append(sec['raw'])                 # 认不出的板块整块原样保留
-            continue
-        if sec['canon'] in done:                     # 同名板块重复 → 只渲染第一次
-            continue
-        done.add(sec['canon'])
-        body = section_body_html(sec['canon'], card, entry, known)
-        if body:
-            items.append(render_section_item(card['layout'], sec['label'] or sec['canon'], body))
-    for canon in CANON_ORDER:                        # 原卡缺的板块：只写 ②
-        if canon in done:
-            continue
-        body = section_body_html(canon, card, entry, known)
-        if body:
-            items.append(render_section_item(card['layout'], canon, body))
-    return (card.get('outer_open') or '<div>') + ''.join(items) + '</div>'
-
-
-def field_defects(card, current=None):
-    """这次**真的要写**哪几个字段（契约 §5.4：只写缺陷字段）。
-
-    每个字段都有自己的「目标状态」（契约 §5.1 / §5.2），只有**卡上现值没达到目标**、
-    而且**这次确实有新内容可写**的字段才写。不是「渲染结果与现值逐字不同就写」——
-    渲染时顺手的空白/包裹归一化不算缺陷，写了就是对用户内容的无谓改写。
-
-    | 字段 | 目标状态 | 1 句的卡 | 已有 2 句的卡 |
-    |---|---|---|---|
-    | `Sentence` | 两条例句（`<br><br>`） | 写（补第 2 块） | **不写**（第 2 块是卡上既有的） |
-    | `Sentence HTML` | 每句的汉字都有合规振假名 | 写（新句的振假名） | 有句子缺/坏振假名才写 |
-    | `Sentence Translation` | 两条例句的中文 | 写（补新句译文） | **不写**（同上） |
-    | `AINote` | 每板块 `① 原句` + `② 新句` | 写（补 ②） | **不写**（①② 合并是 `not-merged` 范围，未实现，见 §5.3） |
-    | `Sentence Audio` | 两条 `[sound:]` | 写（加新句 TTS） | **不写**（脚本造不出那条音频；缺音频的卡由 `audio-count` 拦下） |
-
-    **已有 2 条例句的卡，那 4 个字段的目标状态就是「卡上现值」**：第二句不是这次新造的，
-    是卡里既有的数据，`Sentence` / `Sentence Translation` / `AINote` / `Sentence Audio`
-    对它没有新东西可写。所以这类卡**只补振假名**，其余 4 个字段一个字都不动 ——
-    它们里面的 ①② 讲解、`<ul><li>` 排版都是原作者的版式，脚本不该重排；
-    这也和「已有 2 句的卡重跑必须是 no-op」是同一件事（契约 §3.1）。
-    那 4 个字段**另有**的缺陷（`audio-count` / `translation-empty` / `not-merged`）
-    由 §6 的 `blocked` 路径报给人，不由「重渲染一遍」来假装修好。
-    """
-    if card['n_sent'] > 2:               # 3 句以上：闸门 6 会拦，渲染会截断 → 一个字段都别写
-        return []
-    if card['n_sent'] < 2:
-        return list(TOUCH_FIELDS)        # 1 句 → 2 句：五个字段都还没到目标状态
-    if card['need_ruby1'] or card['need_ruby2']:
-        return [F_HTML]
-    return []
-
-
-def render_card(card, entry, current=None):
-    """渲染 5 个字段，返回 {'fields': {...}, 'write': [...], 'warnings': [...]}。
-
-    `current` = 从 Anki **现场读**的这 5 个字段现值（`live_values` 的结果）。给了就用它当
-    「卡上现值」：既用来判 `write`（`field_defects`），也用来当渲染的原值（别拿扫描时的旧快照
-    去覆盖人家刚改过的卡）。不给（探针脚本）就退回扫描快照。
-    """
-    if current:
-        card['snapshot'] = dict(current)
-    write = field_defects(card, current)
-    fields = {
-        F_SENT: render_sentences(card, entry),
-        F_HTML: render_sentence_html(card, entry),
-        F_NOTE: render_ainote(card, entry),
-        F_TRANS: render_translation(card, entry),
-        F_AUDIO: render_audio(card),
-    }
-    live = card.get('snapshot') or {}
-    warnings = []
-    if card['n_sent'] >= 2:
-        if card['unmerged']:
-            # AINote 里还没有 ①②、但这次不写它（见 field_defects）：不是「留个 ① 的坑」，
-            # 是这张卡压根不走 not-merged（契约 §5.3），只补振假名，讲解保持原样。
-            warnings.append('note_unmerged_untouched')
-        if count_blocks(live.get(F_TRANS, '')) != 2:
-            warnings.append('trans_missing_2nd')       # 旧句的译文缺块：脚本不代笔
-        if len(card['audio_files']) != 2:
-            warnings.append('audio_count_%d' % len(card['audio_files']))
-    if card['n_sent'] >= 2 and flatten(entry['new_sentence']) != \
-            flatten(card['sentences'][1]['jp']):
-        warnings.append('sentence2_mismatch')
-    if F_NOTE in write:                  # 只有真的要写 AINote 时，这些「板块」警告才有意义
-        for canon in card['section_missing']:
-            warnings.append('note_missing_section:' + canon)
-        if card['section_unknown']:
-            warnings.append('note_unknown_section:' + '/'.join(card['section_unknown']))
-    if card['n_sent'] == 1 and len(card['trans_blocks']) > 1:
-        warnings.append('trans_extra_blocks')
-    return {'fields': fields, 'write': write, 'warnings': warnings}
 
 
 # ============================================================================
