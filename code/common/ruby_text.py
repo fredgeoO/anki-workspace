@@ -24,6 +24,16 @@ def _is_kanji(ch):
     return bool(KANJI.match(ch)) or ch in '\u3005\u3006\u30f6'
 
 
+def strip_ruby_readings(text):
+    """去注音：整块删掉 <rt>…</rt>（读法），再剥其余标签，<br> 变真换行。
+
+    不能只 strip_tags：那样会留下读法，把「お<ruby>散歩<rt>さんぽ</rt></ruby>」
+    变成「お散歩さんぽ」。原先住在 lesson_text，core6000_example 也要用（issue #5）。
+    """
+    t = re.sub(r'<rt>.*?</rt>', '', text or '', flags=re.S | re.I)
+    return strip_tags(t)
+
+
 def split_ruby(text):
     """把 漢字[かんじ] 记法拆成 [(基底, 读法), ...]，其余文字原样保留。
 

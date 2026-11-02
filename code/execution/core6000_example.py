@@ -152,7 +152,11 @@ sys.path.insert(0, _HERE)                            # today_new.py
 import anki_api as AK         # noqa: E402  唯一的 Anki 访问点
 import paths as WSP           # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
-import today_new as TN        # noqa: E402  （可安全 import：argparse 只在它的 __main__ 里跑）
+import audio_names as AN      # noqa: E402  [sound:…] 解析（common）
+import htmltext as HT         # noqa: E402  HTML 去标签（common）
+import jp_text as JT          # noqa: E402  纯文本清洗与字符判定（common；issue #5）
+import llm_client as LC       # noqa: E402  本地模型客户端（common；issue #5）
+import ruby_text as RT        # noqa: E402  振假名解析与纯文本（common）
 import edge_tts_min as TTS    # noqa: E402
 # ② 的纯渲染（词性/注音/词表）：实现在 core6000_text.py；这里 import 是为了模块级
 # 名字不变（测试与探针脚本仍用 CE.ruby_word / CE.gloss_lines / CE.pos_cn）。
@@ -278,12 +282,12 @@ def read_json(path, default=None):
 
 def flatten(text):
     """闸门用口径：整块删掉 <rt>…</rt>（读音），再剥标签，再去掉所有空白。"""
-    return RE_WS.sub('', TN.strip_ruby_readings(text or ''))
+    return RE_WS.sub('', RT.strip_ruby_readings(text or ''))
 
 
 def plain(text):
     """人看的纯文本：去 ruby 读音、去标签、空白压成一个空格。"""
-    return RE_WS.sub(' ', TN.strip_ruby_readings(text or '')).strip()
+    return RE_WS.sub(' ', RT.strip_ruby_readings(text or '')).strip()
 
 
 def one_line(text, limit=120):
@@ -344,17 +348,17 @@ def ruby_covers(html):
     for inner in RE_RUBY.findall(h):
         if not re.search(r'<rt\b[^>]*>.*?</rt>', inner, re.S | re.I):
             return False
-        base = TN.strip_tags(RE_RT.sub('', inner)).strip()
-        if not base or not TN.KANJI.search(base):
+        base = HT.strip_tags(RE_RT.sub('', inner)).strip()
+        if not base or not RT.KANJI.search(base):
             return False
         if RE_BR_ANY.search(base):
             return False
-    return not TN.KANJI.search(TN.strip_tags(RE_RUBY.sub('', h)))
+    return not RT.KANJI.search(HT.strip_tags(RE_RUBY.sub('', h)))
 
 
 def block_needs_ruby(block):
     """去掉读音后仍有汉字 = 这块需要振假名。"""
-    return bool(TN.KANJI.search(TN.strip_tags(RE_RT.sub('', block or ''))))
+    return bool(RT.KANJI.search(HT.strip_tags(RE_RT.sub('', block or ''))))
 
 
 def block_ruby_ok(block):
@@ -402,7 +406,7 @@ def dedupe(seq):
 # ============================================================================
 def normalize_label(inner_html):
     """把板块标签文字归一化到 5 个规范名之一；认不出来返回 ''。"""
-    t = TN.strip_tags(RE_RT.sub('', inner_html or ''))    # 先删读音再剥标签（坑 1）
+    t = HT.strip_tags(RE_RT.sub('', inner_html or ''))    # 先删读音再剥标签（坑 1）
     t = RE_WS.sub('', t)
     t = RE_NUMBER.sub('', t)
     t = RE_LABEL_TAIL.sub('', t)
@@ -417,9 +421,9 @@ def normalize_label(inner_html):
 def clean_label(inner_html):
     """标签文字（沿用原卡）：只留文字与 `<ruby>`，去掉 `<p>/<b>/<strong>` 外壳与序号外的东西。"""
     store = []
-    saved = TN._extract_existing_ruby(inner_html or '', store)   # 先把 ruby 片段挖出来占位
-    saved = RE_WS.sub(' ', TN.strip_tags(saved))
-    return TN._put_back_ruby(saved, store).strip()
+    saved = RT._extract_existing_ruby(inner_html or '', store)   # 先把 ruby 片段挖出来占位
+    saved = RE_WS.sub(' ', HT.strip_tags(saved))
+    return RT._put_back_ruby(saved, store).strip()
 
 
 def clean_section_body(raw):
@@ -579,7 +583,7 @@ def analyze_note(note):
         })
     return {
         'id': int(note['noteId']),
-        'index': TN.as_int(val('Index'), 10 ** 9),
+        'index': JT.as_int(val('Index'), 10 ** 9),
         'word': word,
         'reading': reading,
         'pos': pos,
@@ -595,7 +599,7 @@ def analyze_note(note):
         'sentences': sentences,
         'sent_blocks': sent_blocks,
         'trans_blocks': split_blocks(trans_field),
-        'audio_files': TN.audio_files(audio_field),
+        'audio_files': AN.sounds_of(audio_field),
         'sections': sections,
         'section_missing': [c for c in REQUIRED_CANON if c not in known],
         'section_unknown': [s['label'] or '(无标签)' for s in unknown],
@@ -658,7 +662,7 @@ def query_with_defaults(raw):
 def fetch_notes(query):
     ids = AK.find_notes(query)
     notes = AK.notes_info(ids, chunk=NOTE_CHUNK)
-    notes.sort(key=lambda n: (TN.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
+    notes.sort(key=lambda n: (JT.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
                                         10 ** 9), int(n['noteId'])))
     return notes, len(ids)
 
@@ -787,7 +791,7 @@ def notes_by_ids(text):
     if wrong:
         raise SystemExit('这些 noteId 不是 %s 模型的卡：%s'
                          % (NOTE_MODEL, '、'.join(map(str, wrong))))
-    notes.sort(key=lambda n: (TN.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
+    notes.sort(key=lambda n: (JT.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
                                         10 ** 9), int(n['noteId'])))
     return notes
 
@@ -934,7 +938,7 @@ def select_cards(args, allow_deckwide=False, require_selector=True):
         notes, _n = fetch_notes(q)
         sel['query'] = q
 
-    notes.sort(key=lambda n: (TN.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
+    notes.sort(key=lambda n: (JT.as_int((n.get('fields', {}).get('Index') or {}).get('value'),
                                         10 ** 9), int(n['noteId'])))
     cards = [analyze_note(n) for n in notes]
     if mode in ('words', 'from-file', 'from-weak'):
@@ -1093,9 +1097,9 @@ def build_plan(date, sel, work, args, cfg):
 
 def llm_config_or_empty(args):
     try:
-        return TN.load_llm_config(args)
+        return LC.load_llm_config(args)
     except Exception:                     # 读不出配置文件不算错
-        return {'model': TN.LLM_DEFAULT_MODEL, 'base_url': TN.LLM_DEFAULT_BASE, 'api_key': ''}
+        return {'model': LC.LLM_DEFAULT_MODEL, 'base_url': LC.LLM_DEFAULT_BASE, 'api_key': ''}
 
 
 def sel_line(sel):
@@ -1379,7 +1383,7 @@ def norm_entry(raw):
 
 def parse_response(raw, note_id):
     """从模型回复里取出这张卡的条目，返回 (entry, 问题描述)。"""
-    obj, why = TN.extract_json(raw)
+    obj, why = LC.extract_json(raw)
     if obj is None:
         return None, why
     if not isinstance(obj, dict):
@@ -1598,7 +1602,7 @@ def check_sentence_ruby(plain_text, ruby_html, label):
     if flatten(ruby_html) != flatten(plain_text):
         problems.append('%s：去 ruby 后与正文不一致（ruby=%r）'
                         % (label, one_line(ruby_html, 60)))
-    if TN.KANJI.search(plain_text or '') and '<ruby' not in (ruby_html or '').lower():
+    if RT.KANJI.search(plain_text or '') and '<ruby' not in (ruby_html or '').lower():
         problems.append('%s：含汉字但没有 <ruby>' % label)
     elif (ruby_html or '').strip() and not ruby_covers(ruby_html):
         problems.append('%s：振假名不合规（有 ruby 缺 <rt> / 基底只含假名 / 有汉字漏注音）' % label)
@@ -1643,8 +1647,8 @@ def word_reading_in_ruby(word, ruby_html):
         m = re.search(r'<rt\b[^>]*>(.*?)</rt>', inner, re.S | re.I)
         if not m:
             continue
-        base = TN.strip_tags(RE_RT.sub('', inner)).strip()
-        rt = TN.strip_tags(m.group(1)).strip()
+        base = HT.strip_tags(RE_RT.sub('', inner)).strip()
+        rt = HT.strip_tags(m.group(1)).strip()
         if base:
             pairs.append((base, rt))
     for base, rt in pairs:                 # 一词一 ruby
@@ -1998,9 +2002,9 @@ def gate_apply(card, entry, rendered, write=None):
         # Sentence HTML 的多句分隔是**单个** `<br>`（commit 664299b8，2026-10-30；库里 2065 张
         # 双句卡全是这个口径）。`Sentence` / `Sentence Translation` 仍是 `<br><br>`。
         p.append('闸门6：Sentence HTML 渲染后 %d 块（要求 2）' % count_blocks(f[F_HTML], RE_BR1))
-    if F_AUDIO in write and len(TN.audio_files(f[F_AUDIO])) != 2:
+    if F_AUDIO in write and len(AN.sounds_of(f[F_AUDIO])) != 2:
         p.append('闸门6：Sentence Audio 有 %d 个 [sound:]（要求 2）'
-                 % len(TN.audio_files(f[F_AUDIO])))
+                 % len(AN.sounds_of(f[F_AUDIO])))
     if F_NOTE in write:
         flat_note = flatten(f[F_NOTE])
         for canon in REQUIRED_CANON:
@@ -2114,11 +2118,11 @@ def gen_one(card, system_prompt, cfg, args, scopes=None):
         messages = build_messages(system_prompt, [payload], nudge)
         print('  → [%s] %s' % ('重试%d' % attempt if attempt > 1 else '第1次', card['word']),
               file=sys.stderr)
-        raw, usage, meta = TN.llm_chat(cfg, messages,
+        raw, usage, meta = LC.llm_chat(cfg, messages,
                                        json_mode=not getattr(args, 'no_json_mode', False),
                                        stream=not getattr(args, 'no_stream', False),
                                        label='    ')
-        row = TN.usage_row(usage)
+        row = LC.usage_row(usage)
         row.update({'noteId': card['id'], 'word': card['word'], 'attempt': attempt,
                     'elapsed': round(meta.get('elapsed') or 0, 1),
                     'first_token': round(meta.get('first_token') or 0, 2),
@@ -2154,10 +2158,10 @@ def cmd_gen(args):
             '--per-batch 只能是 1：契约 §4.2 的响应按**单张卡**组织（entries 就一个键），\n'
             '系统提示词也明说「你一次只处理一张卡」，一次塞多张只会让模型漏卡/串卡。\n'
             '要省时间请用选择器缩小范围（--words / --note-ids / --from-weak）。')
-    cfg = TN.load_llm_config(args)
+    cfg = LC.load_llm_config(args)
     if not cfg['api_key']:
         print('提示：没找到 api key（--api-key / $env:DSH_LOCAL_LLM_API_KEY / %s）。'
-              '端点不校验就无所谓。' % TN.LLM_GLOBAL_CONFIG_FILE, file=sys.stderr)
+              '端点不校验就无所谓。' % LC.LLM_GLOBAL_CONFIG_FILE, file=sys.stderr)
     system_prompt = load_system_prompt(args.system_prompt)
     cards, sel = select_cards(args)
     force = bool(getattr(args, 'force', False))
@@ -2196,7 +2200,7 @@ def cmd_gen(args):
         try:
             entry, warn, problems, rows, raw = gen_one(card, system_prompt, cfg, args,
                                                         sel['scopes'])
-        except TN.LLMError as e:
+        except LC.LLMError as e:
             print('  ❌ 端点失败：%s' % e, file=sys.stderr)
             failed.append((card['id'], card['word'], str(e)))
             write_json(paths['meta'], {'noteId': card['id'], 'date': date,
@@ -2374,8 +2378,8 @@ def cmd_tts(args):
     for i, (card, entry) in enumerate(todo, 1):
         name = tts_filename(card['id'])
         path = os.path.join(AUDIO_DIR, name)
-        text = TN.plain_jp(TN.strip_ruby_readings(entry['new_sentence_ruby'])) or \
-            TN.plain_jp(entry['new_sentence'])
+        text = RT.plain_jp(RT.strip_ruby_readings(entry['new_sentence_ruby'])) or \
+            RT.plain_jp(entry['new_sentence'])
         exists = os.path.exists(path) and os.path.getsize(path) >= MIN_MP3_BYTES
         if exists and not force:
             size = os.path.getsize(path)
@@ -2788,7 +2792,7 @@ def add_llm_args(sp):
     sp.add_argument('--system-prompt', default=None,
                     help='系统提示词文件（默认 %s）' % PROMPT_FILE)
     sp.add_argument('--base-url', default=None,
-                    help='端点 base_url（默认 %s）' % TN.LLM_DEFAULT_BASE)
+                    help='端点 base_url（默认 %s）' % LC.LLM_DEFAULT_BASE)
     sp.add_argument('--model', default=None,
                     help='★ 模型名（覆盖配置）。**卡片任务一般不该给**：给了就等于绕过'
                          '「沿用端点当前在用的模型」去切换模型')
@@ -2886,7 +2890,7 @@ def main():
     except AK.AnkiError as e:
         print('Anki 错误：%s' % e, file=sys.stderr)
         return 2
-    except TN.LLMError as e:
+    except LC.LLMError as e:
         print('本地模型错误：%s' % e, file=sys.stderr)
         return 3
     except KeyboardInterrupt:

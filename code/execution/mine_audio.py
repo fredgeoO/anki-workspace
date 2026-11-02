@@ -59,28 +59,29 @@ import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CODE = os.path.dirname(_HERE)
-sys.path.insert(0, os.path.join(_CODE, 'common'))    # paths.py
+sys.path.insert(0, os.path.join(_CODE, 'common'))    # paths.py / audio_names.py
 sys.path.insert(0, os.path.join(_CODE, 'tools'))     # edge_tts_min.py
-sys.path.insert(0, _HERE)                            # pipeline.py
+sys.path.insert(0, _HERE)
 import anki_api as AK         # noqa: E402  唯一的 Anki 访问点
-import pipeline as P          # noqa: E402
+import audio_names as AN      # noqa: E402  媒体名规则与 [sound:] 解析（issue #5：proper 也用它，不必借本脚本）
+import jp_decks as JD         # noqa: E402  牌组名的唯一来源（原先从 pipeline.CFG 拿 deck）
 import edge_tts_min as TTS    # noqa: E402
 import paths as WSP           # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 OUT = WSP.OUT_AUDIO           # 合成音频输出（原 ./out_audio）
 
-DECK = P.CFG['mine_deck']
+DECK = JD.DECK_MINED          # 素材生词牌组（原先是 P.CFG['mine_deck']：为了一个 deck 名 import 整个流水线）
 VOICE = 'ja-JP-NanamiNeural'
 
 
 # ============================================================================
-SOUND = re.compile(r'\[sound:([^\]]+)\]')
 TAG = re.compile(r'<[^>]+>')
 
-
-def sounds_of(field):
-    return SOUND.findall(field or '')
+#: `[sound:…]` 解析与媒体名规则的正本在 code/common/audio_names.py（issue #5）。
+sounds_of = AN.sounds_of
+safe_token = AN.safe_token
+media_name = AN.media_name
 
 
 def sentence_for_tts(sentence):
@@ -100,23 +101,9 @@ def sentence_for_tts(sentence):
     return re.sub(r'\s+', ' ', s).strip()
 
 
-def safe_token(s):
-    """文件名里可用的片段：保留日文/字母数字，其余换下划线。"""
-    return re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff]+', '_', s or '').strip('_') or 'x'
-
-
 def word_audio_name(word):
     h = hashlib.sha1(word.encode('utf-8')).hexdigest()[:8]
     return 'mine-%s-%s.mp3' % (safe_token(word), h)
-
-
-def media_name(name):
-    """Anki 存媒体时会把文件名里的拉丁字母转小写（`ＯＫ` → `ｏｋ`）。
-
-    所以**先按小写去存**，字段里写的和实际落库的名字才一致；否则 `[sound:...]`
-    指向一个不存在的文件（2026-10-12 补历史缺口时实测 20 张全角拉丁词全中）。
-    """
-    return name.lower() if name != name.lower() else name
 
 
 def sent_tts_name(note_id):
@@ -143,7 +130,7 @@ def gather(tag=None, query=None):
     print('范围：%s' % q)
     notes = AK.notes_info(ids)
     # 来源例句卡：按 Sentence 精确配对（写库时记录的就是来源卡的 Sentence）
-    ex_ids = AK.find_notes('deck:"%s"' % P.CFG['deck'])
+    ex_ids = AK.find_notes('deck:"%s"' % JD.DECK_EXAMPLE)
     by_sent = {}
     for n in AK.notes_info(ex_ids):
         s = n['fields'].get('Sentence', {}).get('value', '')

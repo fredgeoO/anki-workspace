@@ -60,7 +60,8 @@ import immersion_api as IM     # noqa: E402  ImmersionKit 只读客户端 + 纯�
 import jp_decks as JD          # noqa: E402  牌组路径的唯一来源
 import mine as M               # noqa: E402  jiten_rank / next_index / load_jiten_index
 import paths as WSP            # noqa: E402  工作区路径的唯一来源
-import pipeline as P           # noqa: E402  norm / strip_html / rebuild_known_index
+import jp_text as JT           # noqa: E402  norm / strip_html / KANJI（common；issue #5）
+import pipeline as P           # noqa: E402  只借流程件（rebuild_known_index）
 import textio                  # noqa: E402  UTF-8 stdio 与文件读写唯一入口
 
 DECK_EXAMPLE = JD.DECK_EXAMPLE                 # 0-日本语学习::2-例句
@@ -180,7 +181,7 @@ def existing_words():
     have = set()
     for deck in (DECK_EXAMPLE, DECK_MINED):
         for n in AK.notes_info(AK.find_notes('deck:"%s"' % deck)):
-            w = P.norm((n.get('fields', {}).get(WORD_FIELD, {}) or {}).get('value', ''))
+            w = JT.norm((n.get('fields', {}).get(WORD_FIELD, {}) or {}).get('value', ''))
             if w:
                 have.add(w)
     return have
@@ -196,8 +197,8 @@ def deck_identity():
     for deck in (DECK_EXAMPLE, DECK_MINED):
         for n in AK.notes_info(AK.find_notes('deck:"%s"' % deck)):
             fields = n.get('fields', {})
-            word = P.norm((fields.get(WORD_FIELD, {}) or {}).get('value', ''))
-            sent = P.norm((fields.get('Sentence', {}) or {}).get('value', ''))
+            word = JT.norm((fields.get(WORD_FIELD, {}) or {}).get('value', ''))
+            sent = JT.norm((fields.get('Sentence', {}) or {}).get('value', ''))
             if word and sent:
                 seen.add((deck, word, sent))
     return seen
@@ -381,7 +382,7 @@ def cmd_fetch(a):
     have = existing_words()
     jiten, rank_of = jiten_ranks()
     todo, skipped = IM.filter_words(words, canon, variant, have,
-                                    rank_of=rank_of, norm=P.norm,
+                                    rank_of=rank_of, norm=JT.norm,
                                     keep_known=a.keep_known)
     if a.keep_known:
         info('  ⚠ --keep-known：只抓 core6000/考级**已有**的词 → 建议配 '
@@ -645,7 +646,7 @@ def cmd_merge(a):
     for e in items or []:
         if not isinstance(e, dict):
             continue
-        w = P.norm(str(e.get('word') or ''))
+        w = JT.norm(str(e.get('word') or ''))
         if w:
             by_word[w] = e
     info('=' * 88)
@@ -656,7 +657,7 @@ def cmd_merge(a):
     ok = skipped = bad = missing = 0
     problems, near_miss, ruby_bad = [], [], []
     for rec in plan:
-        key = P.norm(rec['word'])
+        key = JT.norm(rec['word'])
         e = by_word.get(key)
         if e is None:
             missing += 1
@@ -672,7 +673,7 @@ def cmd_merge(a):
                  'translation': e.get('translation'), 'a_note': e.get('a_note'),
                  'include': True, 'reason': ''}
         hard, soft = CM.check(entry)
-        if P.norm(str(entry['word'] or '')) != key:
+        if JT.norm(str(entry['word'] or '')) != key:
             hard.append('word 与计划的词不一致：%r' % (entry['word'],))
         if hard:
             bad += 1
@@ -702,7 +703,7 @@ def cmd_merge(a):
         info('  ⚠ 讲解里的 ruby 与例句权威注音不一致 %d 处（建议人工看一眼）：' % len(ruby_bad))
         for w, k, got, want in ruby_bad[:10]:
             info('    %-10s %s 写成 %s ｜ 例句是 %s' % (w, k, got, want))
-    extra = [w for w in by_word if w not in {P.norm(r['word']) for r in plan}]
+    extra = [w for w in by_word if w not in {JT.norm(r['word']) for r in plan}]
     if extra:
         info('  产出里有 %d 条不在计划中（忽略）：%s' % (len(extra), '、'.join(extra[:8])))
 
@@ -771,7 +772,7 @@ def build_payloads(state, to, no_ainote, start_index):
                     'Word Audio': '',
                     'Pitch Accent URL': '',
                     'Pitch Accent': '',
-                }, [P.CFG['mine_tag_prefix']],
+                }, [JT.MINE_TAG_PREFIX],
                     rec, pick, media))
                 idx += 1
     return out
@@ -858,7 +859,7 @@ def cmd_write(a):
     seen = deck_identity()
     fresh, dupes = [], []
     for item in items:
-        key = (item[0], P.norm(item[4]['word']), P.norm(item[5]['sentence']))
+        key = (item[0], JT.norm(item[4]['word']), JT.norm(item[5]['sentence']))
         (dupes if key in seen else fresh).append(item)
     if dupes:
         info('牌组里已有同词同句，跳过 %d 条（重复写只会多出带新 Index 的副本）：'
@@ -876,7 +877,7 @@ def cmd_write(a):
         for filename, url in media:
             media_jobs.setdefault(filename, url)
     ruby_empty = sum(1 for it in items if it[2].get('Sentence HTML') == ''
-                     and P.KANJI.search(P.strip_html(it[2].get('Sentence', ''))))
+                     and JT.KANJI.search(JT.strip_html(it[2].get('Sentence', ''))))
     info('将要创建 %d 条笔记；媒体 %d 个；振假名留空（含汉字）%d 条'
          % (len(items), len(media_jobs), ruby_empty))
     for deck, model, fields, _t, rec, pick, _m in items[:12]:
