@@ -1,6 +1,6 @@
 # 架构与内部约定（architecture）
 
-> 状态：active ｜ 最后核实：2026-10-29
+> 状态：active ｜ 最后核实：2026-11-01
 
 **这是什么**：工作区的细节层 —— 代码怎么分区、六条约定怎么落地、各子系统的口径与踩坑。
 **为什么存在**：根 README 只讲入口与规矩，[implementation.md](implementation.md) 收数据流与阶段/口径；改代码、加脚本、排查「为什么这样设计」时看这里。
@@ -142,6 +142,12 @@ $VC = "$WS\code\analysis\vocab_cover"
 & $PY "$VC\cover_cli.py" --text "日本語の文章…"          # 或 --stdin / 传文件路径
 & $PY "$VC\cover_cli.py" ep.srt --json --oov-out data\vocab_cover\oov_ep01.json
 
+# ★ 卡组外新词筛选/排序：复用 today-new 的内容词闸（Sudachi C 粒度，挡 の/だ/すっ 这类碎片）
+#   与 rank_gate 整集精排；不改 today-new 任何行为，第 4 个参数 drop_aux 默认关闭
+& $PY "$VC\cover_cli.py" ep.srt --screen                      # 只过闸，按次数排
+& $PY "$VC\cover_cli.py" ep.srt --rank --rank-k 25            # 再过本地模型精排
+& $PY "$VC\cover_cli.py" ep.srt --screen --screen-out temp\screen_ep01.json
+
 # ★ 新词清单：把文章/字幕里「我还不认识的词」全量列出来（词形·原形·读音·词性·次数·首例句·档位）
 & $PY "$VC\newwords.py" "subtitles\転生王女と天才令嬢の魔法革命"   # 目录递归，12 集合并统计
 & $PY "$VC\newwords.py" ep.srt --sort jiten                    # 按动画真实词频排（挖词首选）
@@ -218,7 +224,8 @@ $VC = "$WS\code\analysis\vocab_cover"
 覆盖率核心库）、`srt.py`、`corpus.py`、`metrics.py`、`report_build.py`、`cover_cli.py`（覆盖率体检）、
 `newwords.py`（**新词清单**：全量列出新词，带读音/原形/词性/次数/首例句/档位，可导出 TSV/CSV/MD/JSON）、
 `crosswork.py`（**跨作品通用性判定**：值得挖 / 看情况 / 别挖）、`newword_report.py`（**生词报告**）、
-`mine_window.py`（**挖掘窗口分析**）。
+`mine_window.py`（**挖掘窗口分析**）、`screen.py`（**卡组外新词筛选/精排**：复用
+`tools/subtitle_new_words` 的内容词闸与 `tools/rank_gate` 的整集精排，不改两条既有链路）。
 另有 `freq_external.py`（外部词频表当排序源，§5）与 `study_plan.py` / `make_activate_plan.py`
 （把词表转成激活计划）。
 三个分母（全部词元 / 词汇词 / 需背实词）与已学、成熟两种掌握判定都在 `jp_tok.Coverage.summary()` 里，

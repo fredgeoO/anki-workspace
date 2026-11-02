@@ -55,7 +55,7 @@ analysis/         ──> docs/reports/*.md、data/vocab_cover/*、output/vocab_
 | 段 | 谁做 | 做什么 |
 |---|---|---|
 | 1 抽候选 | Sudachi + 词库索引 | 逐句分词 → 词典形 → 只在三个词汇牌组命中才算候选；复合词再拼查一次。**窗口 = 你指定的那一集**（默认只这一集，给目录或 `--season` 才整季） |
-| 2 排除懂的 | 代码 | 按笔记判已学/挂起；JAR 门槛 1–30000；读音闸（卡片读音 ∩ 字幕读音） |
+| 2 排除懂的 | 代码 | 按笔记判已学/挂起；只挡没有 JAR 排名（字段空 / 0 / 999999）；读音闸（卡片读音 ∩ 字幕读音） |
 | 3 排序 | **本地模型，一集一次** | 读整集台词 + 本集候选，按「动漫对白实用度 > 学习/编卡价值 > 一般通用度」给有序名单；**各集并行**（端点开几个槽用几个）；模型钉 128K 的 `qwen3.8-flash-next-iq3_s`，换档要显式 `--model` |
 | 4 兜底 | 公式 | 模型不可用 / `--no-llm-rank` / 候选为空时才定序 |
 
@@ -83,15 +83,21 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 助词、感动词、角色语尾（`かしら`、`〜にゃ`）直接影响对白语气，**单独给 2 个名额**
 （`--particles`），不跟内容词抢；格助词/系助词/接续助词（が・で・を・は）作为语法胶水排除。
 
-**JAR 超范围 / 无排名**（空、0、999999、>30000）的词不进今天名单，但登记到
+**没有 JAR 排名**（字段空、0、999999）的词不进今天名单，但登记到
 `data/daily_new/unranked.json`；`doctor` 非空就报**提示**（退出码 2），留待用户建卡或补 JAR。
 补上 JAR 的词在下次 `--commit` 运行时自动出清。
+
+**JAR > 30000 不再是门槛**（2026-11-01 去掉）：有排名就进候选，重要性交给模型精排；
+公式里的频率项对 ≥30000 一律记 0 分（夹在 1–30000），不会爆分也不会算出负数。
 
 **只写 `tags`**，不碰 `due/ivl/factor/type/queue`；每次运行先把全库旧标签摘掉，所以这个标签
 永远只代表「今天这一批」。产物：`output/daily/today_new_words.md`（名单 + 模型理由）、
 `data/daily_new/<日期>/picked.json`（模型名次 / 理由 / 分数拆解 / noteId）、
 `data/daily_new/state.json`（回退记录）、`data/daily_new/unranked.json`（待建卡清单）、
-`data/daily_new/rank_cache.json`（精排缓存）。讲义侧怎么消费这个 tag 见
+`data/daily_new/rank_cache.json`（精排缓存）、`data/daily_new/sense_cache.json`（义项判定缓存）。
+**2026-11-02 起义项闸判 false 的词默认先修再剔**：`sense_repair.py` 给原卡补真实例句 +
+重写 `Meaning`（只写白名单字段，走 writeback 备份/回读，同样受 `--commit` 管），
+重判通过按原名次回插；`--no-sense-repair` 退回只剔不修。讲义侧怎么消费这个 tag 见
 [today_new-使用说明.md](today_new-使用说明.md)；打分与义项核验的取舍见
 [ADR 2026-10-29](decisions/2026-10-29-今日选词打分与义项核验.md)。
 
@@ -137,10 +143,10 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性、gen 并回与并发顺序 |
 | `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
 | `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
-| `test_jiten_rank.py` | `JitenAnimeRank`/`JitenGlobalRank` 查表、词字段推导与 6 位补零（文本序 = 数值序） |
+| `test_jiten_rank.py` | `JitenAnimeRank`/`JitenGlobalRank` 查表、词字段推导与 6 位补零（文本序 = 数值序）、三条写库路径交给 writeback 的载荷形状（2026-11-01 实测扁平值会炸 `--commit`） |
 | `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
 | `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |
-| `test_today_new_words.py` | 每日生词挑选：Jiten 升序、无排名垫底、上限 N、标签差集 |
+| `test_today_new_words.py` | 每日生词挑选：打分公式、只挡无 JAR 排名（有排名 >30000 照收）、读音闸、名额、标签差集 |
 | `test_lesson_render.py` | 每日讲义口径：词形/读音、词性校正、同词合并、接续脏数据、计数自洽、讲解机械错 |
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
 | `test_writeback.py` | 写库事务：演练不写、提交备份、回读失败上报、分块/quiet、调度接口不出现 |

@@ -316,7 +316,7 @@ def stage_audio(a, rep):
         # （2026-10-11 实测：素材生词 deck 里 6 张被判"无原声"，其实都挂着原声）。
         print('\n[阶段五] 跳过：本次阶段四没有新建卡，也没给 --audio-tag → 没有配音目标。')
         print('  确实要给整个素材生词 deck 补音频时，显式加 --audio-tag "素材生词::<来源>"；')
-        print('  直接跑 mine_audio.py 不给范围就是整副 deck —— 其中"原声配不上来源例句卡"的卡会被降级成 TTS。')
+        print('  直接跑 mine_audio.py 不给范围就是整副 deck（只补空字段，已有音频不会被覆盖）。')
         rep['audio'] = {'scope': '(跳过：无目标)'}
         return 'skipped'
     print('\n[阶段五] 生词配音（%s）' % label)

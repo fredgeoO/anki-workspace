@@ -63,6 +63,13 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument('--untackled-out', help='把「卡组里有卡但没刷过」的词写到这个文件（一行一个）')
     ap.add_argument('--no-lists', action='store_true', help='不打印词表')
     ap.add_argument('--quiet', action='store_true', help='不打印人类可读报告（配合 --out-json）')
+    ap.add_argument('--screen', action='store_true',
+                    help='附加「卡组外新词筛选」：复用 today-new 的内容词闸（Sudachi C 粒度），'
+                         '挡掉の/ぞ/すっ 这类切分碎片与语气词')
+    ap.add_argument('--rank', action='store_true',
+                    help='在 --screen 基础上再调本地模型整集精排（复用 rank_gate，一集一次）')
+    ap.add_argument('--rank-k', type=int, default=30, help='精排让模型给回多少个（默认 30）')
+    ap.add_argument('--screen-out', help='把筛选结果写到这个文件（JSON）')
     return ap
 
 
@@ -94,15 +101,28 @@ def main() -> int:
         return 2
 
     vocab = jp_tok.Vocabulary.load(args.state, split_mode=args.split_mode)
-    results = []
+    want_screen = bool(args.screen or args.rank or args.screen_out)
+    if want_screen:
+        import screen as SCR      # 复用 today-new 的内容词闸 / 精排（延迟导入）
+    results, screens = [], []
     for label, text, is_srt in items:
         sentences, clean_text, ep = analyze.sentences_of(text, is_srt=is_srt)
         res = analyze.analyze_text(vocab, clean_text, sentences=sentences, label=label)
+        if want_screen:
+            sres = SCR.collect(sentences, vocab)
+            picks, meta = ([], {})
+            if args.rank:
+                picks, meta = SCR.rank(sres['items'], clean_text, k=args.rank_k)
+            screens.append((sres, picks, meta))
+            res['screen'] = SCR.to_json(sres, picks, meta)
         results.append(res)
 
     payload = results[0] if len(results) == 1 else results
     if args.out_json:
         write_json(payload, args.out_json)
+    if args.screen_out:
+        blobs = [SCR.to_json(s, p, m) for s, p, m in screens]
+        write_json(blobs[0] if len(blobs) == 1 else blobs, args.screen_out)
     if args.oov_out:
         oov = results[0]['oov'] if len(results) == 1 else [
             r['oov'] for r in results]
@@ -117,8 +137,11 @@ def main() -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif not args.quiet:
-        for res in results:
+        for i, res in enumerate(results):
             print(analyze.render(res, top=args.top, show_lists=not args.no_lists))
+            if i < len(screens):
+                sres, picks, meta = screens[i]
+                print(SCR.render(sres, picks, meta, top=args.top))
             print()
     return 0
 

@@ -112,6 +112,10 @@ $PY = "python"          # 换成你的 Python 3
 - **选词**：扫整部作品打分，挑 30 个**已有卡、还没学**的词打上 tag `今天学习生词`；每次运行
   全量替换旧标签，只写标签不碰调度列。默认演练，`--commit` 才真写，`--revert --commit` 撤销。
   打分公式与闸门见 [implementation §3](docs/implementation.md)。
+- **义项修复**：选词时义项核验对不上的词默认先修原卡再回插（补真实例句 + 按字幕义项重写
+  `Meaning`，重判通过才算修好；写卡只走 writeback，同样受 `--commit` 管）。事后补跑
+  `cli.py sense-repair plan` / `apply --commit`（写前自动备份，可 revert）；`--no-sense-repair`
+  退回「只剔不修」。
 - **讲义**：`daily` 四步链只读 Anki、不写库，做坏了删文件重跑；产物是 `output/daily/lesson_latest.md`。
   没有 tag 就什么都不生成，细则见 [today_new-使用说明](docs/today_new-使用说明.md)。
 - **弱项**：`weak` 另有 `revlog` / `pace` / `build-list` 子命令；默认读实时数据，

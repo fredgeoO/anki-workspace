@@ -105,9 +105,37 @@ def test_expand_models():
           FE._expand_models(['Basic', '', 'Basic', ' vocab ']))
 
 
+def test_write_fields_payload_shape():
+    """三条写库路径交给 writeback 的载荷必须是 ``{nid: {字段名: 值}}``。
+
+    2026-11-01 实测 bug：`--models` / `--tag` / `--all-notes` 把
+    ``derive_field_values`` 的扁平结果（``{nid: '032077'}``）直接喂给
+    ``WB.write_fields``，内核按 `{字段名: 值}` 解包 →
+    ``AttributeError: 'str' object has no attribute 'items'``。
+    演练路径不经过内核，所以只有 --commit 才炸（本次就是跑 --commit 时撞上的）。
+    """
+    src = open(FE.__file__, encoding='utf-8').read()
+    calls = [ln.strip() for ln in src.splitlines() if 'WB.write_fields(' in ln]
+    check('write_fields 调用点都显式包成 {nid: {field: value}}',
+          calls and all('for n, v in todo.items()' in c for c in calls), calls)
+    # 形状本身：模拟内核的解包，扁平值必须报错、嵌套值必须通过
+    nested = {n: {'JitenAnimeRank': v}
+              for n, v in FE.derive_field_values(
+                  [{'noteId': 1, 'modelName': 'Japanese Vocabulary',
+                    'fields': {'Word': {'value': '宿'}}}], INDEX, '999999')[0].items()}
+    try:
+        {int(k): {str(f): str(x) for f, x in (v or {}).items()}
+         for k, v in nested.items()}
+        ok_nested = True
+    except AttributeError:
+        ok_nested = False
+    check('嵌套形状能被内核解包', ok_nested)
+
+
 def main():
     for fn in (test_lookup, test_kyujitai, test_format, test_primary_form,
-               test_derive_field_values, test_expand_models):
+               test_derive_field_values, test_expand_models,
+               test_write_fields_payload_shape):
         print(fn.__name__)
         fn()
     print()

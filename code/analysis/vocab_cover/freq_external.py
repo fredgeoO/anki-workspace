@@ -479,7 +479,8 @@ def _cmd_field_tag(args) -> int:
         return 0
 
     # 写库
-    rep = WB.write_fields(todo, commit=True, label='freq_external:tag',
+    rep = WB.write_fields({n: {args.field: v} for n, v in todo.items()},
+                          commit=True, label='freq_external:tag',
                           backup=False, settle=1.0, chunk=2000)
     if not rep['ok']:
         print('  失败样例：%s' % list(rep['bad'].items())[:5])
@@ -605,7 +606,8 @@ def _cmd_field_models(args) -> int:
     if snap_path and (time.time() - os.path.getmtime(snap_path)) > SNAP_FRESH_SECONDS:
         print('  ⚠ 这份基准超过 1 小时了，diff 可能混入之后的正常复习活动')
 
-    rep = WB.write_fields(todo, commit=True, label='freq_external:models',
+    rep = WB.write_fields({n: {args.field: v} for n, v in todo.items()},
+                          commit=True, label='freq_external:models',
                           backup=False, settle=1.0, chunk=2000)
     if not rep['ok']:
         print('  失败样例：%s' % list(rep['bad'].items())[:5])
@@ -769,7 +771,8 @@ def cmd_field(args) -> int:
         if snap_path and (time.time() - os.path.getmtime(snap_path)) > SNAP_FRESH_SECONDS:
             print('  ⚠ 这份基准超过 1 小时了，diff 可能混入之后的正常复习活动')
 
-    rep = WB.write_fields(todo, commit=True, label='freq_external:all-notes',
+    rep = WB.write_fields({n: {args.field: v} for n, v in todo.items()},
+                          commit=True, label='freq_external:all-notes',
                           backup=False, settle=1.0, chunk=2000)
     if not rep['ok']:
         print('  失败样例：%s' % list(rep['bad'].items())[:5])

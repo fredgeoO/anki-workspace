@@ -11,7 +11,8 @@
 3. 取词：按分数降序取 N，不足不硬凑，同分按词形稳定。
 4. 名额按「词」算：一个词名下多张未学笔记全部带出，标签数可多于 N。
 5. 「学过」按笔记判断：同词一张已学、一张新卡时，新卡仍在候选里。
-6. JAR 门槛：只收 1–30000；999999 / >30000 不进候选。
+6. 只挡「没有 JAR 排名」（字段空 / 0 / 999999）；有排名的词即使 >30000 也照收
+   （2026-11-01 去掉 >30000 门槛：重要性交给模型精排与公式里的 JAR 项）。
 7. 标签差集：旧集合 → 新集合必须算出「摘除 / 保留 / 新增」。
 
 跑法（不碰 Anki、不读 data/）：
@@ -139,20 +140,28 @@ def test_lam_zero_ignores_jar():
     check('lam=0 时 JAR 不影响分数', abs(a - b) < 1e-9, (a, b))
 
 
-def test_jar_gate():
-    idx = FakeIndex({'贵': [_e(30001)], '界': [_e(30000)], '无': [_e(999999)],
-                     '常': [_e(1000)]})
-    stats = {w: _stat(3, 2) for w in ('贵', '界', '无', '常')}
-    items, skipped = TN.build_candidates(stats, idx, max_jar=30000)
+def test_no_rank_gate():
+    """JAR > 30000 不再当门槛；只挡没有 JAR 排名（空 / 0 / 999999）的词。"""
+    idx = FakeIndex({'贵': [_e(30001)], '巨': [_e(120000)], '界': [_e(30000)],
+                     '无': [_e(999999)], '零': [_e(0)], '常': [_e(1000)]})
+    stats = {w: _stat(3, 2) for w in ('贵', '巨', '界', '无', '零', '常')}
+    items, skipped = TN.build_candidates(stats, idx)
     words = {it['word'] for it in items}
-    check('JAR 30001 排除', '贵' not in words, words)
-    check('无排名排除', '无' not in words, words)
-    check('JAR 30000 保留', '界' in words, words)
-    check('排除清单有计数', set(skipped['jar']) == {'贵', '无'}, skipped['jar'])
+    check('JAR 30001 照收', '贵' in words, words)
+    check('JAR 120000 照收', '巨' in words, words)
+    check('JAR 30000 照收', '界' in words, words)
+    check('JAR 0 视为无排名 → 排除', '零' not in words, words)
+    check('JAR 999999 视为无排名 → 排除', '无' not in words, words)
+    check('排除清单只记无排名的词', set(skipped['no_rank']) == {'无', '零'},
+          skipped['no_rank'])
+    check('排除清单带待建卡条目',
+          {x['word'] for x in skipped['no_rank_items']} == {'无', '零'},
+          skipped['no_rank_items'])
 
-    items2, _ = TN.build_candidates(stats, idx, max_jar=0)
-    check('max_jar=0 时全收', {it['word'] for it in items2} == {'贵', '界', '无', '常'},
-          {it['word'] for it in items2})
+    big = next(it for it in items if it['word'] == '巨')
+    check('大 JAR 的频率项记 0 分（不爆负分）',
+          TN.score_parts(big['occurrences'], big['episodes'], big['jiten'])[2] == 0.0,
+          big['jiten'])
 
 
 def test_drop_phrases_off_by_default():
@@ -172,7 +181,7 @@ def test_candidates_skip_learned_only():
     """整词都学过的词没有未学笔记 → 不进候选。"""
     idx = FakeIndex({'甲': [_e(nid=1, typ=2)], '乙': [_e(nid=2, typ=2), _e(nid=3, typ=0)]})
     stats = {w: _stat(3, 2) for w in ('甲', '乙')}
-    items, skipped = TN.build_candidates(stats, idx, max_jar=30000)
+    items, skipped = TN.build_candidates(stats, idx)
     check('全学过的词被排除', [it['word'] for it in items] == ['乙'],
           [it['word'] for it in items])
     check('排除原因记为没有未学笔记', skipped['no_notes'] == ['甲'], skipped['no_notes'])
@@ -183,7 +192,7 @@ def test_plan_pick_order():
     # 次数高但 JAR 很差 vs 次数低但 JAR 极好
     stats = {'多': _stat(8, 1), '准': _stat(2, 2), '中': _stat(4, 2)}
     idx.entries = {'多': [_e(20000)], '准': [_e(300)], '中': [_e(2000)]}
-    items, _ = TN.build_candidates(stats, idx, max_jar=30000)
+    items, _ = TN.build_candidates(stats, idx)
     picked, ranked = TN.plan_pick(items, 3)
     got = [w['word'] for w in picked]
     check('按分数降序', got == [w['word'] for w in ranked], got)
@@ -197,7 +206,7 @@ def test_plan_pick_quota():
     stats.update({'b%d' % i: _stat(3, 2) for i in range(2)})
     stats.update({'d%d' % i: _stat(2, 2) for i in range(2)})
     idx.entries = {w: [_e(2000)] for w in stats}
-    items, _ = TN.build_candidates(stats, idx, max_jar=30000)
+    items, _ = TN.build_candidates(stats, idx)
     picked, _ = TN.plan_pick(items, 3)
     check('只取 N 个', len(picked) == 3, len(picked))
 
@@ -219,7 +228,7 @@ def test_word_quota_notes_more_than_n():
     idx = FakeIndex({'甲': [_e(nid=1), _e(nid=2)], '乙': [_e(nid=3)],
                      '丙': [_e(nid=4), _e(nid=5)]})
     stats = {w: _stat(6, 3) for w in ('甲', '乙', '丙')}
-    items, _ = TN.build_candidates(stats, idx, max_jar=30000)
+    items, _ = TN.build_candidates(stats, idx)
     picked, _ = TN.plan_pick(items, 2)
     check('取 2 个词', len(picked) == 2, len(picked))
     check('笔记总数可超过 2', sum(len(w['notes']) for w in picked) > 2,
@@ -309,7 +318,7 @@ def test_fmt_rank():
 def main():
     for fn in (test_tag_name, test_rank_of, test_note_state,
                test_new_note_ids_per_note, test_score_monotonic, test_score_parts,
-               test_flip_ratio, test_lam_zero_ignores_jar, test_jar_gate,
+               test_flip_ratio, test_lam_zero_ignores_jar, test_no_rank_gate,
                test_drop_phrases_off_by_default, test_candidates_skip_learned_only,
                test_plan_pick_order, test_plan_pick_quota, test_pick_top_tie_stable,
                test_word_quota_notes_more_than_n, test_reading_gate,

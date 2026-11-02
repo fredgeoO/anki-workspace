@@ -374,14 +374,21 @@ def word_reading(word):
     return ''.join(m.reading for m in ms).strip()
 
 
-def is_content_token(t, extra_pos=()):
+def is_content_token(t, extra_pos=(), drop_aux=False):
     """内容词判定。``extra_pos`` 额外放行某些词性（如 ``('助詞', '感動詞')``）。
 
     放开助词时**必须同时放开单字假名**：``ね`` / ``よ`` / ``か`` / ``の`` 都是
     一个字、纯假名，会被下面那条「单字非汉字」规则直接丢掉。
+
+    ``drop_aux`` 额外挡掉 ``動詞-非自立可能``（おく / つく / なれる 这类补助动词）。
+    **默认 False，today-new / subtitle-tag 的行为一个字节都不变**——只在
+    覆盖率那侧的「卡组外新词筛选」（``analysis/vocab_cover/screen.py``）里开。
+    这类词没有可讲的词义，却因为 Sudachi 标成 `動詞` 而漏进新词表。
     """
     allowed = tuple(CONTENT_POS) + tuple(extra_pos or ())
     if t.pos0 not in allowed:
+        return False
+    if drop_aux and t.pos0 == '動詞' and t.pos1 == '非自立可能':
         return False
     if t.pos0 == '名詞' and t.pos1 in DROP_NOUN_POS1:
         return False

@@ -27,6 +27,8 @@ why     不超过 30 字的中文理由（对不上时说明差在哪）
 ----
 ``data/daily_new/sense_cache.json``。键 = sha1(词 | 句 | 卡片释义 | 义项表)[:16]，
 义项表变了键就变，不会拿旧结论充数。``--no-cache`` 强制重判。
+**卡片释义改了键就跟着变**——义项修复（``sense_repair.py`` 改 ``Meaning`` 后重判）
+不需要清缓存，新释义自然是一次新判定。
 
 只读：不写 Anki。用法::
 
@@ -274,6 +276,8 @@ def to_inputs(picked, index, lk=None):
             groups = TN.notes_of(it['word'], index)
             ents = [c for nid in it['notes'] for c in groups.get(nid, ())]
             e0 = ents[0] if ents else None
+            # 核验的是哪张笔记——义项修复（sense_repair）要按这个 noteId 写回
+            e0_nid = next((nid for nid in it['notes'] if groups.get(nid)), None)
             sentence = clean_text(((it.get('first') or {}).get('text') or ''))
             senses, note = sense_facts(lk, it['word'], (e0.word if e0 else ''))
             out.append({
@@ -283,6 +287,7 @@ def to_inputs(picked, index, lk=None):
                 'input': {
                     'word': it['word'],
                     'reading': (e0.reading if e0 else '') or '',
+                    'note_id': int(e0_nid) if e0_nid else 0,
                     'sentence': sentence,
                     'card_word': (e0.word if e0 else '') or '',
                     'card_meaning': clean_text(e0.meaning if e0 else '', 80),
@@ -307,7 +312,7 @@ def collect(source, n, buffer=15):
     index = TN.SW.VocabIndex.load(scopes=TN.SCOPES)
     sources = TN.episode_sources(source)
     stats = TN.collect_stats(sources, index)
-    items, _skipped = TN.build_candidates(stats, index, TN.DEFAULT_MAX_JAR,
+    items, _skipped = TN.build_candidates(stats, index,
                                           mu=TN.DEFAULT_MU, lam=TN.DEFAULT_LAM)
     picked, _ranked = TN.plan_pick(items, n + buffer)
     return sources, to_inputs(picked, index)

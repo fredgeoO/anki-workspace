@@ -336,7 +336,7 @@ def check_doc_status(report, show_all):
 
 # ── 6b. JAR 待办清单 ───────────────────────────────────────────────────────
 def check_unranked(report, show_all):
-    """JAR 超范围/无排名的词不进今天的选择，但 doctor 每天提醒还剩多少个等建卡。"""
+    """没有 JAR 排名的词不进今天的选择，但 doctor 每天提醒还剩多少个等建卡。"""
     try:
         import unranked as UR
         n, lines = UR.summary(top=20 if show_all else 5)
@@ -344,9 +344,9 @@ def check_unranked(report, show_all):
         report.warn('待建卡清单（data/daily_new/unranked.json）读不了', [str(exc)])
         return
     if not n:
-        report.ok('没有待建卡词（JAR 全部在范围内）')
+        report.ok('没有待建卡词（词汇卡都有 JAR 排名）')
         return
-    report.warn('%d 个词 JAR 超范围 / 无排名，等你建生词卡或补 JAR' % n,
+    report.warn('%d 个词没有 JAR 排名，等你建生词卡或补 JAR' % n,
                 ['看全表：python code/cli.py unranked --all（%s）' % _rel(UR.PATH)]
                 + lines)
 

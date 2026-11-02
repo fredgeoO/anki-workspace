@@ -355,8 +355,8 @@ def main(argv=None):
           % (meta.get('model'), cfg.get('ctx'), len(sources), len(items), len(ordered),
              meta['calls'], meta['secs'], meta.get('workers', 1),
              '（缓存）' if meta.get('cached') else ''))
-    print('跳过：JAR 超范围 %d / 已学无新卡 %d / 读音不符 %d'
-          % (len(skipped['jar']), len(skipped['no_notes']),
+    print('跳过：无 JAR 排名 %d / 已学无新卡 %d / 读音不符 %d'
+          % (len(skipped['no_rank']), len(skipped['no_notes']),
              len(skipped['reading'])))
     if meta.get('problems'):
         print('⚠ 模型输出问题：%s' % meta['problems'])
