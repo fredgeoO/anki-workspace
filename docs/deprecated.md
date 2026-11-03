@@ -1,6 +1,6 @@
 # 废弃与退场记录（deprecated）
 
-> 状态：active ｜ 最后核实：2026-10-23
+> 状态：active ｜ 最后核实：2026-11-03
 
 **这是什么**：退场档案 —— 哪套机制/入口不用了、为什么、留下的数据在哪、想恢复要注意什么。
 **为什么存在**：活跃文档只讲现在该怎么做；过去的事集中放这里，免得散落各处变成噪声。
@@ -146,3 +146,25 @@
 
 **恢复路径**：从工作区备份（`cli.py backup`）或 git 历史取回这两个文件；
 注意它们的标签前缀当时是 `字幕复习`，恢复后要改成 `复习`。
+
+## 9. 一次性探针与孤儿分析脚本（2026-11-03 删除）
+
+**删除日期**：2026-11-03 ｜ **共 14 个文件 / 1,360 行**
+
+删的是「没有任何入口指向、也没有任何文档或技能提到」的存量脚本（issue #10 的可达性盘点结果）：
+
+- `code/oneshot/`（11 个，908 行）：`anki_again_count.py` `gen_single_note.py` `inspect_db.py`
+  `inspect_notes.py` `show_note_field.py` `probe_deck_cost.py` `probe_deck_coverage.py`
+  `probe_deckconfig2.py` `probe_example_deck.py` `probe_intro_cost.py` `probe_pos_dist.py`
+  —— 2026-10 探查收藏结构用的一次性探针，结论早已写进 AGENTS.md §7 的库结构表。
+  按 [§4](#4-一次性临时探针) 的规矩它们本该进 `temp/` 或 `archive/experiments/`，是没搬走的存量。
+- `code/tools/vocab_curve.py`(111) / `code/tools/cross_show_curve.py`(212)：「同作品挖 12 集 vs
+  不同作品各挖前 3 集」的一次性对比。`vocab_curve.py` 读的 `data/evidence/<集>/prefilter.csv`
+  只有已停用的字幕预筛链才会产出（见 [architecture §1](architecture.md) 那条链未接入现役 triage）。
+- `code/execution/find_grammar.py`(129)：查语法条目 deck 的一次性查询，无调用方。
+
+**为什么可以删**：`cli.py` 分发表、`.dsh/skills/*/SKILL.md`、`code/` 里的 import 与实际调用链
+都不指向它们；`code/tests/` 也没有测试钉住其行为。删后 `code/tests/*.py` 结果与删除前一致。
+
+**恢复路径**：`git log --diff-filter=D --name-only -- code/oneshot/ code/tools/vocab_curve.py`
+找删除提交，`git show <commit>^:<路径>` 取回原文。

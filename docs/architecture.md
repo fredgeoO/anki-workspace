@@ -1,6 +1,6 @@
 # 架构与内部约定（architecture）
 
-> 状态：active ｜ 最后核实：2026-11-01
+> 状态：active ｜ 最后核实：2026-11-03
 
 **这是什么**：工作区的细节层 —— 代码怎么分区、六条约定怎么落地、各子系统的口径与踩坑。
 **为什么存在**：根 README 只讲入口与规矩，[implementation.md](implementation.md) 收数据流与阶段/口径；改代码、加脚本、排查「为什么这样设计」时看这里。
@@ -32,7 +32,7 @@
 | `code/tools/` | `doctor.py`（**开工体检**：三件自审 + 废弃符号 + 快照卫生 + 文档状态行 + preflight）、`edge_tts_min.py`（纯标准库 TTS 客户端）、`check_audio.py`（音频自检）、`fix_word_audio.py`（**单词音频读错修复**：`Transliteration` + `Word Audio` 同名覆盖，带 ruby 比对/旧值断言，见 pipeline-guide §8.6）、`audit_mine_outputs.py`（独立复核）、`proper_extract.py`（**专有名词抽取的原子能力**：一段文字 + 背景 → 专名清单，Anki 无关、可单跑、`--no-model` 只跑预扫）、`review_shortlist.py`（判弃块复核短名单）、`backup_anki.py`（备份：工作区 + 收藏库 + 媒体 + 插件 → G: 盘，含校验与 manifest，见 [docs/backup-sop.md](backup-sop.md)）、`temp_clean.py`（`cli.py temp`：一次性文件区 `temp/` 的查看 / 清空，先打印清单再删） |
 | `code/common/` | `anki_api.py`（**Anki 读写唯一接口**：AnkiConnect 传输 + 类型化读写 + 学习记录 + 离线快照 + 防回退自审）、`immersion_api.py`（**ImmersionKit 只读客户端**：搜索/媒体 + 例句清洗/筛选 + 振假名转 `Sentence HTML`，带磁盘缓存；不碰 Anki）、`paths.py`（路径唯一来源）、`check_cards.py`（例句卡自检）、`check_ruby.py`（振假名读音自检）、`check_mine.py`（生词卡自检）、`check_proper.py`（**专有名词卡自检**：判定产出 + 写入载荷两层，`Intro`/`Categories`/`Source` 的机械规则）、`textio.py`（**文本 I/O 与编码的唯一入口**：import 即接管 stdio 为 UTF-8、GBK/BOM/CP932 解码、JSON 安全读、子进程文本模式，含 `check` / `read` / `decode` / `audit` CLI）、`ps-utf8.ps1`（**PowerShell 侧补丁**，用法见 §6.5） |
 | `code/analysis/` | `today_weak.py`（今天/近 N 天答得不好的卡 → 单词名/语法名）、`analyze_revlog.py`（自评按钮校准）、`weak_words_2d_live.py` + `make_weak_list.py`（弱词清单）、`anki_revlog_analysis.py`（每牌组复习量/单卡耗时）、`planning/`、`vocab_cover/`（字幕覆盖率与词汇量：§4；外部词频表排序：§5）、`anki_analyze/`（离线诊断孤岛，见 §7） |
-| `code/oneshot/` | 一次性活儿（用完即弃，现役 21 个）：`install_workspace_wheels.py`（往 `data/pylibs` 装库，见 §6.4）、快照只读探针、残渣修复入口（`fix_bad_arrow` / `fix_text_wrap` / `verify_no_residue` / `fix_stray_rt`）、ImmersionKit 批处理、两个历史迁移（留作「默认演练」写法参考）。用完的挪 `archive/experiments/20261020-oneshot/` |
+| `code/oneshot/` | 一次性活儿（用完即弃，现役 13 个）：`install_workspace_wheels.py`（往 `data/pylibs` 装库，见 §6.4）、快照只读探针、残渣修复入口（`fix_bad_arrow` / `fix_text_wrap` / `verify_no_residue` / `fix_stray_rt`）、ImmersionKit 批处理、两个历史迁移（留作「默认演练」写法参考）。用完的挪 `archive/experiments/20261020-oneshot/` |
 
 ---
 
@@ -470,7 +470,7 @@ unidic-lite / ipadic 没有 wheel，故改用带 wheel 的 SudachiDict Core）�
   复制成本地快照（**先关 Anki**，否则副本可能不一致）并打印表结构。
   它直接用 `sqlite3` 读库，是「唯一 Anki 访问点」约定的**已知例外**（与 `code/oneshot/` 同级）：
   `anki_api.py audit` 把它们列成**第二期待办**，不挡路。
-- **`code/oneshot/`**：探针与一次性修复，用完即弃（现役 21 个，见 §1 表）；它是
+- **`code/oneshot/`**：探针与一次性修复，用完即弃（现役 13 个，见 §1 表）；它是
   「唯一 Anki 访问点」的已知例外之一。用完的脚本挪 `archive/experiments/`。
 - **`code/tools/backup_anki.py`** 是**文件级**例外：备份必须在 **Anki 完全关闭**时跑，
   那时 AnkiConnect 不可用 —— 它直连 8765 探「Anki 还开着吗」，并用 `sqlite3` 核对备份副本。
