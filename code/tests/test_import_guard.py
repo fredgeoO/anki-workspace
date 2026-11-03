@@ -54,25 +54,27 @@ ALLOWED = {
 #: core6000_* 五件是一对（Issue #4「按能力切分」）：巨石 import 自己抽出的
 #: text2 / jisho / gates / render 只为保住模块级名字，测试与探针仍用 CE.flatten；
 #: lesson_render / lesson_paths 是 today_new 抽出的渲染层与落盘层（同族）。
+#: issue #12 之后这两族各自进了 execution/core6000/ 与 execution/lesson/，
+#: 键改成相对 execution 的路径；today_new 仍在顶层，跨目录借这一族。
 SAME_FAMILY = {
-    ("core6000_example.py", "core6000_text"),
-    ("core6000_example.py", "core6000_text2"),
-    ("core6000_example.py", "core6000_jisho"),
-    ("core6000_example.py", "core6000_gates"),
-    ("core6000_example.py", "core6000_render"),
-    ("core6000_gates.py", "core6000_text2"),
-    ("core6000_gates.py", "core6000_jisho"),
-    ("core6000_jisho.py", "core6000_text2"),
-    ("core6000_render.py", "core6000_text"),
-    ("core6000_render.py", "core6000_text2"),
-    ("lesson_check.py", "lesson_text"),
-    ("lesson_render.py", "lesson_check"),
-    ("lesson_render.py", "lesson_paths"),
-    ("lesson_render.py", "lesson_text"),
-    ("today_new.py", "lesson_check"),
-    ("today_new.py", "lesson_text"),
-    ("today_new.py", "lesson_paths"),
-    ("today_new.py", "lesson_render"),
+    (os.path.join('core6000', 'core6000_example.py'), 'core6000_text'),
+    (os.path.join('core6000', 'core6000_example.py'), 'core6000_text2'),
+    (os.path.join('core6000', 'core6000_example.py'), 'core6000_jisho'),
+    (os.path.join('core6000', 'core6000_example.py'), 'core6000_gates'),
+    (os.path.join('core6000', 'core6000_example.py'), 'core6000_render'),
+    (os.path.join('core6000', 'core6000_gates.py'), 'core6000_text2'),
+    (os.path.join('core6000', 'core6000_gates.py'), 'core6000_jisho'),
+    (os.path.join('core6000', 'core6000_jisho.py'), 'core6000_text2'),
+    (os.path.join('core6000', 'core6000_render.py'), 'core6000_text'),
+    (os.path.join('core6000', 'core6000_render.py'), 'core6000_text2'),
+    (os.path.join('lesson', 'lesson_check.py'), 'lesson_text'),
+    (os.path.join('lesson', 'lesson_render.py'), 'lesson_check'),
+    (os.path.join('lesson', 'lesson_render.py'), 'lesson_paths'),
+    (os.path.join('lesson', 'lesson_render.py'), 'lesson_text'),
+    ('today_new.py', 'lesson_check'),
+    ('today_new.py', 'lesson_text'),
+    ('today_new.py', 'lesson_paths'),
+    ('today_new.py', 'lesson_render'),
 }
 
 #: 已有正本的同名/近名正则：execution 里再手写这套字符区间就是第二份口径。
@@ -94,7 +96,18 @@ def check(name, cond, detail=''):
 
 
 def scripts():
-    return {f for f in os.listdir(_EXEC) if f.endswith('.py')}
+    """execution 下全部脚本，路径**相对 execution**（issue #12：系列子夹也要扫）。
+
+    import 仍按模块名解析——`core6000/core6000_gates.py → core6000_text2` 这种同目录
+    互借和以前的同级互借是同一件事，所以白名单的键也用相对路径。
+    """
+    out = set()
+    for dirpath, dirnames, filenames in os.walk(_EXEC):
+        dirnames[:] = [d for d in dirnames if d != '__pycache__']
+        for fn in filenames:
+            if fn.endswith('.py'):
+                out.add(os.path.relpath(os.path.join(dirpath, fn), _EXEC))
+    return out
 
 
 def edges_for(fname, siblings):

@@ -133,16 +133,9 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/common/jmdict_check.py` | JMdict 核验：词形/读音/词性对词典（每日讲义纠错；只读词典，不写 Anki） |
 | `code/common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
 | `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |
-| `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `core6000_example.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` |
-| `code/execution/lesson_text.py` | 讲义 teach 整形 / 接续清洗 / Markdown 渲染（从 `today_new.py` 抽出） |
-| `code/execution/core6000_text.py` | core6000 补例句②的纯渲染：词性中文化 / 注音 / 词表（从 `core6000_example.py` 抽出） |
-| `code/execution/lesson_check.py` | 讲义的机械判定：词形/读音/词性、内容问题、渲染后闸门（从 `today_new.py` 抽出，不渲染） |
-| `code/execution/lesson_paths.py` | 每日讲义落盘路径与原子写：`today_new` 与 `lesson_render` **共用**的下沉层（避免二者互引） |
-| `code/execution/lesson_render.py` | 每日讲义渲染：manifest + 模型产出 → Markdown（从 `today_new.py` 抽出；只吃数据，不碰 Anki / LLM） |
-| `code/execution/core6000_text2.py` | core6000 补例句②的共享底座：HTML 正则 + JSON / 文本小工具（纯函数，从 `core6000_example.py` 抽出） |
-| `code/execution/core6000_jisho.py` | core6000 补例句②的例句源：Jisho 真实语料抓取 + 缓存 + 四道挑句闸门（从 `core6000_example.py` 抽出，不连网时可换桩） |
-| `code/execution/core6000_gates.py` | core6000 补例句②的机械闸门 1-5：判模型刚交回的 entry（从 `core6000_example.py` 抽出；闸门 6-9 仍在巨石，绑 apply 事务） |
-| `code/execution/core6000_render.py` | core6000 补例句②的字段渲染：卡片结构体 + entry → 5 个字段的值（从 `core6000_example.py` 抽出；常量经 `bind_constants` 注入） |
+| `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py`；**系列子夹见下两行**（issue #12） |
+| `code/execution/core6000/` | core6000 系列：`core6000_example.py`（入口，`cli.py core6000`）`core6000_meaning.py`（入口，`cli.py meaning`）+ 抽出的 `core6000_text.py` `core6000_text2.py` `core6000_jisho.py` `core6000_gates.py` `core6000_render.py` + `core6000_example_prompt.md` |
+| `code/execution/lesson/` | 每日讲义系列（从 `today_new.py` 抽出，入口仍是 `today_new.py`）：`lesson_text.py`（teach 整形 / 接续清洗 / Markdown 渲染）`lesson_check.py`（机械判定：词形/读音/词性、内容问题、渲染后闸门）`lesson_paths.py`（落盘路径与原子写，`today_new` 与 `lesson_render` **共用**的下沉层）`lesson_render.py`（manifest + 模型产出 → Markdown，只吃数据不碰 Anki / LLM）+ `lesson_local_prompt.md` |
 | `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `rank_gate.py`（选词精排）`unranked.py`（待建卡清单）`proper_extract.py` `jisho_example.py` |
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
@@ -207,7 +200,9 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 ## 8. 写新代码
 
 1. 放进四区之一：`execution`（多步流程）、`tools`（可复用能力）、`analysis`（诊断/报告）；
-   一次性的直接写进 `temp/`，别进 `code/`。
+   一次性的直接写进 `temp/`，别进 `code/`。core6000 / 每日讲义这两个系列的脚本进各自子夹
+   `execution/core6000/`、`execution/lesson/`（issue #12）——模块名仍是扁平的，调用方把
+   系列目录一起挂进 `sys.path`（路径常量在 `paths.py`：`WSP.EXEC_CORE6000` / `WSP.EXEC_LESSON`）。
 2. 路径一律 `import paths as WSP`，不写死绝对路径。
 3. 文本 I/O 一律 `import textio`。
 4. 碰 Anki 一律 `import anki_api as AK`。

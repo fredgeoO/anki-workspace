@@ -1,6 +1,6 @@
 # 今天学习生词 → 每日讲义（`today_new.py` 使用说明）
 
-> 状态：active ｜ 最后核实：2026-10-28
+> 状态：active ｜ 最后核实：2026-11-03
 
 **一句话**：每天早上学今天这批生词**之前**，把 tag `今天学习生词` 里的词取出来，交给本地模型逐张写讲解，合并成一份带振假名的 Markdown 讲义。
 
@@ -104,7 +104,7 @@ $TN = "$WS\code\execution\today_new.py"
 
 ## 3. 生成：直连本地模型（不派子代理）
 
-- 规范本体 `code\execution\lesson_local_prompt.md` 作为 **instructions**，每个请求原样发送一次；每张卡的 JSON 作为 `input`。
+- 规范本体 `code\execution\lesson\lesson_local_prompt.md` 作为 **instructions**，每个请求原样发送一次；每张卡的 JSON 作为 `input`。
 - **词汇卡的 `input` 自带 `dict` 字段**：`plan` 阶段查好的 JMdict 事实（`readings` / `entries[].headword` / `pos` / `senses[].glosses` / `tags` / `applies` / `info`）。
   模型按它定读音与义项，不再自己猜；`gen` / `merge` 不会再去查词典。语法卡与例句卡没有 `dict`。
 - 默认 `--per-batch 1`：输出最短、失败面最小、断点续跑最细（NInfer 按精确前缀复用缓存，调大只省重复前缀，但更容易截断）。

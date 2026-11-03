@@ -117,10 +117,12 @@ import urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py / jp_decks.py
+import paths as WSP  # noqa: E402  先拿路径常量，lesson_* 已进 execution/lesson/（issue #12）
+if WSP.EXEC_LESSON not in sys.path:
+    sys.path.insert(0, WSP.EXEC_LESSON)                              # lesson_text / _check / …
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
 import jmdict_check as JC  # noqa: E402  JMdict 词典核验（只读，用于纠错）
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别（考级词汇已扁平化）
-import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import ruby_engine as RE  # noqa: E402  <ruby> 标签的唯一构造器（wrap）
 import ruby_text as RT  # noqa: E402  漢字[かんじ] ↔ <ruby> 的解析（common）
@@ -137,7 +139,7 @@ from llm_client import (  # noqa: E402  本地模型客户端（common/llm_clien
 )
 from lesson_text import (strip_ruby_readings, normalize_teach, clean_structure,
                          structure_looks_garbled, grammar_structure, render_teach)
-# 机械判定（词形/读音/词性、内容问题、闸门）：实现在 execution/lesson_check.py
+# 机械判定（词形/读音/词性、内容问题、闸门）：实现在 execution/lesson/lesson_check.py
 # （2026-11-01 抽出）。名字全部保持原样，调用方与测试不用改。
 from lesson_check import (  # noqa: E402,F401
     PLACEHOLDER, TRAILING_KANA, POS_NAMES, INTERJECTION_WORDS, FINAL_PARTICLE_WORDS,
@@ -146,14 +148,14 @@ from lesson_check import (  # noqa: E402,F401
     target_forms, example_uses_target, looks_like_labeled_prose, teach_issues,
     core_word_seen, light_card_issues, check_coverage, plain_for_gate, check_render,
     local_entries, check_quality)
-# 讲义落盘路径与原子写：实现在 execution/lesson_paths.py（2026-11-02）。
+# 讲义落盘路径与原子写：实现在 execution/lesson/lesson_paths.py（2026-11-02）。
 # `lesson_render` 也用它，所以这里是**别名**而不是定义——两边拿到的是同一组路径。
 from lesson_paths import (  # noqa: E402,F401
     OUTDIR, LESSON_DIR, CARDS_DIR, TAG_TODAY, LESSON_BACKUP, dict_path, write_text,
     write_json, dated_paths)
 
 # 教学规范 = 直连时作为 system 消息发出去的提示词；改它就能改模型的教学口径。
-SYSTEM_PROMPT_FILE = os.path.join(_HERE, 'lesson_local_prompt.md')
+SYSTEM_PROMPT_FILE = os.path.join(WSP.EXEC_LESSON, 'lesson_local_prompt.md')
 
 # ============================================================================
 # JMdict 词典层（对应技能 jmdict-lookup）
@@ -853,7 +855,7 @@ def pick_entries(obj, cards):
     return entries, ''
 
 
-# teach 整形与渲染：execution/lesson_text.py（2026-11-01 抽出）
+# teach 整形与渲染：execution/lesson/lesson_text.py（2026-11-01 抽出）
 
 
 # ============================================================================
@@ -929,7 +931,7 @@ def read_out_file(path, ids):
 
 
 # ============================================================================
-# 渲染讲义 + 闸门（实现已抽到 execution/lesson_render.py，2026-11-02）
+# 渲染讲义 + 闸门（实现已抽到 execution/lesson/lesson_render.py，2026-11-02）
 # ============================================================================
 # 渲染只吃 manifest + 模型产出 + dinfo，不碰 Anki / LLM；流程（取卡、切批、直连模型）
 # 留在本文件。名字全部保持原样，调用方与测试（TN.render_lesson …）不用改。

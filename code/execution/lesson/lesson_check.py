@@ -9,7 +9,15 @@
 **口径来源**：判断"模型讲解够不够用"的规则在 docs/…；本模块只负责把规则写成代码，
 模型不参与（铁律 6：机械判断交给代码）。
 """
+import os
 import re
+import sys
+
+# 系列子目录（issue #12）：单独 import 时自己挂上 code/common 与本系列目录。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from ruby_text import KANJI
 from lesson_text import grammar_structure, strip_ruby_readings

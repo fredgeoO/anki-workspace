@@ -37,8 +37,8 @@ import re
 import sys
 import time
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CODE = os.path.dirname(_HERE)
+_HERE = os.path.dirname(os.path.abspath(__file__))       # code/execution/core6000
+_CODE = os.path.dirname(os.path.dirname(_HERE))          # code/
 sys.path.insert(0, os.path.join(_CODE, 'common'))
 import anki_api as AK          # noqa: E402
 import jmdict_check as JC      # noqa: E402

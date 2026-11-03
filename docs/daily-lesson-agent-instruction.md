@@ -1,9 +1,9 @@
 # 每日讲义 · 生成规范（说明与投放位置）
 
-> 状态：active ｜ 最后核实：2026-10-25
+> 状态：active ｜ 最后核实：2026-11-03
 
 > **这是一份说明文档，不是提示词。** 真正发给模型的规范在
-> [`code/execution/lesson_local_prompt.md`](../code/execution/lesson_local_prompt.md)，
+> [`code/execution/lesson/lesson_local_prompt.md`](../code/execution/lesson/lesson_local_prompt.md)，
 > 它是**唯一副本**——要改模型的教学口径，就改那个文件。
 >
 > 本文档解释那份规范**为什么长这样**、以及改它时要注意什么。

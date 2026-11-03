@@ -20,8 +20,15 @@ canon → 正文那份映射由巨石 import 后注入（见 ``bind_constants``�
 触碰清单 / canon 顺序也每次经巨石读（``_ce()``），所以巨石 import 后注入的真值当场
 生效；单独 import 本模块时落到下面的默认值（与巨石当前取值一致）。
 """
+import os
 import re
 import sys
+
+# 系列子目录（issue #12）：单独 import 时自己挂上 code/common 与本系列目录。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from core6000_text2 import (RE_BR1, count_blocks, dedupe, flatten, join_blocks, plain)
 # ② 的词表渲染（gloss_lines）在 core6000_text；与这里同为纯渲染，不碰 Anki。

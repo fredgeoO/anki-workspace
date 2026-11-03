@@ -9,7 +9,17 @@
 ``section_body_html`` 仍在 ``core6000_example`` —— 它们吃卡片结构体
 （``sections`` / ``layout`` / ``n_sent``）并依赖板块解析，属于「渲染 + 卡片模型」，
 要等卡片模型先独立。``scan`` / ``gen`` / ``apply`` 的写库路径一个字没动。
+
+系列子目录（issue #12）：本模块在 ``code/execution/core6000/`` 下，单独 import 时
+自己把 ``code/common`` 挂上 sys.path；被巨石 import 时那条路本来就在。
 """
+import os as _os
+import sys as _sys
+_COMMON = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+                       _os.path.abspath(__file__)))), 'common')
+if _COMMON not in _sys.path:
+    _sys.path.insert(0, _COMMON)
+
 import ruby_engine as RE
 
 POS_CN = {                       # 卡上 `Part of Speech` 是英文：② 的（词性）按 ① 的中文口径写

@@ -5,6 +5,8 @@
 
     code/common      共享库（本模块、check_cards.py、check_mine.py）
     code/execution   执行区：多步流水线（阶段 0-5）与生成任务
+                     └ core6000/  core6000 系列（补例句② / 义项改写，issue #12）
+                     └ lesson/    每日讲义系列（整形 / 判定 / 渲染，issue #12）
     code/tools       工具区：可复用能力（edge-TTS、音频自检、回归测试）
     code/analysis    分析区：学习水平诊断、报告、学习量规划
     code/oneshot     单次执行区：跑一次就拿结果的脚本
@@ -39,6 +41,10 @@ TEMP = os.path.join(ROOT, 'temp')
 # ---- 代码区 ---------------------------------------------------------------
 COMMON = os.path.join(CODE, 'common')
 EXECUTION = os.path.join(CODE, 'execution')
+# 执行区里的系列子夹（issue #12）：一个系列一个文件夹，模块名不变、import 仍扁平。
+# 跨系列 import 走 EXECUTION；系列内部互借走本系列目录——两边都要进 sys.path。
+EXEC_CORE6000 = os.path.join(EXECUTION, 'core6000')   # core6000_*（补例句 / 义项改写）
+EXEC_LESSON = os.path.join(EXECUTION, 'lesson')       # lesson_*（每日讲义的整形 / 判定 / 渲染）
 TOOLS = os.path.join(CODE, 'tools')
 ANALYSIS = os.path.join(CODE, 'analysis')
 PLANNING = os.path.join(ANALYSIS, 'planning')

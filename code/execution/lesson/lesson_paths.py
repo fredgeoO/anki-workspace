@@ -14,6 +14,13 @@
 """
 import json
 import os
+import sys
+
+# 系列子目录（issue #12）：单独 import 时自己把 code/common 挂上 sys.path。
+_COMMON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                       os.path.abspath(__file__)))), 'common')
+if _COMMON not in sys.path:
+    sys.path.insert(0, _COMMON)
 
 import paths as WSP
 

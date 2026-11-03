@@ -16,12 +16,18 @@ import os
 import re
 import sys
 
+# 系列子目录（issue #12）：单独 import 时自己挂上 code/common 与本系列目录。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from lesson_paths import (LESSON_BACKUP, TAG_TODAY, dated_paths, write_text)
-# 机械判定（词形/读音/词性、内容问题、闸门）：实现在 execution/lesson_check.py。
+# 机械判定（词形/读音/词性、内容问题、闸门）：实现在 execution/lesson/lesson_check.py。
 from lesson_check import (FINAL_PARTICLE_WORDS, INTERJECTION_WORDS, check_coverage,
                           check_render, display_pos, group_vocab, light_card_issues,
                           reading_problem)
-# 文本整形与 teach 渲染：execution/lesson_text.py。
+# 文本整形与 teach 渲染：execution/lesson/lesson_text.py。
 from lesson_text import (clean_structure, grammar_structure, render_teach,
                          structure_looks_garbled)
 

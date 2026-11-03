@@ -756,14 +756,14 @@ SSML 里的文本必须做 XML 转义，否则 `&`/`<`/`>` 会打断 SSML。
   只有 `scan`（体检）与 `status`（看进度）能不带选择器跑。
 
 契约（唯一接口，改接口先改它）：[core6000-example-design.md](core6000-example-design.md)；
-模型侧规范（脚本只读）：`code/execution/core6000_example_prompt.md`；
+模型侧规范（脚本只读）：`code/execution/core6000/core6000_example_prompt.md`；
 用户的原始教学口径：[japanese-word-example-teaching.md](japanese-word-example-teaching.md)。
 操作手册：[core6000-example-使用说明.md](core6000-example-使用说明.md)。
 
 ### 9.2 三条命令（顺序固定：gen → tts → apply）
 
 ```powershell
-$CE = "$WS\code\execution\core6000_example.py"
+$CE = "$WS\code\execution\core6000\core6000_example.py"
 
 & $PY $CE gen   --words "徹夜,適当,残り"     # 直连本地模型 → data/core6000/gen/<noteId>_out.json
 & $PY $CE tts   --words "徹夜,適当,残り"     # edge-TTS → output/audio/core6000/（不碰 Anki）

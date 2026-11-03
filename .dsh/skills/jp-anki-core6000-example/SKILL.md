@@ -51,7 +51,7 @@ Sentence 搜索结果（Tatoeba 日常口语 / Jreibun 教材书面），按下�
 ```powershell
 $WS  = "<工作区根>"
 $PY  = "python"
-$EXE = "$WS\code\execution"
+$EXE = "$WS\code\execution\core6000"
 ```
 
 ### 3.1 三步固定顺序，每步都带上同一套选择器
@@ -118,7 +118,7 @@ $EXE = "$WS\code\execution"
 ## 五、规范与契约文档
 
 - 契约文档（唯一接口契约，改接口先改它）：`docs/core6000-example-design.md`
-- 模型侧规范（另一个文件，本脚本只读）：`code/execution/core6000_example_prompt.md`
+- 模型侧规范（另一个文件，本脚本只读）：`code/execution/core6000/core6000_example_prompt.md`
 - 用户的原始教学规范：`docs/japanese-word-example-teaching.md`
 
 ## 六、与每日讲义的关系

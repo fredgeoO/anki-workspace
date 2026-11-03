@@ -1,8 +1,8 @@
 # Core6000 例句补全（例句② + 振假名 + 合并讲解 + 配音）设计契约
 
-> 状态：active ｜ 最后核实：2026-10-30
+> 状态：active ｜ 最后核实：2026-11-03
 
-本文件是 `code/execution/core6000_example.py` 与 `code/execution/core6000_example_prompt.md`
+本文件是 `code/execution/core6000/core6000_example.py` 与 `code/execution/core6000/core6000_example_prompt.md`
 的**唯一接口契约**。实现者按本文件写代码，改接口先改本文件。
 
 ---
@@ -58,13 +58,13 @@ AINote                 6000 张全部非空；其中只有 2 张含 ①
 ## 三、CLI 设计（与工作区既有脚本同风格）
 
 ```
-$PY code/execution/core6000_example.py scan   [TARGET…] [--only SCOPE]
-$PY code/execution/core6000_example.py gen    TARGET… [--restart] [--per-batch 1]
+$PY code/execution/core6000/core6000_example.py scan   [TARGET…] [--only SCOPE]
+$PY code/execution/core6000/core6000_example.py gen    TARGET… [--restart] [--per-batch 1]
                                               [--refresh-jisho] [--allow-model-sentence]
-$PY code/execution/core6000_example.py tts    TARGET… [--force]
-$PY code/execution/core6000_example.py apply  TARGET… [--commit]
-$PY code/execution/core6000_example.py revert --commit [--backup FILE]
-$PY code/execution/core6000_example.py status
+$PY code/execution/core6000/core6000_example.py tts    TARGET… [--force]
+$PY code/execution/core6000/core6000_example.py apply  TARGET… [--commit]
+$PY code/execution/core6000/core6000_example.py revert --commit [--backup FILE]
+$PY code/execution/core6000/core6000_example.py status
 ```
 
 ### 3.1 TARGET：点名要补哪几张卡（**主用法**）
@@ -167,7 +167,7 @@ output/audio/core6000/<file>.mp3    TTS 产物（同时 storeMediaFile 进 Anki�
 
 ### 4.1 请求
 
-system = `code/execution/core6000_example_prompt.md`（整个文件，一次发送，逐卡复用）。
+system = `code/execution/core6000/core6000_example_prompt.md`（整个文件，一次发送，逐卡复用）。
 user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发）：
 
 ```json
@@ -322,7 +322,7 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 设计意图：该范围下 ① 和 ② **都由模型产出**（因为原 AINote 无法可靠切分），
 响应里额外给 `core1` / `grammar1` / `conjugation1` / `context1`。
 
-**实现现状（以此为准）**：`code/execution/core6000_example_prompt.md` 现在只要求模型输出 10 个键，
+**实现现状（以此为准）**：`code/execution/core6000/core6000_example_prompt.md` 现在只要求模型输出 10 个键，
 **没有这四个键**。所以脚本在真正调模型之前先检测提示词
 （`capabilities()`：文件正文里是否出现这四个键名），一旦这个范围被显式打开
 （`--only not-merged`），命中的卡会被**整卡拦下**并写进报告，原因写明「缺 ①、做不了」——

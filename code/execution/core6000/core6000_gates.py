@@ -13,9 +13,16 @@ entry**（新句含不含目标词、长度进不进闸门、中文/讲解齐不
 说明），保证测试照旧能对巨石上的别名打补丁。目标词的活用形展开在
 ``core6000_jisho``（例句源也要用它挑「写出汉字」的那句）。
 """
+import os
 import re
 import sys
 import unicodedata
+
+# 系列子目录（issue #12）：单独 import 时自己挂上 code/common 与本系列目录。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from htmltext import strip_tags
 from ruby_text import KANJI

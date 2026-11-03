@@ -19,6 +19,12 @@ import os
 import re
 import sys
 
+# 系列子目录（issue #12）：单独 import 时自己把 code/common 挂上 sys.path。
+_COMMON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                       os.path.abspath(__file__)))), 'common')
+if _COMMON not in sys.path:
+    sys.path.insert(0, _COMMON)
+
 # 去注音、剥标签与 KANJI 都在 common（issue #5：strip_ruby_readings 正本收进 ruby_text）。
 from htmltext import strip_tags                    # noqa: F401
 from ruby_text import KANJI, strip_ruby_readings   # noqa: F401
