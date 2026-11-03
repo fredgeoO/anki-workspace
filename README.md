@@ -1,5 +1,12 @@
 <p align="center">
-  <img src="docs/images/logo.png" width="128" alt="anki-workspace logo">
+  <img src="docs/images/logo.png" width="220" alt="anki-workspace logo">
+</p>
+
+<p align="center">
+  <b>看番不白看：字幕进，卡片出。</b><br>
+  戴耳机的那只鲸鱼，负责把「诶，这词啥意思」变成明天的复习——<br>
+  挖生词、标振假名、写讲解、配音、出讲义，一条龙；你只负责看番。🐋<br>
+  <sub>39,820 张卡 · 26 个牌组 · 整理卡片不靠意志力</sub>
 </p>
 
 # anki-workspace
