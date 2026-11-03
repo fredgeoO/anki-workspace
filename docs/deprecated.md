@@ -168,3 +168,20 @@
 
 **恢复路径**：`git log --diff-filter=D --name-only -- code/oneshot/ code/tools/vocab_curve.py`
 找删除提交，`git show <commit>^:<路径>` 取回原文。
+
+## 10. 字幕预筛链 `prefilter_subtitle → local_filter → assemble_filter`（2026-11-03 删除）
+
+**删除日期**：2026-11-03 ｜ **共 3 个文件 / 922 行**（issue #10 B4，用户确认「不用了」）
+
+`code/tools/prefilter_subtitle.py`(471) → `local_filter.py`(219) → `assemble_filter.py`(232)：
+想做「规则预筛 + 本地模型判灰区 → 合成 `plan.json`」的字幕入库前筛选升级版，做完没接上。
+
+**为什么删**：现役 triage 链路只调 `code/execution/filter_subtitle.py`（probe / apply / verify）；
+这条链没有任何技能、文档或调用方指向它，产物 `data/evidence/<集>/prefilter.csv` +
+`llm_verdict.csv` 也没有现役代码读（唯一消费者是它自己与已删的 `vocab_curve.py`）。
+它的判据来自 `pipeline.rebuild_known_index()`，那份正本还在，将来要重启这条链可以从
+git 历史取回参考。
+
+**恢复路径**：`git show <删除提交>^:code/tools/prefilter_subtitle.py`（三个文件同理）。
+数据侧无需处理：`data/evidence/<集>/prefilter.csv`、`subtitle_index.json`、
+`subtitle_common.json` 只是失去写入者，留着无害。
