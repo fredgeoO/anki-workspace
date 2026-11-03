@@ -1,4 +1,5 @@
 <h1 align="center">anki-workspace</h1>
+
 <p align="center">
   <img src="docs/images/logo.png" width="250" alt="anki-workspace logo">
 </p>
