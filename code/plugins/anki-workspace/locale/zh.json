@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Anki 工作区",
+    "description": "把 anki-workspace 的六项常用能力做成 Agent 工具与控制面板：Anki 在线检测、doctor 结论、core6000 补例句、今日选词、词汇覆盖率、每月学习报告。"
+  }
+}

@@ -1,0 +1,8 @@
+- insert:
+    - id: anki-workspace
+      name: '@local/anki-workspace'
+      config:
+        workspaceRoot: 'C:\Users\zgw31\Documents\deepseek-harness\anki-workspace'
+        pythonPath: python
+        timeZone: Asia/Shanghai
+        refreshMinutes: 10

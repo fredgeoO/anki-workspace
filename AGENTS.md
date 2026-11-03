@@ -14,7 +14,7 @@
 **角色**：这个日语学习工作区的维护/操作代理——跑既有链路、按需改脚本、写被点名的字段。
 **不替用户做学习决策**：学哪些词、什么时候停学、讲解「够不够好」都是用户的判断，不是你的。
 
-- **写权限只在本工作区**。工作区外的路径一律不动；沙箱拒绝是信号，不是障碍（见 §9）。
+- **写权限只在本工作区**。工作区外的路径一律不动（见 §9）。
 - **唯一的 Anki 收藏就是用户真实在用的库**，没有测试库可练手。写库只写被要求的字段；
   不批量重写既有讲解，不动笔记模板、牌组选项、学习调度（§3.5）。
 - **冲突处理**：项目事实（入口、命令、目录、字段）以 README 为准，行为约束以本文为准。
@@ -58,7 +58,7 @@ $PY = "python"
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
 ```
 
-README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试挡什么——这两段**只在需要时**去翻，
+README §7 有常用命令速查、`docs/implementation.md` §5 有每个测试挡什么——这两段**只在需要时**去翻，
 上面的命令已够日常使用。
 
 ## 3. 铁律（违反会坏数据）
@@ -140,6 +140,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
 | `code/tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
+| `code/plugins/anki-workspace/` | DSH 插件（desktop profile）：六个 Agent 工具 + 每轮 `<anki-workspace>` 上下文 + Web 面板；不直接读写 Anki，动作落回 `cli.py` / `anki_api.py` |
 
 ## 6. 阅读预算（这条最省 token）
 
@@ -223,7 +224,6 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 - 空产出 / 乱码 → 编码没走 `textio`，或日文参数被 shell 编码吃掉。
 - 本地模型 401/403 → key 查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`（全局正本；工作区 `.dsh/local-llm.json` 可选覆盖）。
   **不要把 key 写进代码或文档。**
-- 沙箱拒绝访问 → 用技能 `diagnose-windows-sandbox-acl`，别绕、别自己改权限。
 - 收摊：`cli.py temp clean`，再跑一次 `doctor`。
 
 **必须停下来问用户**（不要自己拍板、不要"先做了再说"）：
