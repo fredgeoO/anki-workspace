@@ -157,9 +157,10 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_cli_entries.py` | cli 入口表存在性、`list --check`、`resolve` 路径 |
 | `test_ruby_wrap.py` | `<ruby>` 构造唯一：wrap / to_ruby / ruby_word / ruby_text |
 | `test_core6000_text.py` | core6000 ② 的纯渲染：词性中文化、注音、词表目标行/去重，且只实现一份 |
+| `test_import_guard.py` | execution 跨脚本借用的白名单（issue #5）：白名单外新增即失败；汉字/假名正则不许再造第二份 |
 
 跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。动过 `common/` 或
-`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 24 个），与本环境无关的
+`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 25 个），与本环境无关的
 都应 0 才算完；缺依赖的那几个（`sudachipy` / `requests` / `jmdictpy` / 全局技能 local-llm）
 按各自的 ImportError 判定，不算回归。只改文档不用跑。
 

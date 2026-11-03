@@ -19,10 +19,9 @@ import os
 import re
 import sys
 
-# 去注音的唯一实现在 lesson_text；剥标签与 KANJI 在 common/htmltext、common/ruby_text。
-from htmltext import strip_tags                # noqa: F401
-from ruby_text import KANJI                    # noqa: F401
-from lesson_text import strip_ruby_readings    # noqa: F401
+# 去注音、剥标签与 KANJI 都在 common（issue #5：strip_ruby_readings 正本收进 ruby_text）。
+from htmltext import strip_tags                    # noqa: F401
+from ruby_text import KANJI, strip_ruby_readings   # noqa: F401
 
 # ============================================================================
 # 正则（闸门与渲染共用；从 core6000_example.py 原样搬来，2026-11-02）

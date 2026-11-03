@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-11-02
+> 状态：active ｜ 最后核实：2026-11-03
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（`code/tests/` 现 24 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
+改过代码还要跑回归测试（`code/tests/` 现 25 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
@@ -127,6 +127,9 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/common/ruby_engine.py` | 拿原句当骨架**确定性**渲染/修复 `Sentence HTML` |
 | `code/common/ruby_text.py` | `漢字[かんじ]` ↔ `<ruby>` 的解析与纯文本提取；标签构造走 `ruby_engine.wrap` |
 | `code/common/htmltext.py` | 去 HTML 标签 / `<br>` 转换行（`ruby_text` 与讲义共用） |
+| `code/common/jp_text.py` | 日语文本清洗与字符判定：`norm` / `strip_html` / `hira2kata` / `vocab_guard` / `dupkey` / 假名·汉字正则 / 词汇来源常量。**两套汉字口径**：这里的 `KANJI` 含 CJK 扩展 A，`ruby_text.KANJI` 不含 |
+| `code/common/audio_names.py` | `[sound:…]` 解析（`sounds_of`）与媒体文件命名规则（`safe_token` / `media_name`） |
+| `code/common/llm_client.py` | 本地模型客户端（OpenAI Responses API）：`llm_chat` / `load_llm_config` / `usage_row` / `extract_json`。讲义与 core6000 共用 |
 | `code/common/jmdict_check.py` | JMdict 核验：词形/读音/词性对词典（每日讲义纠错；只读词典，不写 Anki） |
 | `code/common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
 | `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |

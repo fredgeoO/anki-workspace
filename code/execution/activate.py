@@ -46,7 +46,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py
 sys.path.insert(0, _HERE)                                           # pipeline.py
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
-import pipeline as P  # noqa: E402  复用 CFG / norm / build_variants 等
+import jp_text as JT  # noqa: E402  纯文本清洗与字符判定（common；issue #5）
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
 import paths as WSP   # noqa: E402  工作区路径的唯一来源
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
@@ -105,7 +105,7 @@ def list_episode_tags():
     """列出 2-例句 deck 里现成的作品/集数标签，供 --tag 出错时提示。"""
     from collections import Counter
     c = Counter()
-    for n in AK.notes_info(AK.find_notes('deck:"%s"' % P.CFG['deck'])):
+    for n in AK.notes_info(AK.find_notes('deck:"%s"' % JT.EXAMPLE_DECK)):
         for t in n.get('tags', []):
             if t.startswith('动画'):
                 c[t] += 1
@@ -123,13 +123,13 @@ def vocab_sources():
     分组仍然只按 deck（整层现在就是一组，见 cmd_apply 的 by_deck）。
     """
     src = []
-    for lv, deck, field, tag in P.CFG['vocab_decks']:
+    for lv, deck, field, tag in JT.VOCAB_DECKS:
         band = JD.band_from_tags([tag]) if tag else None
         src.append((lv, JD.deck_query_tag(deck, tag), field,
                     lv + band if band else lv, deck))
-    for tag, deck, field, _bandmap in P.CFG.get('vocab_band_decks', []):
+    for tag, deck, field, _bandmap in JT.VOCAB_BAND_DECKS:
         src.append(('Core', 'deck:"%s"' % deck, field, deck.split('::')[-1], deck))
-    for name, full_tag in P.CFG['vocab_tags']:
+    for name, full_tag in JT.VOCAB_TAGS:
         # 这两类是**纯标签**收录（拟声拟态词 / 片假名外来语），不挂在独立 deck 上
         src.append((name, 'tag:"%s"' % full_tag, 'VocabKanji', name, JD.DECK_KAOKYU))
     return src
@@ -153,10 +153,10 @@ def activation_variants(w):
     """
     vs = {w}
     conj_tail = 'るうくすつぬぶむぐい'
-    if len(w) >= 3 and w[-1] in conj_tail and P.KANJI.search(w):
+    if len(w) >= 3 and w[-1] in conj_tail and JT.KANJI.search(w):
         vs.add(w[:-1])
-    if P.KANA_ONLY.match(w):
-        vs.add(P.hira2kata(w))
+    if JT.KANA_ONLY.match(w):
+        vs.add(JT.hira2kata(w))
     return [v for v in vs if len(v) >= 2]
 
 
@@ -173,8 +173,8 @@ def build_index():
         except AK.AnkiError:
             continue
         for n in AK.notes_info(nids):
-            w = P.norm(n['fields'].get(field, {}).get('value', ''))
-            if not w or not P.vocab_guard(w):
+            w = JT.norm(n['fields'].get(field, {}).get('value', ''))
+            if not w or not JT.vocab_guard(w):
                 continue
             cids = n.get('cards', [])
             if not cids:
@@ -197,7 +197,7 @@ def build_index():
 
 def scan_sentence(sentence, variant2c, maxlen):
     """句内最长匹配，返回命中的 canonical 词集合。"""
-    s = P.norm(sentence)
+    s = JT.norm(sentence)
     found = set()
     i = 0
     while i < len(s):
@@ -233,13 +233,13 @@ def cmd_plan(a):
     print('  词形 %d 个 / 变体键 %d 个 / 新卡 %d 张  (%.1fs)'
           % (len(canonical), len(variant2c), len(new_cards), time.time() - t0))
 
-    q = 'deck:"%s" tag:"%s"' % (P.CFG['deck'], a.tag)
+    q = 'deck:"%s" tag:"%s"' % (JT.EXAMPLE_DECK, a.tag)
     note_ids = AK.find_notes(q)
     print('例句卡：%s' % q)
     print('  命中 %d 条笔记' % len(note_ids))
     if not note_ids:
         print()
-        print('没有命中任何例句卡。%s 里现有的作品/集数标签：' % P.CFG['deck'])
+        print('没有命中任何例句卡。%s 里现有的作品/集数标签：' % JT.EXAMPLE_DECK)
         for t, c in sorted(list_episode_tags().items()):
             print('    %-48s %d 张' % (t, c))
         raise SystemExit('检查 --tag 是否与实际标签一致')
@@ -248,7 +248,7 @@ def cmd_plan(a):
     touched, excluded, sentences = {}, {}, {}
     for n in notes:
         sent = n['fields'].get('Sentence', {}).get('value', '')
-        word = P.norm(n['fields'].get('Word', {}).get('value', ''))
+        word = JT.norm(n['fields'].get('Word', {}).get('value', ''))
         hits = scan_sentence(sent, variant2c, maxlen)
         # Word 字段非空时也并入（可能是活用形，扫描未必命中）
         if word:
@@ -265,7 +265,7 @@ def cmd_plan(a):
             else:
                 e = min(entries, key=lambda e: e['prior'])
                 excluded.setdefault(w, e)
-            sentences.setdefault(w, []).append(P.norm(sent))
+            sentences.setdefault(w, []).append(JT.norm(sent))
 
     occ = {w: len(v) for w, v in sentences.items()}
 
