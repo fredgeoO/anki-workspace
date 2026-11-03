@@ -46,7 +46,6 @@ import os
 import re
 import sys
 import time
-import unicodedata
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py / check_cards.py
@@ -55,6 +54,7 @@ import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
 import batchjob as BJ  # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
 import check_cards  # noqa: E402
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
+import jp_text as JT  # noqa: E402  纯文本清洗与字符判定的唯一实现（issue #5：上提进 common）
 import llm_out as OUT  # noqa: E402  模型产出吸收层（类型归一 / 原始回复留证）
 import paths as WSP  # noqa: E402  工作区路径的唯一来源（见 code/common/paths.py）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
@@ -72,28 +72,13 @@ CFG = {
     # 例句卡所在的 deck。本集标签一律由 --tag 传入，**不在这里写死任何作品名**
     'deck': '0-日本语学习::2-例句',
 
-    # 判据①「单词」的来源：考级词汇（按 JLPT 级别 / 频段组织）
-    # ⚠ 考级词汇**已扁平化**：原先 11 个按级别/频段切分的子 deck 合并成
-    #   「2-考级词汇」一层（10,609 张），级别与频段改由 eggrolls 笔记标签区分
-    #   （见 code/common/jp_decks.py）。所以这里是四元组
-    #   (级别, deck, 词形字段, 级别标签)；标签为 None 表示整个 deck 一个级别。
-    # 注意：不同 deck 的词条字段名不一样，必须逐条指定
-    #   - 考级词汇 / eggrolls 系列：VocabKanji
-    #   - jp-core（Japanese Vocabulary）：Word
-    'vocab_decks': [
-        (lv, JD.DECK_KAOKYU, JD.KAOKYU_FIELD, JD.level_tag(lv, band))
-        for lv, band in JD.KAOKYU_UNITS
-    ],
-    # 按词频分段（而非 JLPT 级别）标注的词汇 deck：字段名 + 频段→级别的映射
-    'vocab_band_decks': [
-        ('jp-core', JD.DECK_CORE6000, 'Word',
-         {1: 'N5', 2: 'N5', 3: 'N4', 4: 'N4', 5: 'N3', 6: 'N3'}),
-    ],
-    # 另有标签形式收录的词汇（拟声拟态词、片假名外来语）
-    'vocab_tags': [
-        ('オノマトペ', JD.KAOKYU_MODEL + '::オノマトペ'),
-        ('カタカナ語', JD.KAOKYU_MODEL + '::カタカナ語'),
-    ],
+    # 判据①「单词」的来源（考级 / core6000 / 标签收录）与「已知词汇」参照系的正本在
+    # code/common/jp_text.py —— activate / mine / immersionkit 原先为了一个 deck 名或
+    # 标签名要 import 整个流水线才拿到 CFG（issue #5：CFG 出现在 4 条借边上）。
+    # 这里只转发，口径仍然只有一份；结构说明见 jp_text 里那几组常量。
+    'vocab_decks': JT.VOCAB_DECKS,
+    'vocab_band_decks': JT.VOCAB_BAND_DECKS,
+    'vocab_tags': JT.VOCAB_TAGS,
     # 判据②「语法」的来源：语法条目 deck（Card 字段即句型）
     'grammar_decks': [
         '0-日本语学习::1-语法::1-N5::1-N5-解释',
@@ -109,30 +94,26 @@ CFG = {
     # ── 第三个词汇牌组：素材生词（mine.py 用）──────────────────────────────
     # 入库要求：词形**不存在于上面任何已有词汇牌组**（core6000 + 考级词汇），
     # 词汇来源是 2-例句 里最终保留的字幕例句。见 mine.py。
-    'mine_deck': '0-日本语学习::0-词汇::0-素材生词',
-    # 「已知词汇」的参照系：已有全部词汇 deck 的**父级前缀**。
-    # 用父级前缀（deck:"X" 会连带所有子 deck）而不是逐个列子 deck ——
-    # 考级词汇扁平化后它自己就是一层，这样写以后再加子 deck 也自动覆盖到。
-    # 顺序 = 收词优先级：先娘家的（考级词汇→core6000）级别更可靠。
-    'known_vocab_scopes': [
-        # 顺序 = 级别标签来源的优先级（先到先得）
-        {'deck': JD.DECK_KAOKYU, 'field': JD.KAOKYU_FIELD, 'lv': '考级'},
-        {'deck': JD.DECK_CORE6000, 'field': 'Word', 'lv': 'Core6000'},
-    ],
-    'mine_model': 'Japanese Vocabulary',   # 与 core6000 同模板，复用其字段
-    'mine_tag_prefix': '素材生词',
+    # 牌组名 / 模板 / 标签前缀 / 已知词汇参照系同样转发自 jp_text（口径只有一份）。
+    'mine_deck': JT.MINE_DECK,
+    'known_vocab_scopes': JT.KNOWN_VOCAB_SCOPES,
+    'mine_model': JT.MINE_MODEL,
+    'mine_tag_prefix': JT.MINE_TAG_PREFIX,
 
     'drop_tag': '待标记::弃',
     'pending_tag': '待标记',
 }
 
 RANK = ['N5', 'N4', 'N3', 'N2', 'N1']
-KANJI = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
-KANA = re.compile(r'[\u3040-\u309f\u30a0-\u30ff]')
-KATA_ONLY = re.compile(r'^[\u30a1-\u30f6\u30fc]+$')
-KANA_ONLY = re.compile(r'^[\u3040-\u309f\u30fc]+$')
-KATA_RUN = re.compile(r'[\u30a1-\u30f6\u30fc]{3,}')
-PUNCT = re.compile(r'[、。！？!?「」『』（）()\[\]{}…‥・,.:：;；~〜\-－—–\s　]+')
+# 字符判定与文本清洗的正本在 code/common/jp_text.py（issue #5）。这里保留模块级名字，
+# 调用方（含 cards / oneshot 探针）不用改；KANJI 是**含 CJK 扩展 A** 的那套口径，
+# 与 common/ruby_text.py::KANJI（不含）同名不同义，不许合并。
+KANJI = JT.KANJI
+KANA = JT.KANA
+KATA_ONLY = JT.KATA_ONLY
+KANA_ONLY = JT.KANA_ONLY
+KATA_RUN = JT.KATA_RUN
+PUNCT = JT.PUNCT
 EXTRA_GRAMMAR = [
     'てしまう', 'ちゃう', 'じゃう', 'なきゃ', 'なくちゃ', 'んじゃない', 'んだけど', 'んだ',
     'わけには', 'っけ', 'じゃん', 'だって', 'ってば', 'っぽい', 'なのだ', 'のだよ', 'んです',
@@ -144,77 +125,30 @@ EXTRA_GRAMMAR = [
     'ようにする', 'ことになる', 'ことにする', 'ばかりだ', 'ところだ', 'はずがない',
     'に違いない', 'かねない', 'ずにはいられない', 'てたまらない', 'てならない',
 ]
-IDIOMS = [
-    '気を使', '気を遣', '気が付', '気にする', '気になる', '気に入', '気が済', '気を抜',
-    '気が抜', '気が遠く', '手を貸', '手が出', '手に入', '手を出', '手を焼', '目を通',
-    '目が届', '目を離', '目に留', '口を出', '口が堅', '顔を出', '顔が広', '足を運',
-    '足が出', '胸を張', '胸が痛', '骨が折', '骨を折', '力を貸', '力になる', '役に立',
-    '世話になる', '水を差', '水に流', '火が付', '拍車をかけ', '目処が立', '筋が通',
-    '話が違', '音を立て', '息を切', '息を吐', '肩を落', '肩の荷', '腰を据', '首をかしげ',
-    '首を振', '眉をひそ', '腹を立', '腹が減', '涙を流', '声を上げ', '声をかけ', '声を潜',
-    '腕を振る', '腕によりをかけ', '頭ごなし', 'にも程がある', '途方に暮', '折り合いをつけ',
-    '気をつけ', 'お世話にな', '当たり前', '思いがけな', '思い切って', '言うまでもな',
-    '立場にな', '身につけ', '目を向け', '耳を傾け', '道に迷', '邪魔をす', '迷惑をかけ',
-    '面倒を見', '相談に乗', '相手にす', '覚悟を決', '決心をつけ', '心を込め', '心がけ',
-]
+# 惯用句表的正本在 code/common/jp_text.py（issue #5：mine.py 不必再 import pipeline 才拿到它）
+IDIOMS = JT.IDIOMS
 RENTAI = re.compile(r'[\u4e00-\u9fff][\u3040-\u309f]{1,3}(?:た|てる|ている|ない|れる|られる|いた|てきた)[\u4e00-\u9fff]')
 
 
 # ============================================================================
 # 基础设施
 # ============================================================================
-# Anki 读写一律走 code/common/anki_api.py（传输/分块/字段拆包/错误语义都在那里）
+# Anki 读写一律走 code/common/anki_api.py（传输/分块/字段拆包/错误语义都在那里）。
+# strip_html / norm / dupkey / hira2kata / kata2hira / vocab_guard 是**纯文本层**，
+# 正本已上提到 code/common/jp_text.py（issue #5：6 个脚本从这里借工具，改一个函数波及一片）。
+# 下面的名字只是转发，让老调用方一行不用改。
 
-
-def strip_html(s):
-    import html as _h
-    if not isinstance(s, str):
-        # 模型/外部数据偶尔给数字、布尔甚至 None（2026-10-12 实测：
-        # 本地模型把字符串字段返回成 int，`unescape(5)` 直接崩）—— 一律转成文本。
-        s = '' if s is None else str(s)
-    s = _h.unescape(s or '')
-    return re.sub(r'<[^>]+>', '', re.sub(r'<br\s*/?>', ' ', s, flags=re.I))
-
-
-def norm(s):
-    return PUNCT.sub('', strip_html(s))
-
-
-def dupkey(s):
-    """查重键：只取 Sentence 本身，与 AINote 无关。
-
-    口径：NFKC 统一全角/半角 → 整块删 `<rt>…</rt>`（万一 Sentence 里混进了振假名 HTML）
-    → 剥其余标签 → 去掉全部空白（含全角空格 U+3000）。
-    **标点保留**：`ありがとう` 与 `ありがとう！` 是两种语气，不算重复（只做全角/半角统一）。
-    """
-    s = unicodedata.normalize('NFKC', s or '')
-    s = re.sub(r'<rt>.*?</rt>', '', s, flags=re.I | re.S)
-    return re.sub(r'\s+', '', strip_html(s), flags=re.UNICODE)
-
-
-def hira2kata(s):
-    return ''.join(chr(ord(c) + 0x60) if '\u3041' <= c <= '\u3096' else c for c in s)
-
-
-def kata2hira(s):
-    return ''.join(chr(ord(c) - 0x60) if '\u30a1' <= c <= '\u30f6' else c for c in s)
+strip_html = JT.strip_html
+norm = JT.norm
+dupkey = JT.dupkey
+hira2kata = JT.hira2kata
+kata2hira = JT.kata2hira
+vocab_guard = JT.vocab_guard
 
 
 # ============================================================================
 # 阶段 0：prepare —— 拉取词表 / 语法表 / 参照系
 # ============================================================================
-def vocab_guard(w):
-    """长度守卫：纯假名词必须 >=3 字，否则子串匹配会大量误命中
-    （2 字的「だめ」「やあ」会在「いやあった」里命中「やあ」）"""
-    if KANJI.search(w):
-        return len(w) >= 2
-    if KATA_ONLY.match(w):
-        return len(w) >= 2
-    if KANA_ONLY.match(w):
-        return len(w) >= 3
-    return len(w) >= 2
-
-
 def build_vocab():
     word_lv = {}
 
@@ -270,74 +204,9 @@ def build_variants(word_lv):
     return out
 
 
-# 五段/一段/サ変/形容詞 的常见活用尾。用途见 conjugation_variants()。
-_CONJ_TAILS = ['', 'る', 'た', 'て', 'ます', 'ました', 'ません', 'なかった', 'ない', 'ぬ', 'ず',
-               'れる', 'られる', 'せる', 'させる', 'たい', 'そう', 'よう', 'ば', 'たら', 'たり',
-               'ながら', 'なさい', 'ろ', 'ずに', 'なくて', 'ちゃう', 'ちゃった', 'てる', 'てた',
-               'ている', 'ていた', 'ておく', 'てしまう', 'すぎる', 'やすい', 'にくい', 'たい',
-               'い', 'く', 'かった', 'ければ', 'さ', 'み', 'げ', 'め', 'わ', 'おう', 'よう']
-# 五十音 5 段（用于生成「未然/連用/仮定」形），行 = 段
-_GODAN = {
-    'う': 'わいうえお', 'く': 'かきくけこ', 'ぐ': 'がぎぐげご', 'す': 'さしすせそ',
-    'つ': 'たちつてと', 'ぬ': 'なにぬねの', 'ぶ': 'ばびぶべぼ', 'む': 'まみむめも',
-    'る': 'らりるれろ',
-}
-_KANA_RANGE = re.compile(r'^[\u3041-\u3096\u30a1-\u30f6]')
-
-
-def conjugation_variants(w):
-    """把词典形展开成常见活用形，用于「这个词是不是已经存在」的判定。
-
-    挖掘（mine.py）是**反向**用途：已知词的变体越多，越不会把
-    「漕い」当成 Plan B 的新词收进来（漕ぐ 已在 core6000 里）。
-    triage 的参照系判定不用这个函数，以免动到它已固化的回归基线。
-    """
-    out = {w}
-    if len(w) < 2 or KANJI.search(w[-1]):
-        return out
-    if w.endswith('する') and len(w) > 2:
-        # サ変動詞（介抱する・愚弄する・確認する）单独处理并直接返回：
-        # 词干是「介抱」而不是「介抱す」，下面那套「尾假名＝词尾」的规则会算出
-        # 「介抱すます／介抱すた」这类废变体，而真正要用的「介抱し／介抱した／
-        # 介抱して」一个都生成不出来 —— mine.py 定位例句时就会判 notfound
-        # （2026-10-12 第 01 集「介抱する」实测：例句是「介抱していただいた」）。
-        b = w[:-2]
-        out.update({b, b + 'し', b + 'した', b + 'して', b + 'しない', b + 'しなかった',
-                    b + 'します', b + 'しました', b + 'しよう', b + 'すれば', b + 'しろ',
-                    b + 'される', b + 'させる', b + 'せず', b + 'したい', b + 'しながら',
-                    b + 'している', b + 'していた', b + 'しておく', b + 'してしまう'})
-        return {v for v in out if len(v) >= 2}
-    stem = w[:-1]
-    if w[-1] == 'る':                      # 一段 / 五段る
-        out.add(stem + 'ます')
-        out.add(stem + 'た')
-        out.add(stem + 'て')
-        out.add(stem + 'ない')
-        out.add(stem + 'なかった')
-        out.add(stem + 'よう')
-        out.add(stem + 'ろ')
-        out.add(stem + 'ず')
-    row = _GODAN.get(w[-1])
-    if row:                                # 五段
-        a, i, u, e, o = row
-        out.add(stem + a + 'ない')
-        out.add(stem + i + 'ます')
-        out.add(stem + i + 'たい')
-        out.add(stem + i + 'た')
-        out.add(stem + i + 'て')
-        out.add(stem + i + 'そう')
-        out.add(stem + e + 'ば')
-        out.add(stem + e + 'る')
-        out.add(stem + o + 'う')
-    if w[-1] == 'い':                      # イ形容词
-        out.add(stem + 'く')
-        out.add(stem + 'かった')
-        out.add(stem + 'さ')
-        out.add(stem + 'ければ')
-    for t in _CONJ_TAILS:                  # 通用尾缀
-        if t:
-            out.add(stem + t)
-    return {v for v in out if len(v) >= 2}
+# 活用展开（conjugation_variants）与惯用句表同批上提到 code/common/jp_text.py：
+# mine.py 定位例句、proper.py 判已知词都要用它，原先只能跨脚本 import pipeline 才拿到。
+conjugation_variants = JT.conjugation_variants
 
 
 def rebuild_known_index(verbose=True):

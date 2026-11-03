@@ -57,17 +57,28 @@ for _p in (os.path.join(_CODE, 'common'), _HERE,
 
 import textio  # noqa: E402  UTF-8 stdio 唯一入口
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
+import audio_names as AN  # noqa: E402  媒体名规则与 [sound:] 解析（issue #5：原先借 mine_audio）
 import batchjob as BJ  # noqa: E402  批处理清单层 + 收尾层（split / 断点续跑 / 并回 / failed.json）
 import check_proper as CP  # noqa: E402  专名条目的唯一规则实现
 import jp_decks as JD  # noqa: E402  牌组路径的唯一来源
+import jp_text as JT  # noqa: E402  纯文本清洗与字符判定（issue #5：原先借 pipeline）
 import llm_out as OUT  # noqa: E402  模型产出吸收层
 import paths as WSP  # noqa: E402  工作区路径的唯一来源
-import pipeline as P  # noqa: E402  复用 CFG / norm / strip_html / fit_groups
-import mine as M  # noqa: E402  复用 slug / next_index / 余差法 / 已知词表
+import pipeline as P  # noqa: E402  只借 fit_groups（按本地模型预算分组，流程件）
+import mine as M  # noqa: E402  只借 next_index / 余差法 / 已知词表（都要查库或建索引）
 import proper_extract as PE  # noqa: E402  原子能力（文字 + 背景 → 专名）
 import ruby_engine as RE  # noqa: E402  确定性振假名引擎
 import srt as SRT  # noqa: E402  字幕解析（NFKC/发话人/音效过滤都在里面）
 from _norm import norm_word, to_hiragana  # noqa: E402  词形归一的唯一实现
+
+# 纯文本层的名字仍从模块级取，调用方不用改；正本在 code/common/jp_text.py。
+norm = JT.norm
+strip_html = JT.strip_html
+trim_functional = JT.trim_functional
+# 媒体名规则：正本在 code/common/audio_names.py（issue #5）。
+sounds_of = AN.sounds_of
+safe_token = AN.safe_token
+media_name = AN.media_name
 
 DECK = JD.DECK_PROPER
 MODEL = 'Japanese Proper Noun'
@@ -373,7 +384,7 @@ def _mined_words():
     out = {}
     for n in AK.notes_info(ids) if ids else []:
         w = n['fields'].get('Word', {}).get('value', '')
-        k = P.norm(w)
+        k = norm(w)
         if k:
             out.setdefault(k, w)
     return out
@@ -399,7 +410,7 @@ def known_hit(word, canonical, variant2c):
     拿它匹配纯假名名字会把 `アンナ`（人名）误判成 `あんな`（那样）——
     2026-10-22 实测踩到。纯假名只认精确命中。
     """
-    key = P.norm(word).strip('〜～')
+    key = norm(word).strip('〜～')
     if not key:
         return None
     hit = canonical.get(key)
@@ -413,10 +424,13 @@ def known_hit(word, canonical, variant2c):
 # ============================================================================
 # scan
 # ============================================================================
-KATA_ONLY = re.compile(r'^[\u30a1-\u30f6\u30fc]+$')
+# 字符判定的正本在 code/common/jp_text.py（issue #5：这里原先手抄了 4 个正则，
+# 其中 KANA 定义了却没被用过）。KANJI 用的是**含 CJK 扩展 A** 的那套口径 ——
+# 与 common/ruby_text.py::KANJI（不含）同名不同义，两处都不许"顺手统一"。
+KATA_ONLY = JT.KATA_ONLY
+KANJI = JT.KANJI
+#: 整个串都是汉字（专名形状之一）。集字符与 KANJI 一致，只是锚成整词匹配。
 KANJI_ONLY = re.compile(r'^[\u4e00-\u9fff\u3400-\u4dbf]+$')
-KANJI = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
-KANA = re.compile(r'[\u3040-\u309f\u30a0-\u30ff]')
 
 #: 敬称/呼びかけの尾 —— `アイちゃん` 要收成 `アイ`（词条不是称呼）
 HONORIFIC = re.compile(r'(ちゃん|さん|くん|君|様|さま|殿|先生|先輩|後輩|氏)$')
@@ -466,9 +480,9 @@ def collect_files(paths):
 def residuals(text, canonical, variant2c, heads):
     """B 路：生词残差（已知词表覆盖之外、形状像名字的片段）。"""
     hints = []
-    raw = P.strip_html(text).replace('\u3000', ' ')
+    raw = strip_html(text).replace('\u3000', ' ')
     for r in M.extract_residuals(raw, heads):
-        rn = P.norm(M.trim_functional(r))
+        rn = norm(trim_functional(r))
         if not name_like(rn):
             continue
         if next((h for h in M.known_lookups(rn, variant2c, canonical) if h), None):
@@ -577,7 +591,7 @@ def cmd_scan(a):
             hit = known_hit(e['word'], canonical, variant2c)
             if hit:
                 why.append('考级/core6000: %s' % hit)
-            mk = P.norm(e['word'])
+            mk = norm(e['word'])
             if mk in mined:
                 why.append('素材生词: %s' % mined[mk])
             if why:
@@ -799,7 +813,7 @@ def gen_request(cfg, LLM, group, feedback=None):
         for item in (obj.get('entries') or []):
             if not isinstance(item, dict):
                 continue
-            w = P.norm(OUT.as_text(item.get('word')))
+            w = norm(OUT.as_text(item.get('word')))
             if w:
                 got[w] = item
     if problems:
@@ -810,9 +824,9 @@ def gen_request(cfg, LLM, group, feedback=None):
 def judge_proper(group, got):
     """把模型结果按候选配回来，跑一次 check_proper；返回 (合格的, {key: 问题})。"""
     ok, bad = {}, {}
-    exact = {P.norm(c['word']) for c in group}
+    exact = {norm(c['word']) for c in group}
     for c in group:
-        key = P.norm(c['word'])
+        key = norm(c['word'])
         item = got.get(key)
         if item is None:
             # 模型把碎片补全成完整专名（大納 → 大納言）：允许找"以候选开头"的更长键
@@ -867,8 +881,8 @@ PLACEHOLDER = '模型未能给出合格判定，留待人工'
 
 
 def _key_of_word(rec):
-    """收尾层的匹配键：词形归一（与 mine 同一口径，走 `P.norm`）。"""
-    return P.norm((rec or {}).get('word') or '')
+    """收尾层的匹配键：词形归一（与 mine 同一口径，走 `norm`（正本在 common/jp_text.py））。"""
+    return norm((rec or {}).get('word') or '')
 
 
 def output_matches_input(m, gd):
@@ -925,7 +939,7 @@ def cmd_gen(a):
                     req += 1
                     print('  ⚠ 批%02d 一组出意外：%s: %s → 这 %d 条按未判定处理'
                           % (m['batch'], type(exc).__name__, exc, len(group)))
-                    ok, problems = {}, {P.norm(c['word']): '%s: %s' % (type(exc).__name__, exc)
+                    ok, problems = {}, {norm(c['word']): '%s: %s' % (type(exc).__name__, exc)
                                         for c in group}
                 done.update(ok)
                 bad.update(problems)
@@ -936,13 +950,13 @@ def cmd_gen(a):
             if not bad or rounds >= a.retries:
                 break
             rounds += 1
-            pending = [c for c in cands if P.norm(c['word']) in bad]
+            pending = [c for c in cands if norm(c['word']) in bad]
             bad = {}
             print('  批%02d 重问第 %d 轮（逐条）：%d 条' % (m['batch'], rounds, len(pending)))
 
         out = []
         for c in cands:
-            key = P.norm(c['word'])
+            key = norm(c['word'])
             out.append(done.get(key) or {
                 'word': c['word'], 'reading': '', 'categories': [], 'meaning': '',
                 'intro': '', 'intro_translation': '', 'a_note': '', 'related': [],
@@ -952,7 +966,7 @@ def cmd_gen(a):
         print('  批%02d 写出 %s：收录 %d / 排除 %d'
               % (m['batch'], m['output'], n_inc, len(out) - n_inc))
         for c in cands:
-            key = P.norm(c['word'])
+            key = norm(c['word'])
             if key in bad:
                 failed.append(dict(c, batch=m['batch'], problems=bad[key]))
     print('判定结束：%d 次请求，prompt %d + completion %d tokens，耗时 %.0fs'
@@ -1024,7 +1038,7 @@ def fix_failed(run, a, cfg, LLM):
                                         feedback='\n'.join(fb) if fb else None)
                 ok, problems = judge_proper(group, got)
             except Exception as exc:
-                ok, problems = {}, {P.norm(c['word']): '%s: %s' % (type(exc).__name__, exc)
+                ok, problems = {}, {norm(c['word']): '%s: %s' % (type(exc).__name__, exc)
                                     for c in group}
             done.update(ok)
             bad.update(problems)
@@ -1033,12 +1047,12 @@ def fix_failed(run, a, cfg, LLM):
         if not bad or rounds >= a.retries:
             break
         rounds += 1
-        pending = [c for c in cands if P.norm(c['word']) in bad]
+        pending = [c for c in cands if norm(c['word']) in bad]
         bad = {}
         print('  重问第 %d 轮：%d 条' % (rounds, len(pending)))
     patch_outputs(run, done)
-    remain = [dict(c, problems=bad.get(P.norm(c['word']), '')) for c in cands
-              if P.norm(c['word']) in bad]
+    remain = [dict(c, problems=bad.get(norm(c['word']), '')) for c in cands
+              if norm(c['word']) in bad]
     save_failed(run, remain)
     print('本轮修好 %d 条，仍剩 %d 条' % (len(done), len(remain)))
 
@@ -1047,7 +1061,7 @@ def _fix_parse_proper(item):
     """一条 fix → (归一化 word, 待校验条目)；不是对象/没有词就返回 None。"""
     if not isinstance(item, dict):
         return None
-    w = P.norm(item.get('word') or '')
+    w = norm(item.get('word') or '')
     if not w:
         return None
     entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
@@ -1236,7 +1250,7 @@ def build_cards(entries, cands, include_known=False):
             if hit:
                 known.append((e['word'], '考级/core6000: %s' % hit))
                 continue
-            mk = P.norm(e['word'])
+            mk = norm(e['word'])
             if mk in mined:
                 known.append((e['word'], '素材生词: %s' % mined[mk]))
                 continue
@@ -1438,7 +1452,6 @@ def cmd_write(a):
 # ============================================================================
 def cmd_audio(a):
     import edge_tts_min as TTS
-    import mine_audio as MA
     q = 'deck:"%s"' % DECK
     if a.tag:
         q += ' tag:"%s"' % a.tag
@@ -1450,7 +1463,7 @@ def cmd_audio(a):
     todo, bad = [], []
     for n in AK.notes_info(ids):
         f = n['fields']
-        if MA.sounds_of(f.get('Word Audio', {}).get('value', '')) and not a.force:
+        if sounds_of(f.get('Word Audio', {}).get('value', '')) and not a.force:
             continue
         w = f.get('Word', {}).get('value', '')
         r = f.get('Reading', {}).get('value', '')
@@ -1468,10 +1481,10 @@ def cmd_audio(a):
 
     rows = []
     for r in todo:
-        name = 'proper-%s-%s.mp3' % (MA.safe_token(r['word']),
+        name = 'proper-%s-%s.mp3' % (safe_token(r['word']),
                                      hashlib.sha1(r['reading'].encode('utf-8'))
                                      .hexdigest()[:8])
-        rows.append(dict(r, name=MA.media_name(name)))
+        rows.append(dict(r, name=media_name(name)))
 
     if not a.commit:
         print()

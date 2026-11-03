@@ -68,7 +68,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'analysis', 'vocab_cover
 import anki_api as AK      # noqa: E402  唯一的 Anki 访问点
 import batchjob as BJ      # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
 import paths as WSP        # noqa: E402  工作区路径的唯一来源
-import pipeline as P       # noqa: E402  复用 CFG / norm / build_variants
+import jp_text as JT        # noqa: E402  纯文本清洗与字符判定（common；issue #5）
+import pipeline as P       # noqa: E402  只借流程件（build_grammar / rebuild_known_index / fit_groups）
 import check_mine as CM    # noqa: E402  生词条目的**唯一**规则实现（子代理自检也用它）
 import llm_out as OUT      # noqa: E402  模型产出吸收层（类型归一 / 原始回复留证）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
@@ -221,7 +222,7 @@ def extract_residuals(raw, heads):
             covered[j] = True
     segs, cur = [], []
     for ch, cov in zip(raw, covered):
-        if P.KANJI.match(ch) or P.KANA.match(ch):
+        if JT.KANJI.match(ch) or JT.KANA.match(ch):
             if cov:
                 if cur:
                     segs.append(''.join(cur))
@@ -269,13 +270,13 @@ def is_vocab_like(rn, strict=True):
     """
     if not rn or rn in STOP:
         return False
-    if not (P.KANJI.search(rn) or P.KANA.search(rn)):
+    if not (JT.KANJI.search(rn) or JT.KANA.search(rn)):
         return False
     if not strict:
         return True
-    if P.KATA_ONLY.match(rn):
+    if JT.KATA_ONLY.match(rn):
         return len(rn) >= 3          # 片假名 2 字极易是外来语碎片
-    if P.KANA_ONLY.match(rn):
+    if JT.KANA_ONLY.match(rn):
         return len(rn) >= 3          # 纯假名 2 字全是助词/语气词
     return len(rn) >= 2              # 含汉字：至少 2 字
 
@@ -332,7 +333,7 @@ def hit_inflection(cand, canonical, variant2c=None):
         if h in canonical:
             return h
     # ① 变体表（只对含汉字的候选，理由见 docstring）
-    if variant2c and P.KANJI.search(cand):
+    if variant2c and JT.KANJI.search(cand):
         v = variant2c.get(cand)
         if v:
             return v
@@ -363,7 +364,7 @@ def is_grammar_fragment(rn, gpat):
 
 def known_lookups(c, variant2c, canonical):
     """返回 (canonical_hit, variant_hit, inflection_hit)。"""
-    key = P.norm(c).strip('〜～')
+    key = JT.norm(c).strip('〜～')
     return (canonical.get(key), variant2c.get(key),
             hit_inflection(key, canonical, variant2c))
 
@@ -379,7 +380,7 @@ def cmd_scan(a):
     # 语法句型的字面形式：只用来**剔除**语法片段，不参与「已存在」判定
     gexcl = sorted(grammar_patterns(), key=len, reverse=True)
 
-    q = 'deck:"%s"' % P.CFG['deck']
+    q = 'deck:"%s"' % JT.EXAMPLE_DECK
     if a.tag:
         q += ' tag:"%s"' % a.tag
     ids = AK.find_notes(q)
@@ -404,10 +405,10 @@ def cmd_scan(a):
         sent_html = n['fields'].get('Sentence HTML', {}).get('value', '') or ''
         if not sent_html.strip():
             sent_html = sent_raw
-        raw = P.strip_html(sent_raw).replace('\u3000', ' ')
+        raw = JT.strip_html(sent_raw).replace('\u3000', ' ')
         if not raw.strip():
             continue
-        dk = P.dupkey(sent_raw)
+        dk = JT.dupkey(sent_raw)
         if dk and dk in seen_notes:        # 同一句话在库里有多张卡，只当一次来源
             dup_sentences += 1
             continue
@@ -415,7 +416,7 @@ def cmd_scan(a):
             seen_notes.add(dk)
         src = (n['fields'].get('Source', {}).get('value', '') or '').split('(')[0].strip()
         for r in extract_residuals(raw, heads):
-            rn = P.norm(trim_functional(r))
+            rn = JT.norm(trim_functional(r))
             if not is_vocab_like(rn):
                 continue
             # 已是已知词的活用形（食べ←食べる、訪ね←訪ねる）→ 不是生词，直接丢。
@@ -423,7 +424,7 @@ def cmd_scan(a):
             # 三个口径合并成「是否已存在」：词典形 / 变体表 / 反向活用。
             hit = next((h for h in known_lookups(rn, variant2c, canonical) if h), None)
             if not hit:
-                rn2 = P.norm(trim_functional(rn))
+                rn2 = JT.norm(trim_functional(rn))
                 if rn2 != rn and is_vocab_like(rn2):
                     rn = rn2
                     hit = next((h for h in known_lookups(rn, variant2c, canonical) if h), None)
@@ -437,7 +438,7 @@ def cmd_scan(a):
             e = by_word.setdefault(rn, {'word': rn, 'raw': r, 'count': 0,
                                         'occurrences': [], 'scripts': set()})
             e['count'] += 1
-            e['scripts'].add('kanji' if P.KANJI.search(rn) else 'kana')
+            e['scripts'].add('kanji' if JT.KANJI.search(rn) else 'kana')
             if len(e['occurrences']) < a.max_examples:
                 e['occurrences'].append({'noteId': nid, 'sentence': sent_raw,
                                          'sentence_html': sent_html, 'source': src})
@@ -457,7 +458,7 @@ def cmd_scan(a):
             w0 = (n['fields'].get('Word', {}).get('value', '') or '').strip()
             if not w0:
                 continue
-            w = P.norm(w0.replace('〜', '').replace('～', ''))
+            w = JT.norm(w0.replace('〜', '').replace('～', ''))
             if not w or w in by_word:
                 continue
             # ★ 人工点名的词不套残差法的长度下限（单字的 `剣` 曾被它丢掉）
@@ -469,7 +470,7 @@ def cmd_scan(a):
             sr = n['fields'].get('Sentence', {}).get('value', '') or ''
             # 词必须在例句里找得到 —— 否则入库时定位不到原句（write 会直接判不合格），
             # 与其让它走到那一步，不如在这里就丢掉（记下清单供人复核）。
-            plain = P.norm(P.strip_html(sr))
+            plain = JT.norm(JT.strip_html(sr))
             if w not in plain and (len(w) < 3 or w[:-1] not in plain):
                 skip_word.append(w0)
                 continue
@@ -481,12 +482,12 @@ def cmd_scan(a):
                                            'sentence_html': sh,
                                            'source': (n['fields'].get('Source', {})
                                                       .get('value', '') or '').split('(')[0].strip()}],
-                          'scripts': {'kanji' if P.KANJI.search(w) else 'kana'},
+                          'scripts': {'kanji' if JT.KANJI.search(w) else 'kana'},
                           'from_word_field': True}
             n_word += 1
 
     # 语法/熟语命中：只是标签，帮助人工与子代理判断
-    ipat = sorted(set(P.IDIOMS), key=len, reverse=True)
+    ipat = sorted(set(JT.IDIOMS), key=len, reverse=True)
     for rn, e in by_word.items():
         tg = []
         if any(p in rn for p in gpat if len(p) >= 2):
@@ -496,14 +497,14 @@ def cmd_scan(a):
         if rn in STOP:
             tg.append('停用')
         e['tags'] = tg
-        e['kana_only'] = bool(P.KANA_ONLY.match(rn) or P.KATA_ONLY.match(rn))
+        e['kana_only'] = bool(JT.KANA_ONLY.match(rn) or JT.KATA_ONLY.match(rn))
         e['len'] = len(rn)
 
     # 排序：出现次数 → 长度 → 片假名降权。用户口径是「都收进来」，
     # 这个顺序只用来决定 --limit 截断时先给谁。
     def score(e):
         s = e['count'] * 10 + e['len']
-        if e['kana_only'] and not P.KANJI.search(e['word']):
+        if e['kana_only'] and not JT.KANJI.search(e['word']):
             s *= KATA_PENALTY
         return s
 
@@ -513,8 +514,8 @@ def cmd_scan(a):
     print('去重后例句 %d 张（跳过多卡重复句 %d 句）' % (len(seen_notes), dup_sentences))
     print('残差候选 %d 个（含汉字 %d / 纯假名 %d）；另丢弃 %d 个已知词活用残片、%d 个语法片段'
           % (len(cands),
-             sum(1 for e in cands if P.KANJI.search(e['word'])),
-             sum(1 for e in cands if not P.KANJI.search(e['word'])), n_infl, n_gram))
+             sum(1 for e in cands if JT.KANJI.search(e['word'])),
+             sum(1 for e in cands if not JT.KANJI.search(e['word'])), n_infl, n_gram))
     print('其中来自例句卡 Word 字段（人工重点词）的补充候选 %d 个%s'
           % (n_word, '' if a.word_field else '（已用 --no-word-field 关掉）'))
     if skip_word:
@@ -686,7 +687,7 @@ def mine_request(cfg, LLM, group, feedback=None):
         for item in (obj.get('entries') or []):
             if not isinstance(item, dict):
                 continue
-            w = P.norm(OUT.as_text(item.get('word')))
+            w = JT.norm(OUT.as_text(item.get('word')))
             if w:
                 got[w] = item
     if problems:
@@ -728,8 +729,8 @@ def origin_possible(residual, cand):
     —— 两者互不为子串 → write 直接判不同源。正确做法是 `word` 原样写 `食わして`，
     把活用链写进 `a_note`。
     """
-    a = P.norm(residual).strip('〜～')
-    b = P.norm(cand).strip('〜～')
+    a = JT.norm(residual).strip('〜～')
+    b = JT.norm(cand).strip('〜～')
     if not a or not b:
         return False
     return a == b or a in b or b in a
@@ -747,9 +748,9 @@ def judge_mine(group, got):
     两条候选会拿到同一条目 → 产出里出现两条同词记录。
     """
     ok, bad = {}, {}
-    exact = {P.norm(c['word']) for c in group}
+    exact = {JT.norm(c['word']) for c in group}
     for c in group:
-        key = P.norm(c['word'])
+        key = JT.norm(c['word'])
         item = got.get(key)
         if item is None:
             longer = sorted((k for k in got if k.startswith(key) and len(k) > len(key)
@@ -811,7 +812,7 @@ def save_failed(entries):
 
 def _key_of_word(rec):
     """收尾层的匹配键：词形归一（正本 `_norm.norm_word`，经 `P.norm`）。"""
-    return P.norm((rec or {}).get('word') or '')
+    return JT.norm((rec or {}).get('word') or '')
 
 
 def patch_outputs(done):
@@ -866,7 +867,7 @@ def fix_failed(a, cfg, LLM):
                 req += 1
                 print('  ⚠ 一组重问出意外：%s: %s → 这 %d 条按未判定处理'
                       % (type(e).__name__, e, len(group)))
-                ok, problems = {}, {P.norm(c['word']): '%s: %s' % (type(e).__name__, e)
+                ok, problems = {}, {JT.norm(c['word']): '%s: %s' % (type(e).__name__, e)
                                     for c in group}
             done.update(ok)
             bad.update(problems)
@@ -877,12 +878,12 @@ def fix_failed(a, cfg, LLM):
         if not bad or rounds >= a.retries:
             break
         rounds += 1
-        pending = [c for c in cands if P.norm(c['word']) in bad]
+        pending = [c for c in cands if JT.norm(c['word']) in bad]
         bad = {}
         print('  重问第 %d 轮（逐条请求）：%d 条' % (rounds, len(pending)))
     patch_outputs(done)
-    remain = [dict(c, problems=bad.get(P.norm(c['word']), '')) for c in cands
-              if P.norm(c['word']) in bad]
+    remain = [dict(c, problems=bad.get(JT.norm(c['word']), '')) for c in cands
+              if JT.norm(c['word']) in bad]
     save_failed(remain)
     print('本轮修好 %d 条，仍剩 %d 条（已更新 failed.json）' % (len(done), len(remain)))
     print('  %d 次请求，prompt %d + completion %d tokens' % (req, tp, tc))
@@ -894,7 +895,7 @@ def _fix_parse_mine(item):
     """一条 fix → (归一化 word, 待校验条目)；不是对象/没有词就返回 None。"""
     if not isinstance(item, dict):
         return None
-    w = P.norm(item.get('word') or '')
+    w = JT.norm(item.get('word') or '')
     if not w:
         return None
     entry = {'word': item.get('word') or '', 'reading': item.get('reading') or '',
@@ -927,7 +928,7 @@ def cmd_merge_fix(a):
         doc = textio.load_json(MINE_FAILED)
 
         def _fixed(w):
-            k = P.norm(w)
+            k = JT.norm(w)
             return k in ok or any(x.startswith(k) and len(x) > len(k) for x in ok)
 
         save_failed([c for c in (doc.get('candidates') or []) if not _fixed(c['word'])])
@@ -996,7 +997,7 @@ def cmd_gen(a):
                     req += 1
                     print('  ⚠ 批%02d 一组判定出意外：%s: %s → 这 %d 条按未判定处理'
                           % (m['batch'], type(e).__name__, e, len(group)))
-                    ok, problems = {}, {P.norm(c['word']): '%s: %s' % (type(e).__name__, e)
+                    ok, problems = {}, {JT.norm(c['word']): '%s: %s' % (type(e).__name__, e)
                                         for c in group}
                 done.update(ok)
                 bad.update(problems)
@@ -1012,13 +1013,13 @@ def cmd_gen(a):
                       % (m['batch'], len(bad)))
                 break
             rounds += 1
-            pending = [c for c in cands if P.norm(c['word']) in bad]
+            pending = [c for c in cands if JT.norm(c['word']) in bad]
             bad = {}
             print('  批%02d 重问第 %d 轮（逐条请求）：%d 条' % (m['batch'], rounds, len(pending)))
 
         out = []
         for c in cands:
-            key = P.norm(c['word'])
+            key = JT.norm(c['word'])
             entry = done.get(key) or {'word': c['word'], 'reading': '', 'pos': '',
                                       'meaning': '', 'translation': '', 'a_note': '',
                                       'include': False,
@@ -1029,7 +1030,7 @@ def cmd_gen(a):
               % (m['batch'], m['output'], n_inc, len(out) - n_inc))
         failed_rows = []
         for c in cands:
-            key = P.norm(c['word'])
+            key = JT.norm(c['word'])
             if key in bad:
                 item = dict(c)
                 item['batch'] = m['batch']
@@ -1094,20 +1095,20 @@ def build_payload():
     #   规范要求输出与输入**同序同量**，所以按下标配对；
     #   并校验"输出词与输入残差同源"（残差是输出词的子串），防止整条跑偏。
     def same_origin(residual, cand):
-        a = P.norm(residual).strip('〜～')
-        b = P.norm(cand).strip('〜～')
+        a = JT.norm(residual).strip('〜～')
+        b = JT.norm(cand).strip('〜～')
         if a == b or a in b or b in a:
             return True
         return hit_inflection(b, canonical, variant2c) is not None and a in b
 
-    exp = {P.norm(e['word']): e for e in expected}
+    exp = {JT.norm(e['word']): e for e in expected}
     bad, known, shallow, notfound, includes = [], [], [], [], []
     noruby = []
     mismatch = []
     seen = set()
     payload = []
     for idx, c in enumerate(merged):
-        key = P.norm(c.get('word') or '')
+        key = JT.norm(c.get('word') or '')
         if key in seen:
             bad.append((c.get('word'), ['输出里重复出现']))
             continue
@@ -1133,13 +1134,13 @@ def build_payload():
             continue
         sentence = ''
         for o in src['occurrences']:
-            if P.norm(c['word']) in P.norm(o['sentence']) or c['word'] in o['sentence']:
+            if JT.norm(c['word']) in JT.norm(o['sentence']) or c['word'] in o['sentence']:
                 sentence = o
                 break
         if not sentence:
             for o in src['occurrences']:
-                for v in P.conjugation_variants(c['word']):
-                    if v in P.norm(o['sentence']):
+                for v in JT.conjugation_variants(c['word']):
+                    if v in JT.norm(o['sentence']):
                         sentence = o
                         break
                 if sentence:
@@ -1149,7 +1150,7 @@ def build_payload():
             # 直接退一步用**词干**定位：词干能与例句对上就算找到了出处。
             stem = c['word'][:-1]
             for o in src['occurrences']:
-                if len(stem) >= 2 and stem in P.norm(o['sentence']):
+                if len(stem) >= 2 and stem in JT.norm(o['sentence']):
                     sentence = o
                     break
         if not sentence:
@@ -1160,7 +1161,7 @@ def build_payload():
         # 例句必须带上振假名：生词卡的 Sentence HTML 直接复用例句卡的 Sentence HTML。
         # 例句含汉字却没有 <ruby> = 复用错了字段（check_cards.py 管不到这个字段，
         # 所以在这里单独把关）。目标卡没有 ruby 时由 cmd_write 回头向来源卡重取。
-        if P.KANJI.search(P.strip_html(sentence['sentence'])) and '<ruby>' not in sentence['sentence_html']:
+        if JT.KANJI.search(JT.strip_html(sentence['sentence'])) and '<ruby>' not in sentence['sentence_html']:
             noruby.append(c['word'])
         includes.append((c, sentence))
         payload.append({'word': c['word'], 'reading': c['reading'], 'pos': c['pos'],
@@ -1246,11 +1247,11 @@ def slug(s):
 
 def existing_words(model=None):
     """库里已有的 Word（用于入闸前的最后一道查重）。"""
-    model = model or P.CFG['mine_model']
+    model = model or JT.MINE_MODEL
     ids = AK.find_notes('note:"%s"' % model)
     out = {}
     for n in AK.notes_info(ids):
-        w = P.norm(n['fields'].get('Word', {}).get('value', ''))
+        w = JT.norm(n['fields'].get('Word', {}).get('value', ''))
         if w:
             out.setdefault(w, int(n['noteId']))
     return out
@@ -1293,7 +1294,7 @@ def next_index(model=None):
     2026-10-12 第 01 集实测：count=6099、最大 Index=6100（= 目标 deck 里已有的「剣」）。
     取 **最大序号 + 1** 一定空闲（不存在比它更大的序号）。
     """
-    model = model or P.CFG['mine_model']
+    model = model or JT.MINE_MODEL
     mx = 0
     for n in AK.notes_info(AK.find_notes('note:"%s"' % model)):
         v = str((n.get('fields', {}).get('Index', {}) or {}).get('value', '') or '').strip()
@@ -1309,8 +1310,8 @@ def cmd_write(a):
     else:
         build_payload()          # 产出有变动（或还没校验过）：在这里一次校验到位
     payload = textio.load_json(path)
-    deck = a.deck or P.CFG['mine_deck']
-    model = P.CFG['mine_model']
+    deck = a.deck or JT.MINE_DECK
+    model = JT.MINE_MODEL
 
     print('目标 deck ：%s' % deck)
     print('笔记模板 ：%s' % model)
@@ -1327,7 +1328,7 @@ def cmd_write(a):
     have = existing_words(model)
     final = []
     for c in keep:
-        w = P.norm(c['word'])
+        w = JT.norm(c['word'])
         if w in have:
             dupe.append((c['word'], have[w]))
         else:
@@ -1361,7 +1362,7 @@ def cmd_write(a):
         if s_raw:
             c['sentence'] = s_raw
         c['sentence_html'] = (s_html or s_raw) or c['sentence_html']
-        if P.KANJI.search(P.strip_html(c['sentence'])) and '<ruby>' not in c['sentence_html']:
+        if JT.KANJI.search(JT.strip_html(c['sentence'])) and '<ruby>' not in c['sentence_html']:
             no_ruby.append(c['word'])
     if no_ruby:
         print()
@@ -1389,7 +1390,7 @@ def cmd_write(a):
     print('Index 序号：%d…%d（模型内最大序号 + 1 起）' % (start, start + len(final) - 1))
     print('JitenAnimeRank：词表命中 %d / %d（其余写 %s）'
           % (ranked, len(final), JITEN_NO_RANK))
-    tag = a.tag or '%s::%s' % (P.CFG['mine_tag_prefix'],
+    tag = a.tag or '%s::%s' % (JT.MINE_TAG_PREFIX,
                                dt.datetime.now().strftime('%Y%m%d'))
     notes = []
     for i, c in enumerate(final):
@@ -1408,7 +1409,7 @@ def cmd_write(a):
                 'Sentence Translation': c['translation'],
             },
             tags=[tag]
-            + ([P.CFG['mine_tag_prefix'] + '::' + slug(c['source'])]
+            + ([JT.MINE_TAG_PREFIX + '::' + slug(c['source'])]
                if slug(c.get('source')) else []),
             allow_duplicate=False, duplicate_scope='collection'))
     print()

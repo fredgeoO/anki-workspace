@@ -129,6 +129,17 @@ def deck_query_tag(deck, tag=None):
     return q + (' tag:%s' % tag if tag else '')
 
 
+def mined_tag_prefix():
+    """素材生词卡的根标签名（issue #5）。
+
+    这个标签原先只写在 `pipeline.CFG['mine_tag_prefix']`，于是**打标签的脚本要 import
+    另一个业务脚本**才能拿到它（immersionkit、mine 都这么借过 CFG）。牌组名和标签名是
+    **库结构**，家在本模块 —— 与上面那串 `DECK_*` 同一层。口径正本现在在这里：
+    根标签 = `素材生词`，每集/每个来源挂在它下面一层（`素材生词::<来源>`）。
+    """
+    return '素材生词'
+
+
 def level_from_tags(tags, loose=True):
     """从笔记标签还原 JLPT 级别；认不出来返回 None。
 

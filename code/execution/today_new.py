@@ -125,6 +125,16 @@ import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import ruby_engine as RE  # noqa: E402  <ruby> 标签的唯一构造器（wrap）
 import ruby_text as RT  # noqa: E402  漢字[かんじ] ↔ <ruby> 的解析（common）
 from htmltext import strip_tags, TAG, BR  # noqa: E402  HTML 去标签（common）
+from audio_names import sounds_of  # noqa: E402  [sound:…] 解析（common）
+from jp_text import as_int  # noqa: E402  纯转换（common/jp_text.py）
+from llm_client import (  # noqa: E402  本地模型客户端（common/llm_client.py）
+    LLMError, LLM_DEFAULT_BASE, LLM_RESPONSES_PATH, LLM_DEFAULT_MODEL,
+    LLM_CONFIG_FILE, LLM_GLOBAL_CONFIG_FILE, LLM_KEY_ENV, LLM_TIMEOUT,
+    LLM_HTTP_RETRIES, LLM_MAX_TOKENS, LLM_TEMPERATURE, LLM_TOP_P,
+    llm_pin_enabled, llm_active_model, llm_window_for, load_llm_config,
+    llm_headers, llm_list_models, split_llm_messages, build_llm_body,
+    llm_chat, usage_row, extract_json,
+)
 from lesson_text import (strip_ruby_readings, normalize_teach, clean_structure,
                          structure_looks_garbled, grammar_structure, render_teach)
 # 机械判定（词形/读音/词性、内容问题、闸门）：实现在 execution/lesson_check.py
@@ -278,21 +288,8 @@ def print_dict_report(rep, limit=8, title='JMdict 核验'):
 # ============================================================================
 # 本地模型（OpenAI 兼容）配置
 # ============================================================================
-LLM_DEFAULT_BASE = 'http://127.0.0.1:8080/v1'
-# OpenAI Responses API 路由（2026-10 从 /chat/completions 切过来）
-LLM_RESPONSES_PATH = '/responses'
-LLM_DEFAULT_MODEL = 'qwen3.8-27b'
-LLM_CONFIG_FILE = os.path.join(WSP.ROOT, '.dsh', 'local-llm.json')
-# 全局（机器级）正本配置；工作区那份若存在则覆盖它
-LLM_GLOBAL_CONFIG_FILE = os.path.join(
-    os.environ.get('DSH_HOME') or os.path.join(os.path.expanduser('~'), '.dsh'),
-    'local-llm.json')
-LLM_KEY_ENV = ['DSH_LOCAL_LLM_API_KEY', 'LOCAL_LLM_API_KEY']
-LLM_TIMEOUT = 1800          # 单次请求上限（秒）；27B Q4 逐张卡通常 10–60s
-LLM_HTTP_RETRIES = 3        # 连接/5xx/429 的重试次数（指数退避）
-LLM_MAX_TOKENS = 4096       # 单次回复上限；超了会被截断，截断算失败并重试
-LLM_TEMPERATURE = 0.3
-LLM_TOP_P = 0.9
+# 端点/模型/key 默认值与本地模型客户端都在 code/common/llm_client.py（issue #5：
+# core6000_example 也要用同一套客户端）。本文件保留模块级名字，调用方不用改。
 
 # ============================================================================
 # 配置区：换收藏结构时改这里
@@ -365,7 +362,6 @@ AnkiError = AK.AnkiError
 # ============================================================================
 # 文本清洗与振假名
 # ============================================================================
-SOUND = re.compile(r'\[sound:([^\]]+)\]')
 # 「多句挤在一个字段里」的两种分隔：连续的 <br>，或段落标签之间
 SENT_PAIR_BR = re.compile(r'(?:\s*<br\s*/?>\s*){2,}', re.I)
 SENT_PAIR_P = re.compile(r'</p>\s*<p[^>]*>', re.I)
@@ -395,16 +391,9 @@ def clean_mean(text, limit=80):
     return text
 
 
-def audio_files(text):
-    """从字段里抽出 [sound:xxx] 的文件名（可能多个）。"""
-    return SOUND.findall(text or '')
+# `[sound:…]` 解析与媒体命名：common/audio_names.py（issue #5）
+audio_files = sounds_of
 
-
-def as_int(value, default=0):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 # ============================================================================
@@ -783,380 +772,6 @@ def collect(opts):
 
 
 # ============================================================================
-# 本地模型客户端（OpenAI Responses API：/v1/responses）
-# ============================================================================
-class LLMError(RuntimeError):
-    pass
-
-
-def llm_pin_enabled(file_cfg, cli_model=None):
-    """这次要不要把 model 对齐到端点**当前在服务**的那个（卡片任务：沿用当时在用的模型）。
-
-    与全局技能 `local_llm.pin_active` 同一套口径：**配置文件里写了 `pin_active` 才算数**
-    （正本 `~/.dsh/local-llm.json` 已写 true → 开；没写就不对齐，保持原行为）
-    + 环境变量 `DSH_LOCAL_LLM_PIN=0` 关掉；显式给了 `--model` / `$env:DSH_LOCAL_LLM_MODEL`
-    也不对齐（那是人在明确指定）。本脚本不 import 技能模块，所以这里复刻判定，
-    **改口径要两边一起改**。
-    """
-    env = os.environ.get('DSH_LOCAL_LLM_PIN')
-    if env is not None and env.strip().lower() in ('0', 'false', 'no', 'off'):
-        return False
-    if cli_model or os.environ.get('DSH_LOCAL_LLM_MODEL'):
-        return False
-    try:
-        return bool(file_cfg.get('pin_active', False))
-    except (TypeError, ValueError):
-        return False
-
-
-def llm_active_model(base_url, api_key='', timeout=20):
-    """端点当前实际在服务的模型 id（只读，不切换）。
-
-    取 llama.cpp 兼容的 `/props` → `model_alias`。**不用 `/v1/models` 的 `loaded` 标记兜底**：
-    路由器上那个标记会滞后（实测 NInfer 在服务时仍把上一个 Strata 档位标成 loaded），
-    拿它改 model 等于把请求发到 A 进程却写着 B 模型（必 400）。拿不到返回 None。
-    """
-    try:
-        req = urllib.request.Request(base_url.rsplit('/v1', 1)[0] + '/props',
-                                     headers=llm_headers({'api_key': api_key}))
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return (json.loads(resp.read().decode('utf-8')) or {}).get('model_alias')
-    except Exception:
-        return None
-
-
-def llm_window_for(base_url, model, api_key='', timeout=20):
-    """某个模型 id 在端点上的窗口（/v1/models 里查；拿不到返回 None）。"""
-    try:
-        cfg = {'base_url': base_url, 'api_key': api_key}
-        for m in (llm_list_models(cfg, timeout) or {}).get('data') or []:
-            if m.get('id') == model:
-                return int(m.get('context_window') or m.get('max_model_len')
-                           or m.get('context_length') or 0) or None
-    except Exception:
-        pass
-    return None
-
-
-def load_llm_config(args):
-    """api key / base_url / model 的来源与优先级，见文件头。
-
-    配置文件读两份：全局 `~/.dsh/local-llm.json`（机器级正本）打底，
-    工作区 `.dsh/local-llm.json` 若存在则覆盖（临时特例才需要）。
-
-    **卡片类任务的口径：沿用端点当时在用的本地模型，不切换**（配置文件里
-    `pin_active: true`，没写这一项就不对齐）。profile 名只是「我以为在用谁」，服务换了它不会自己跟着换；
-    这里发请求前问一次 `/props`，把 model 对齐到事实。显式 `--model` / `_MODEL` 时以显式为准。
-    """
-    file_cfg = {}
-    for path in (LLM_GLOBAL_CONFIG_FILE, LLM_CONFIG_FILE):
-        if not os.path.exists(path):
-            continue
-        try:
-            # utf-8-sig：PowerShell 的 Set-Content -Encoding utf8 会写 BOM
-            with open(path, encoding='utf-8-sig') as fh:
-                file_cfg.update(json.load(fh) or {})
-        except (OSError, json.JSONDecodeError) as e:
-            print('警告：读不出 %s（%s），忽略它。' % (path, e), file=sys.stderr)
-
-    def pick(cli, envs, key, default):
-        if cli:
-            return cli
-        for name in envs:
-            if os.environ.get(name):
-                return os.environ[name]
-        if file_cfg.get(key):
-            return file_cfg[key]
-        return default
-
-    # profile 与全局技能 local-llm.py 对齐：DSH_LOCAL_LLM_PROFILE / 文件里的 "profile"
-    profs = file_cfg.get('profiles')
-    prof_name = (getattr(args, 'profile', None) or os.environ.get('DSH_LOCAL_LLM_PROFILE')
-                 or (file_cfg.get('profile') if isinstance(profs, dict) else ''))
-    if prof_name and isinstance(profs, dict) and isinstance(profs.get(prof_name), dict):
-        file_cfg.update({k: v for k, v in profs[prof_name].items()
-                         if not str(k).startswith('_')})
-
-    declared = pick(getattr(args, 'model', None), ['DSH_LOCAL_LLM_MODEL'],
-                    'model', LLM_DEFAULT_MODEL)
-    cfg = {
-        'base_url': pick(getattr(args, 'base_url', None), ['DSH_LOCAL_LLM_BASE_URL'],
-                         'base_url', LLM_DEFAULT_BASE).rstrip('/'),
-        'model': declared,
-        'api_key': pick(getattr(args, 'api_key', None), LLM_KEY_ENV, 'api_key', ''),
-        'declared_model': declared,
-        'profile': prof_name or '',
-    }
-    if llm_pin_enabled(file_cfg, getattr(args, 'model', None)):
-        alias = llm_active_model(cfg['base_url'], cfg['api_key'])
-        if alias and alias != declared:
-            print('📌 沿用端点当前在用的模型：%s（配置里写的是 %s，profile=%s）——不切换'
-                  % (alias, declared, prof_name or '（顶层默认）'), file=sys.stderr)
-            cfg['model'] = alias
-            window = llm_window_for(cfg['base_url'], alias, cfg['api_key'])
-            if window:
-                # 账本里记下端点实读窗口，避免拿 profile 里的旧窗口做判断
-                cfg['endpoint_ctx'] = window
-        elif not alias:
-            print('提示：没探到端点当前在服务的模型（/props 拿不到），按配置里的 %s 跑。'
-                  % declared, file=sys.stderr)
-    return cfg
-
-
-def llm_headers(cfg):
-    headers = {'Content-Type': 'application/json'}
-    if cfg.get('api_key'):
-        headers['Authorization'] = 'Bearer ' + cfg['api_key']
-    return headers
-
-
-def _http_json(url, payload, headers, timeout):
-    """POST 一个 JSON、拿一个 JSON 回来。"""
-    req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                                 headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
-
-
-def llm_list_models(cfg, timeout=20):
-    req = urllib.request.Request(cfg['base_url'] + '/models', headers=llm_headers(cfg))
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
-
-
-def split_llm_messages(messages):
-    """chat 形状的 messages → (instructions, input)。
-
-    Responses 没有 role=system 的位置：规范折进 `instructions`，其余消息进 `input`。
-    """
-    instructions, items = [], []
-    for msg in messages or []:
-        role = str(msg.get('role') or 'user')
-        content = msg.get('content')
-        if isinstance(content, str):
-            text = content
-        elif isinstance(content, list):
-            text = '\n'.join(str(p.get('text') or '') for p in content if isinstance(p, dict))
-        else:
-            text = '' if content is None else str(content)
-        if role in ('system', 'developer'):
-            if text:
-                instructions.append(text)
-            continue
-        items.append({'role': role, 'content': text})
-    return '\n\n'.join(instructions), items
-
-
-def _responses_finish_reason(data):
-    """Responses 的 status/incomplete_details → chat 风格的 finish_reason。"""
-    status = data.get('status')
-    if status == 'incomplete':
-        reason = (data.get('incomplete_details') or {}).get('reason')
-        return 'length' if reason == 'max_output_tokens' else (reason or 'incomplete')
-    if status == 'failed':
-        err = data.get('error') or {}
-        return 'error:%s' % (err.get('message') or err.get('code') or 'failed')
-    if status == 'completed':
-        return 'stop'
-    return status
-
-
-def _responses_texts(data):
-    """Responses 的 `output[]` → (正文, 思考链)。"""
-    content, reasoning = [], []
-    for item in data.get('output') or []:
-        if not isinstance(item, dict):
-            continue
-        kind = item.get('type')
-        if kind == 'reasoning':
-            for part in item.get('content') or []:
-                if isinstance(part, dict) and part.get('text'):
-                    reasoning.append(str(part['text']))
-            if not reasoning:
-                for part in item.get('summary') or []:
-                    if isinstance(part, dict) and part.get('text'):
-                        reasoning.append(str(part['text']))
-        elif kind == 'message':
-            for part in item.get('content') or []:
-                if isinstance(part, dict) and part.get('text'):
-                    content.append(str(part['text']))
-    return ''.join(content), ''.join(reasoning)
-
-
-def build_llm_body(cfg, messages, json_mode=True, stream=False):
-    """Responses API 的请求体（规范 → instructions，卡数据 → input）。
-
-    ⚠️ NInfer 实测的硬差别（弄错就是 400）：
-      * 输出上限叫 `max_output_tokens`（`max_tokens` 不认）；
-      * **没有结构化输出**：`text.format` 只接受 `{"type":"text"}`，`json_object` 回
-        400 `structured_outputs_not_supported`。所以 `json_mode` 只为签名兼容，
-        JSON 形状靠提示词 + `extract_json` 的解析/重试；
-      * 没有 `messages`：system 折进 `instructions`，其余进 `input`；
-      * 思考开关是 **`reasoning.effort`**（`none` 关），不是 llama.cpp 的
-        `chat_template_kwargs`（NInfer 回 400），也不是顶层 `reasoning_effort`。
-    """
-    instructions, items = split_llm_messages(messages)
-    body = {
-        'model': cfg['model'],
-        'input': items,
-        'temperature': LLM_TEMPERATURE,
-        'top_p': LLM_TOP_P,
-        'max_output_tokens': LLM_MAX_TOKENS,
-        'stream': stream,
-        # 本地推理最省 token 的一刀：关掉思考链（NInfer：effort=none）。
-        'reasoning': {'effort': 'none'},
-    }
-    if instructions:
-        body['instructions'] = instructions
-    return body
-
-
-def llm_chat(cfg, messages, json_mode=True, timeout=None, stream=True, quiet=False, label=''):
-    """直连本地模型，返回 (content, usage, meta)。
-
-    默认走流式：27B Q4 逐张卡就要几十秒，流式能拿到**首字延迟**、并避免
-    长时间没有数据导致的读超时；思考链（`response.reasoning_text.delta`）一并收着
-    （本脚本已把思考关掉，所以通常为空）。
-    """
-    url = cfg['base_url'] + LLM_RESPONSES_PATH
-    timeout = timeout or LLM_TIMEOUT
-    last = ''
-    for attempt in range(1, LLM_HTTP_RETRIES + 1):
-        t0 = time.time()
-        try:
-            if stream:
-                return _llm_stream(cfg, url, messages, json_mode, timeout, quiet, label, t0)
-            data = _http_json(url, build_llm_body(cfg, messages, json_mode, False),
-                              llm_headers(cfg), timeout)
-            if data.get('status') == 'failed' or data.get('error'):
-                err = data.get('error') or {}
-                raise LLMError('端点返回失败：%s'
-                               % (err.get('message') or err.get('code') or data.get('status')))
-            return _pack_response(data, time.time() - t0)
-        except urllib.error.HTTPError as e:
-            body = ''
-            try:
-                body = e.read().decode('utf-8', 'replace')[:400]
-            except Exception:
-                pass
-            if e.code in (400, 401, 403, 404):
-                raise LLMError('端点返回 HTTP %s：%s\n'
-                               '（401/403 → api key 不对；404 → base_url 或模型名不对'
-                               '（本脚本打的是 <base_url>/responses）；'
-                               '400 看 code：context_length_exceeded → 超窗；'
-                               'structured_outputs_not_supported → 不要再发 text.format；'
-                               'chat_template_option_not_supported / unknown_parameter → 思考走 reasoning.effort）'
-                               % (e.code, body))
-            last = 'HTTP %s %s' % (e.code, body)
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
-            last = '%s: %s' % (type(e).__name__, e)
-        except json.JSONDecodeError as e:
-            last = '端点返回的不是合法 JSON：%s' % e
-        if attempt < LLM_HTTP_RETRIES:
-            wait = min(30, 2 ** attempt) + random.random()
-            print('    端点失败（%s），%.1fs 后重试 %d/%d'
-                  % (last, wait, attempt, LLM_HTTP_RETRIES - 1), file=sys.stderr)
-            time.sleep(wait)
-    raise LLMError('端点连续 %d 次失败：%s' % (LLM_HTTP_RETRIES, last))
-
-
-def _pack_response(data, elapsed):
-    """Responses 的 `output[]` → (正文, usage, meta)。思考链单独收，不当答案。"""
-    content, reasoning = _responses_texts(data)
-    usage = data.get('usage') or {}
-    meta = {
-        'elapsed': elapsed,
-        'finish_reason': _responses_finish_reason(data),
-        'reasoning_chars': len(reasoning),
-        'timings': data.get('timings') or {},
-    }
-    return content, usage, meta
-
-
-def _llm_stream(cfg, url, messages, json_mode, timeout, quiet, label, t0):
-    """手写 SSE 解析（标准库就够，不用 openai SDK）。
-
-    Responses 的流是**命名事件**：正文在 `response.output_text.delta`（内容在 `delta` 字段），
-    结束事件是 `response.completed`（usage 在里面），**没有 `[DONE]`**。
-    """
-    payload = build_llm_body(cfg, messages, json_mode, True)
-    req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                                 headers=llm_headers(cfg))
-    content, reasoning, usage, finish = [], [], {}, None
-    t_first = None
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        for raw in resp:
-            line = raw.decode('utf-8', 'replace').strip()
-            if not line or not line.startswith('data:'):
-                continue          # `event:` 行跳过：事件名在 data 的 type 里也有
-            data = line[5:].strip()
-            if data == '[DONE]':
-                break
-            try:
-                obj = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            etype = obj.get('type') or ''
-            if etype == 'response.output_text.delta':
-                piece = obj.get('delta')
-                if piece:
-                    if t_first is None:
-                        t_first = time.time() - t0
-                        if not quiet:
-                            print('    %s首字 %.1fs' % (label, t_first), file=sys.stderr)
-                    content.append(piece)
-            elif etype == 'response.reasoning_text.delta':
-                if obj.get('delta'):
-                    reasoning.append(obj['delta'])
-            elif etype in ('response.completed', 'response.incomplete', 'response.failed'):
-                final = obj.get('response') or {}
-                if final.get('usage'):
-                    usage = final['usage']
-                finish = _responses_finish_reason(final)
-                if not content:                       # 兜底：没有 delta 时从整段取
-                    text, think = _responses_texts(final)
-                    if text:
-                        content.append(text)
-                    if think and not reasoning:
-                        reasoning.append(think)
-            elif etype in ('error', 'response.error'):
-                finish = 'error'
-                print('    %s⚠️ 流里报错：%s' % (label, obj.get('message') or obj), file=sys.stderr)
-    meta = {'elapsed': time.time() - t0, 'finish_reason': finish,
-            'reasoning_chars': sum(len(x) for x in reasoning),
-            'first_token': t_first, 'timings': {}}
-    return ''.join(content), usage, meta
-
-
-def usage_row(usage):
-    """把端点给的 usage 压成统一口径（协议不同字段名不同）。
-
-    Responses 只给 `input_tokens`/`output_tokens`/`total_tokens`：**没有**缓存与思考明细，
-    所以账本里 `cached_tokens` / `reasoning_tokens` 恒为 0（拿不到，不是没发生）。
-    """
-    def first(*values):
-        for v in values:
-            if v is not None:
-                return v
-        return None
-
-    cached = first(((usage.get('prompt_tokens_details') or {}).get('cached_tokens')),
-                   ((usage.get('input_tokens_details') or {}).get('cached_tokens')),
-                   usage.get('cache_read_input_tokens'))
-    reasoning = first(((usage.get('completion_tokens_details') or {}).get('reasoning_tokens')),
-                      ((usage.get('output_tokens_details') or {}).get('reasoning_tokens')),
-                      usage.get('reasoning_tokens'))
-    return {
-        'prompt_tokens': as_int(first(usage.get('prompt_tokens'), usage.get('input_tokens'))),
-        'completion_tokens': as_int(first(usage.get('completion_tokens'),
-                                          usage.get('output_tokens'))),
-        'cached_tokens': as_int(cached),
-        'reasoning_tokens': as_int(reasoning),
-        'total_tokens': as_int(usage.get('total_tokens')),
-    }
-
-
-# ============================================================================
 # 生成的提示词（system = 规范，一次构造、逐请求复用；user = 这张卡的数据）
 # ============================================================================
 def load_system_prompt(path=None):
@@ -1212,37 +827,7 @@ def build_messages(manifest, cards, system_prompt, nudge=None, others=None):
             {'role': 'user', 'content': '\n'.join(note)}]
 
 
-# ============================================================================
-# JSON 抢救
-# ============================================================================
-FENCE = re.compile(r'```(?:json)?\s*(.*?)```', re.S)
-
-
-def extract_json(raw):
-    """从模型输出里抠出一个 JSON 对象。返回 (obj, 说明) 或 (None, 原因)。"""
-    if not raw or not raw.strip():
-        return None, '回复是空的'
-    text = raw.strip()
-    m = FENCE.search(text)
-    if m:
-        text = m.group(1).strip()
-    try:
-        return json.loads(text), ''
-    except json.JSONDecodeError:
-        pass
-    # 去掉可能的前后开场白，取最外层的 { ... }
-    start = text.find('{')
-    end = text.rfind('}')
-    if start >= 0 and end > start:
-        for candidate in (text[start:end + 1],
-                          re.sub(r',\s*([\]}])', r'\1', text[start:end + 1])):
-            try:
-                return json.loads(candidate), '（剥掉了 JSON 之外的内容）'
-            except json.JSONDecodeError:
-                continue
-    return None, '回复里没有合法 JSON（前 200 字：%s）' % text[:200].replace('\n', ' ')
-
-
+# JSON 抢救（extract_json）的实现在 common/llm_client.py（issue #5）
 def pick_entries(obj, cards):
     """从模型输出里取出这一批卡的 teach，返回 (entries, 问题描述)。
 

@@ -7,6 +7,7 @@
 import re
 
 from htmltext import strip_tags
+from ruby_text import strip_ruby_readings  # noqa: F401  正本在 common/ruby_text.py（issue #5）
 
 TEXTY_FIELDS = ('one_line', 'core', 'structure', 'contrast', 'memory', 'pitfall')
 LIST_FIELDS = ('usage', 'uses', 'notes')
@@ -21,16 +22,6 @@ STRUCT_REPLACE = (
     ('Ｖた形', '动词た形'), ('Ｖて形', '动词て形'), ('Ｖない形', '动词ない形'),
     ('Ｖ', '动词'), ('Ｎ', '名词'), ('Ａ', '形容词'),
 )
-
-
-def strip_ruby_readings(text):
-    """去注音：整块删掉 <rt>…</rt>（读法），再剥其余标签，<br> 变真换行。
-
-    不能只 strip_tags：那样会留下读法，把「お<ruby>散歩<rt>さんぽ</rt></ruby>」
-    变成「お散歩さんぽ」。
-    """
-    t = re.sub(r'<rt>.*?</rt>', '', text or '', flags=re.S | re.I)
-    return strip_tags(t)
 
 
 def normalize_teach(teach):
