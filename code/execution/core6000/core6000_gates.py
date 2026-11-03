@@ -30,6 +30,10 @@ from core6000_text2 import (RE_RT, RE_RUBY, RE_WS, SCOPE_MERGE, clean_malformed_
                             flatten, one_line, plain, ruby_covers)  # noqa: F401
 # 闸门 2 的新句长度区间：真值在 core6000_jisho（例句源与这里都要判同一个区间）。
 from core6000_jisho import SENT_MAX, SENT_MIN  # noqa: E402
+# 闸门 1 的目标词形态判定住在 core6000_jisho（拆分前本来就同一命名空间）。
+# 必须**按值** import：巨石在文件后半才 `import core6000_example`，若只走 `_CE()`，
+# gate_gen 运行时巨石还没进 sys.modules，退回本模块又没这个名字 → AttributeError。
+from core6000_jisho import target_forms  # noqa: E402,F401
 
 
 def _CE():
@@ -157,7 +161,7 @@ def gate_gen(card, entry, scopes=None):
     n_chars = RE_WS.sub('', jp)
     if card['n_sent'] == 1:
         # 1 目标词必须出现
-        if not any(f in jp for f in _CE().target_forms(card)):
+        if not any(f in jp for f in target_forms(card)):
             p.append('闸门1：新句里没有目标词「%s」' % card['word'])
         # 2 长度 + 与原句不同
         if not (SENT_MIN <= len(n_chars) <= SENT_MAX):
