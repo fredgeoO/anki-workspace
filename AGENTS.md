@@ -127,7 +127,7 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/common/ruby_engine.py` | 拿原句当骨架**确定性**渲染/修复 `Sentence HTML` |
 | `code/common/ruby_text.py` | `漢字[かんじ]` ↔ `<ruby>` 的解析与纯文本提取；标签构造走 `ruby_engine.wrap` |
 | `code/common/htmltext.py` | 去 HTML 标签 / `<br>` 转换行（`ruby_text` 与讲义共用） |
-| `code/common/jp_text.py` | 日语文本清洗与字符判定：`norm` / `strip_html` / `hira2kata` / `vocab_guard` / `dupkey` / 假名·汉字正则 / 词汇来源常量。**两套汉字口径**：这里的 `KANJI` 含 CJK 扩展 A，`ruby_text.KANJI` 不含 |
+| `code/common/jp_text.py` | 日语文本清洗与字符判定：`norm` / `strip_html` / `hira2kata` / `vocab_guard` / `dupkey` / 假名·汉字正则 / 词汇来源常量 / 「已有词汇」写法变体正本（`vocab_shape_variants`，mine 与 VocabIndex 共用）。**两套汉字口径**：这里的 `KANJI` 含 CJK 扩展 A，`ruby_text.KANJI` 不含 |
 | `code/common/audio_names.py` | `[sound:…]` 解析（`sounds_of`）与媒体文件命名规则（`safe_token` / `media_name`） |
 | `code/common/llm_client.py` | 本地模型客户端（OpenAI Responses API）：`llm_chat` / `load_llm_config` / `usage_row` / `extract_json`。讲义与 core6000 共用 |
 | `code/common/jmdict_check.py` | JMdict 核验：词形/读音/词性对词典（每日讲义纠错；只读词典，不写 Anki） |

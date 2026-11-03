@@ -451,7 +451,8 @@ PS 侧只能这样加载：本 shell 是受限令牌，`.ps1` 文件跑不了（
 这条判据同时用三个口径查（`mine.py known_lookups`）：
 
 1. **词典形**：去装饰后逐字比对
-2. **变体表**：`pipeline.build_variants` 产出的活用词干（`食べる→食べ`）
+2. **变体表**：`jp_text.vocab_shape_variants` 产出的活用词干与假名互转（`食べる→食べ`；
+   `pipeline.build_variants` 只是它的 dict 壳，issue #10 B1 起正本在 jp_text）
 3. **反向活用**：`mine.hit_inflection` 反推 `作ろう→作る`、`読め→読む`、`甘く→甘い`、`信じ→信じる`
 
 第 3 条是踩出来的：只做前两条时，`食べ`·`信じ`·`忘れ`·`溢れ` 这类活用形会被当成"新词"收进来

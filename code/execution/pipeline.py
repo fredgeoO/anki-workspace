@@ -193,19 +193,11 @@ def build_vocab():
 
 
 def build_variants(word_lv):
-    conj_tail = 'るうくすつぬぶむぐい'
-    out = {}
-    for w in word_lv:
-        vs = {w}
-        # 活用词干只对含汉字的词生成：含汉字时碰撞率低（調べる→調べ、珍しい→珍し）；
-        # 纯假名词的 2 字词干极易误命中（かえる→かえ 会命中「おかえりなさい」）
-        if len(w) >= 3 and w[-1] in conj_tail and KANJI.search(w):
-            vs.add(w[:-1])
-        if KANA_ONLY.match(w) or KATA_ONLY.match(w):
-            vs.add(hira2kata(w))
-            vs.add(kata2hira(w))
-        out[w] = [v for v in vs if len(v) >= 2]
-    return out
+    # issue #10 B1：单词体上提到 `jp_text.vocab_shape_variants`（与 VocabIndex 的
+    # 「已有词汇」判定共用同一份写法变体）。这里保留 dict 形态给 triage /
+    # review_shortlist / classify 用，输出与原先逐字相同。
+    # activate.py 那份刻意不同口径（见其注释），不并。
+    return {w: JT.vocab_shape_variants(w) for w in word_lv}
 
 
 # 活用展开（conjugation_variants）与惯用句表同批上提到 code/common/jp_text.py：
@@ -239,8 +231,8 @@ def rebuild_known_index(verbose=True):
             label = lv or sc.get('tag') or ''
             if w not in canonical:
                 canonical[w] = label
-            for v in set(build_variants({w: 1})[w]) | conjugation_variants(w):
-                if len(v) >= 2:
+            for v in JT.vocab_known_keys(w):     # shape ∪ conj，口径正本在 jp_text
+                if len(v) >= 2:                  # 单字键不入库（原口径，防误命中）
                     variant2c.setdefault(v, w)
     return canonical, variant2c
 
