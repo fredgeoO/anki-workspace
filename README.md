@@ -1,3 +1,7 @@
+# anki-workspace
+
+> 状态：active ｜ 最后核实：2026-11-03
+
 <p align="center">
   <img src="docs/images/logo.png" width="220" alt="anki-workspace logo">
 </p>
@@ -8,10 +12,6 @@
   挖生词、标振假名、写讲解、配音、出讲义，一条龙；你只负责看番。🐋<br>
   <sub>39,820 张卡 · 26 个牌组 · 整理卡片不靠意志力</sub>
 </p>
-
-# anki-workspace
-
-> 状态：active ｜ 最后核实：2026-11-03
 
 一个「日语学习 × Anki」自动化工作区：把「看动画 → 做卡 → 复习 → 查漏」串成可重跑的脚本，
 而不是每次手工整理。当前收藏 **39,820 张卡 / 26 个牌组**，所有入口都在 `code/cli.py`。
