@@ -40,7 +40,10 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'common'))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'execution'))
+# execution 系列子夹（issue #12）：pipeline 在顶层，core6000_* / lesson_* 在各自主夹
+_EXEC = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'execution')
+for _p in (_EXEC, os.path.join(_EXEC, 'core6000'), os.path.join(_EXEC, 'lesson')):
+    sys.path.insert(0, _p)
 import paths as WSP      # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import pipeline as P     # noqa: E402  判据的唯一来源

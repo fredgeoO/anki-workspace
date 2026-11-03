@@ -21,7 +21,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CODE = os.path.dirname(_HERE)
-for _p in ('tools', 'common', 'execution'):
+for _p in ('tools', 'common', 'execution', os.path.join('execution', 'core6000')):
     sys.path.insert(0, os.path.join(_CODE, _p))
 import textio  # noqa: E402,F401  UTF-8 stdio 唯一入口（audit R2）
 import sense_repair as SR  # noqa: E402

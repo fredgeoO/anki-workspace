@@ -75,6 +75,7 @@ import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 # ── 组 → 脚本映射（唯一需要维护的地方）──────────────────────────────────
 EXEC = WSP.EXECUTION
+EXEC_C6 = WSP.EXEC_CORE6000       # execution/core6000/（issue #12）
 AN = WSP.ANALYSIS
 VOCAB_DIR = os.path.join(AN, 'vocab_cover')
 
@@ -87,8 +88,8 @@ GROUPS = {
     'mine':      os.path.join(EXEC, 'mine.py'),
     'proper':    os.path.join(EXEC, 'proper.py'),
     'audio':     os.path.join(EXEC, 'mine_audio.py'),
-    'core6000':  os.path.join(EXEC, 'core6000_example.py'),
-    'meaning':   os.path.join(EXEC, 'core6000_meaning.py'),
+    'core6000':  os.path.join(EXEC_C6, 'core6000_example.py'),
+    'meaning':   os.path.join(EXEC_C6, 'core6000_meaning.py'),
     'ainote':    os.path.join(EXEC, 'ainote_enrich.py'),
     'jisho':     os.path.join(WSP.TOOLS, 'jisho_example.py'),
     'immersion': os.path.join(EXEC, 'immersionkit.py'),

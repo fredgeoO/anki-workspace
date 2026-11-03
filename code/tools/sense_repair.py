@@ -47,11 +47,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _CODE = os.path.dirname(_HERE)
 sys.path.insert(0, os.path.join(_CODE, 'common'))
 sys.path.insert(0, _HERE)
-sys.path.insert(0, os.path.join(_CODE, 'execution'))
+import paths as WSP              # noqa: E402  工作区路径（先拿 EXEC_CORE6000，issue #12）
+sys.path.insert(0, WSP.EXEC_CORE6000)   # core6000_meaning / core6000_text
 
 import anki_api as AK            # noqa: E402  Anki 唯一通道
 import jmdict_check as JC        # noqa: E402  词性家族（只读词典，不联网）
-import paths as WSP              # noqa: E402  工作区路径
 import ruby_engine as RE         # noqa: E402  确定性振假名
 import textio                    # noqa: E402  UTF-8 唯一入口
 import writeback as WB           # noqa: E402  写库事务（备份/写/回读）

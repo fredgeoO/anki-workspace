@@ -16,6 +16,7 @@
 """
 import json
 import os
+import random        # 重试退避的抖动（issue #5 上提时漏了：原先蹭的是 today_new 那份 import）
 import re
 import sys
 import time

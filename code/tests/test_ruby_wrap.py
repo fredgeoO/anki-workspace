@@ -14,7 +14,9 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))
-sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'execution'))
+_EXEC = os.path.join(os.path.dirname(_HERE), 'execution')
+for _p in (_EXEC, os.path.join(_EXEC, 'core6000'), os.path.join(_EXEC, 'lesson')):
+    sys.path.insert(0, _p)
 import textio  # noqa: E402  stdio 唯一入口
 import ruby_engine as RE  # noqa: E402
 import ruby_text as RT  # noqa: E402

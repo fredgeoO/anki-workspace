@@ -100,7 +100,7 @@ deck:"0-日本语学习::0-词汇::0-素材生词"       note:"Japanese Vocabula
 - 想换一批词 / 清空今天的词：走 `jp-anki-today-new`（`--clear --commit` / `--revert --commit`），
   然后重跑 `plan`。不要手改讲义或手删 tag。
 
-教学规范本体是 `code\execution\lesson_local_prompt.md`（要改模型的教学口径就改它，**你不用主动读**）。
+教学规范本体是 `code\execution\lesson\lesson_local_prompt.md`（要改模型的教学口径就改它，**你不用主动读**）。
 
 ## 二、跑完必须验收（2026-10-28 按「只讲 tag」更新）
 
@@ -141,7 +141,7 @@ deck:"0-日本语学习::0-词汇::0-素材生词"       note:"Japanese Vocabula
 **词典能证伪的只有「词形-读音-词性」这三样**：释义对不对、多义词取哪条、例句自不自然，
 仍由模型结合卡片自带例句判断（现在有词典义项可依，但规范层面的约束不变）。
 
-**提示词层面（机械只能抓一部分，规范本体是 `code\execution\lesson_local_prompt.md`
+**提示词层面（机械只能抓一部分，规范本体是 `code\execution\lesson\lesson_local_prompt.md`
 的「内容铁律」，别删）**：自指比较（`比「X」更常用` 能机械抓，别种说法抓不到）、
 同音异义混讲（`ひく`＝引く/轢く/惹く、`あう`＝会う/合う/遭う）、搭配不自然
 （`タイミングを見逃す`、`舌先で味をなめる`、`良いチャンスを逃がすな`）、

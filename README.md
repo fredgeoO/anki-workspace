@@ -187,6 +187,7 @@ anki-workspace/
 ├─ README.md                本文件：给使用者的说明书
 ├─ AGENTS.md                ★ Agent 行为契约（边界 / 禁令 / 验证 / 求助）
 ├─ code/                    可复用代码：cli.py（统一入口）+ common / execution / tools / analysis / tests
+│                             （execution 下两个系列各自一个文件夹：core6000/、lesson/）
 ├─ docs/                    手册与档案（implementation / architecture / pipeline-guide / decisions …）
 ├─ data/                    输入与中间产物（snapshots、pipeline、vocab、pylibs、freq、dict）
 ├─ output/                  生成物（daily 讲义、audio）

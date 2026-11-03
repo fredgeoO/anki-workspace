@@ -19,7 +19,7 @@ description: anki-workspace 的**日常学习链路元技能**：本技能已拆
 |---|---|---|---|
 | ① | `jp-anki-daily-lesson` | 每日讲义（tag `今天学习生词` → 讲义；没有 tag 不生成） | `code/execution/today_new.py` |
 | ② | `jp-anki-daily-weak` | 弱项分析（今天/近三天答得不好的词与语法） | `code/analysis/today_weak.py` |
-| ③ | `jp-anki-core6000-example` | 按需补例句（核心6000 词 + 第二条例句 + 配音） | `code/execution/core6000_example.py` |
+| ③ | `jp-anki-core6000-example` | 按需补例句（核心6000 词 + 第二条例句 + 配音） | `code/execution/core6000/core6000_example.py` |
 
 ## 入口映射（未变）
 

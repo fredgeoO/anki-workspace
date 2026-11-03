@@ -23,6 +23,12 @@ import re
 import sys
 import unicodedata
 
+# 系列子目录（issue #12）：单独 import 时自己挂上 code/common 与本系列目录。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from htmltext import strip_tags                    # noqa: F401
 from ruby_text import KANJI                        # noqa: F401
 import core6000_text2                  # JISHO_DIR：巨石 import 后写回它那份（见 jisho_cache_path）

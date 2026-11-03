@@ -37,7 +37,9 @@ import sys
 from itertools import count
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'execution'))
+_EXEC = os.path.join(os.path.dirname(_HERE), 'execution')
+for _p in (_EXEC, os.path.join(_EXEC, 'core6000'), os.path.join(_EXEC, 'lesson')):
+    sys.path.insert(0, _p)
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))
 import textio  # noqa: E402  （stdio/文件一律 UTF-8，见 AGENTS.md §3）
 import paths as WSP  # noqa: E402

@@ -4,7 +4,15 @@
 从 ``execution/today_new.py`` 抽出（2026-11-01 第二批）：这组函数只依赖正则与
 ``htmltext.strip_tags``，放进独立模块后可以脱离 3k 行巨石单独测试/复用。
 """
+import os
 import re
+import sys
+
+# 系列子目录（issue #12）：单独 import 时自己把 code/common 挂上 sys.path。
+_COMMON = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                       os.path.abspath(__file__)))), 'common')
+if _COMMON not in sys.path:
+    sys.path.insert(0, _COMMON)
 
 from htmltext import strip_tags
 from ruby_text import strip_ruby_readings  # noqa: F401  正本在 common/ruby_text.py（issue #5）

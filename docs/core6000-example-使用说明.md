@@ -1,6 +1,6 @@
 # 按需补例句② · 使用说明（`core6000_example.py`）
 
-> 状态：active ｜ 最后核实：2026-10-10
+> 状态：active ｜ 最后核实：2026-11-03
 
 **这是什么**：给用户点名的 core6000 词补「第二条例句」的操作说明（`core6000_example.py`）。
 **为什么存在**：卡上第一条例句记不住时，需要一条换语境的新句 + 振动假名 + 新音频，且只改 5 个字段。
@@ -18,8 +18,8 @@ gen → tts → apply（演练：看前后对照 + 听新音频）→ apply --co
 > 这是正常状态，不要去"补齐"它。不给目标选择器时脚本会直接拒绝跑（要全库必须显式 `--all`，
 > 或用 `--only SCOPE --limit N` 限定规模）。
 
-- 代码：`code/execution/core6000_example.py`
-- 模型侧规范：`code/execution/core6000_example_prompt.md`（要改模型的教学口径就改它）
+- 代码：`code/execution/core6000/core6000_example.py`
+- 模型侧规范：`code/execution/core6000/core6000_example_prompt.md`（要改模型的教学口径就改它）
 - 设计契约：[core6000-example-design.md](core6000-example-design.md)
 - 原始教学口径：[japanese-word-example-teaching.md](japanese-word-example-teaching.md)
 
@@ -30,7 +30,7 @@ gen → tts → apply（演练：看前后对照 + 听新音频）→ apply --co
 ```powershell
 $WS  = "<工作区根>"
 $PY  = "python"
-$CE  = "$WS\code\execution\core6000_example.py"
+$CE  = "$WS\code\execution\core6000\core6000_example.py"
 ```
 
 1. **Anki 必须开着**（AnkiConnect `127.0.0.1:8765`）——`scan` / `gen` / `tts` / `apply` 都要读卡。

@@ -22,7 +22,9 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WS = os.path.dirname(os.path.dirname(_HERE))
-sys.path.insert(0, os.path.join(_WS, 'code', 'execution'))
+_EXEC = os.path.join(_WS, 'code', 'execution')
+for _p in (_EXEC, os.path.join(_EXEC, 'core6000'), os.path.join(_EXEC, 'lesson')):
+    sys.path.insert(0, _p)
 sys.path.insert(0, os.path.join(_WS, 'code', 'common'))
 
 import textio  # noqa: E402,F401  stdio 统一走 textio（audit R2）

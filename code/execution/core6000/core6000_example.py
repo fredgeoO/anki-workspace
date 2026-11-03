@@ -21,14 +21,14 @@ Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回�
 已有振假名也不会被模型重写（能按句切开就用卡里的）。
 
     契约文档（唯一接口契约，改接口先改它）：docs/core6000-example-design.md
-    模型侧规范（另一个文件，本脚本只读）：code/execution/core6000_example_prompt.md
+    模型侧规范（另一个文件，本脚本只读）：code/execution/core6000/core6000_example_prompt.md
     固定流程与坑表：.dsh/skills/jp-anki-daily（第四节 · D 类）
 
 用法：三步固定顺序 gen → tts → apply，每步都带上同一套选择器
 ------------------------------------------------------------
     $PY = "python"
     $WS = "<工作区根>"
-    $CE = "$WS\\code\\execution\\core6000_example.py"
+    $CE = "$WS\\code\\execution\\core6000\\core6000_example.py"
 
     # 新句来自 Jisho（真实语料），模型只写讲解
     & $PY $CE gen   --words "徹夜,適当,残り"      # Jisho 取新句 → 本地模型写 ② → data/core6000/gen/<noteId>_out.json
@@ -126,7 +126,7 @@ Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回�
    也不往库里塞一句没人说过的话。`data/pylibs` 里没有 lxml，`jisho_example` 会自动用
    `code/tools/minihtml.py`（标准库实现的等价解析）。
 
-只用 Python 标准库（+ 复用 code/execution/today_new.py、code/execution/core6000_text.py、
+只用 Python 标准库（+ 复用 code/common/llm_client.py、code/execution/core6000/core6000_text.py、
 code/tools/edge_tts_min.py、code/tools/jisho_example.py、code/common/paths.py、
 code/analysis/today_weak.py）；不 pip install。
 AnkiConnect 必须在 127.0.0.1:8765，本地模型默认 http://127.0.0.1:8080/v1（NInfer；Responses API：/v1/responses）。
@@ -144,13 +144,15 @@ import time
 import unicodedata
 
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CODE = os.path.dirname(_HERE)
-sys.path.insert(0, os.path.join(_CODE, 'common'))    # paths.py
-sys.path.insert(0, os.path.join(_CODE, 'tools'))     # edge_tts_min.py
-sys.path.insert(0, _HERE)                            # today_new.py
+_HERE = os.path.dirname(os.path.abspath(__file__))       # code/execution/core6000
+_CODE = os.path.dirname(os.path.dirname(_HERE))          # code/
+for _p in (_HERE,                                        # core6000_*（本系列，issue #12）
+           os.path.join(_CODE, 'common'),                # paths / anki_api / textio / …
+           os.path.join(_CODE, 'tools')):                # edge_tts_min.py
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 import anki_api as AK         # noqa: E402  唯一的 Anki 访问点
-import paths as WSP           # noqa: E402
+import paths as WSP           # noqa: E402  工作区路径的唯一来源
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import audio_names as AN      # noqa: E402  [sound:…] 解析（common）
 import htmltext as HT         # noqa: E402  HTML 去标签（common）
@@ -1336,7 +1338,7 @@ def load_system_prompt(path=None):
     path = path or PROMPT_FILE
     if not os.path.exists(path):
         raise SystemExit('找不到系统提示词文件：%s\n'
-                         '（默认 code/execution/core6000_example_prompt.md；'
+                         '（默认 code/execution/core6000/core6000_example_prompt.md；'
                          '用 --system-prompt 指别处）' % path)
     with open(path, encoding='utf-8') as fh:
         return fh.read().strip()
