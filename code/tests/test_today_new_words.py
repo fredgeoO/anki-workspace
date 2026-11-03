@@ -18,6 +18,7 @@
 跑法（不碰 Anki、不读 data/）：
   & $PY code\\tests\\test_today_new_words.py
 """
+import json
 import math
 import os
 import sys
@@ -315,6 +316,45 @@ def test_fmt_rank():
     check('有排名原样显示', TN.fmt_rank(120) == '120', TN.fmt_rank(120))
 
 
+def test_picked_rows_and_payload():
+    """--json / picked.json 共用一份结构：面板靠它画表格，字段不能悄悄少掉。"""
+    word = {
+        'word': '銀河', 'reading': 'ぎんが', 'pos': '名词', 'deck': '0-词汇',
+        'level': '素材生词', 'occurrences': 3, 'episodes': 1, 'jiten': 6812,
+        'score': 2.5, 'notes': [11, 12], 'note_cards': {11: [101], 12: [102]},
+        'first': {'episode': 'E01', 'index': 1, 'start': 0.0, 'text': '銀河楼'},
+        'examples': [], 'sense_repaired': True, 'sense': 1, 'card_ok': True,
+        'sense_why': 'ok',
+    }
+    counts = {'mu': 0.3, 'lam': 0.3}
+    rows = TN.picked_rows([word], counts, {'rank_of': {'銀河': 1}},
+                          {'銀河': '高频又贴剧情'})
+    check('picked 行带展示字段', rows[0]['reading'] == 'ぎんが'
+          and rows[0]['rank'] == 1 and rows[0]['why'] == '高频又贴剧情', rows[0])
+    check('noteId 兼容第一张笔记', rows[0]['noteId'] == 11 and rows[0]['notes'] == [11, 12],
+          rows[0])
+    check('score_parts 是三段拆解', len(rows[0]['score_parts']) == 3, rows[0]['score_parts'])
+    check('note_cards 的键是字符串（JSON 安全）',
+          rows[0]['note_cards'] == {'11': [101], '12': [102]}, rows[0]['note_cards'])
+
+    plan = {'old': [1, 2], 'keep': [1], 'remove': [2], 'add': [11, 12]}
+    payload = TN.build_payload('a.srt', [word], [('x', 9, '已学')], plan, 2, counts,
+                               sense_dropped=[{'word': 'y'}],
+                               rank_meta={'rank_of': {'銀河': 1}},
+                               why_of={'銀河': '高频又贴剧情'})
+    check('payload 带 schema/tool', payload['schema'] == 1 and payload['tool'] == 'today-new',
+          payload.get('schema'))
+    check('payload 的 plan 只留计数',
+          payload['plan'] == {'old': 2, 'keep': 1, 'remove': 1, 'add': 2},
+          payload['plan'])
+    check('payload 的 dropped 转成对象',
+          payload['dropped'] == [{'word': 'x', 'noteId': 9, 'reason': '已学'}],
+          payload['dropped'])
+    check('payload 的义项剔除原样保留',
+          payload['dropped_sense'] == [{'word': 'y'}], payload['dropped_sense'])
+    check('payload 可 json.dumps（没有 set）', isinstance(json.dumps(payload), str))
+
+
 def main():
     for fn in (test_tag_name, test_rank_of, test_note_state,
                test_new_note_ids_per_note, test_score_monotonic, test_score_parts,
@@ -323,7 +363,7 @@ def main():
                test_plan_pick_order, test_plan_pick_quota, test_pick_top_tie_stable,
                test_word_quota_notes_more_than_n, test_reading_gate,
                test_pick_with_quota_particles, test_diff_ids,
-               test_fmt_rank):
+               test_fmt_rank, test_picked_rows_and_payload):
         print(fn.__name__)
         fn()
     print()

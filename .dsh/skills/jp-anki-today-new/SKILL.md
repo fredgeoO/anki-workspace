@@ -79,6 +79,19 @@ Get-Content draft.txt -Encoding UTF8 | & $PY $PICK - --commit
 ```
 
 支持 `.srt` / `.vtt` / `.ass` / `.ssa` / `.txt`；`-` 从 stdin 读纯文本。
+
+### 2.4 给面板 / 其它脚本：`--json`
+
+```powershell
+& $PY $PICK "subtitles\Yani Neko" --n 30 --json
+```
+
+stdout 是一份 `schema:1` 的结果 JSON，人读日志全部转到 stderr。结构含
+`ok / exit_code / source / window / params / counts / ranking / formula / plan /
+picked[] / pending[] / dropped[] / dropped_sense[] / sense_repaired[] / write / artifacts`；
+`picked[]` 每行带词形、读音、词性、牌组、级别、JAR、次数、集数、公式分与三项拆解、
+模型理由、noteId、首句与例句。经 `cli.py` 调用时前面会多一行 `→ script`，
+从第一个 `{` 起解析即可（Web 面板的 `extractJson` 已这么做）。
 字幕**只扫同目录、不进子目录**（`anki/` 里的重复字幕不会被数两遍）。
 
 ### 2.3b 不用模型 / 强制重排

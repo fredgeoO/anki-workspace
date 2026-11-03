@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import sys
@@ -94,6 +95,41 @@ def read_inputs(args) -> list:
     return items
 
 
+def summarize(res: dict) -> dict:
+    """面板/脚本用的头条指标（口径与 analyze.render 完全一致）。"""
+    ca = res.get('cover_all') or {}
+    comp = res.get('comprehension') or {}
+    sent = res.get('sentences') or {}
+    reach = (res.get('reach') or {}).get('deck') or {}
+    return {
+        'chars': res.get('chars'),
+        'tokens': res.get('tokens'),
+        'types': res.get('types'),
+        # 主推：含语法词口径（与报告里「★我实际能懂（宽口径）」同一列）
+        'deck': ca.get('deck'),
+        'known': ca.get('known'),
+        'mature': ca.get('mature'),
+        'understood': ca.get('understood_lenient'),
+        'strict': ca.get('understood'),
+        'comprehension': comp.get('by_understood'),
+        'sentence_full': sent.get('full'),
+        'sentence_lenient': sent.get('lenient_l'),
+        'oov_types': len(res.get('oov') or []),
+        'untackled_types': len(res.get('untackled') or []),
+        'deck_total': reach.get('deck_total'),
+        'deck_seen': reach.get('seen'),
+    }
+
+
+def annotate(res: dict) -> dict:
+    """给单份结果补 schema/摘要（旧字段一个不动，向后兼容）。"""
+    res['schema'] = 1
+    res['tool'] = 'vocab-cover'
+    res['generated_at'] = dt.datetime.now().isoformat(timespec='seconds')
+    res['summary'] = summarize(res)
+    return res
+
+
 def main() -> int:
     args = build_argparser().parse_args()
     items = read_inputs(args)
@@ -116,6 +152,9 @@ def main() -> int:
             screens.append((sres, picks, meta))
             res['screen'] = SCR.to_json(sres, picks, meta)
         results.append(res)
+
+    for res in results:
+        annotate(res)
 
     payload = results[0] if len(results) == 1 else results
     if args.out_json:

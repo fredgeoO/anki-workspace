@@ -63,6 +63,11 @@
     $PY code\\tools\\today_new_words.py "字幕.srt" --no-llm-rank
     $PY code\\tools\\today_new_words.py "字幕.srt" --no-rank-cache   # 强制重排
 
+    # 机器可读结果（供 Web 面板 / 其它脚本消费）：
+    #   stdout 是一份 JSON，人读日志全部转到 stderr
+    #   （经 cli.py 时前面会多一行「→ script」，按第一个 { 起解析即可）
+    $PY code\\tools\\today_new_words.py "字幕.srt" --json
+
 产物
 ----
 * ``data/daily_new/<日期>/picked.json`` —— 入选词 / 精排名次 + 模型理由 / 分数拆解 / 笔记 id
@@ -70,11 +75,19 @@
 * ``data/daily_new/state.json`` —— 回退记录（运行前 / 运行后的 noteId 集合）
 * ``data/daily_new/unranked.json`` —— JAR 超范围 / 无排名的待建卡清单（``cli.py unranked`` 看）
 * ``data/daily_new/rank_cache.json`` —— 精排缓存（同一集同一候选集不重复问模型）
+
+``--json`` 的 stdout 结构（schema=1）
+------------------------------------
+``ok / exit_code / source / window / params / counts / ranking / formula / plan /
+picked[] / pending[] / dropped[] / dropped_sense[] / sense_repaired[] / write /
+artifacts``。``picked[]`` 每行带词形、读音、词性、牌组、级别、JAR、次数、集数、
+公式分与三项拆解、模型理由、noteId 列表、首句与例句；面板据此画表格与条形图。
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import math
 import os
 import re
@@ -676,33 +689,14 @@ def _report_md(source, picked, dropped, plan, n, counts, sense_dropped=None,
     return '\n'.join(lines)
 
 
-def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None,
-                  rank_meta=None, why_of=None, sense_repaired=None):
-    today = dt.date.today().isoformat()
-    out_dir = os.path.join(DATA_ROOT, today)
-    os.makedirs(out_dir, exist_ok=True)
-    json_path = os.path.join(out_dir, 'picked.json')
+def picked_rows(picked, counts, rank_meta=None, why_of=None):
+    """入选词 → 机器可读行（picked.json 与 ``--json`` 共用同一份口径）。"""
     why_of = why_of or {}
     rank_of = (rank_meta or {}).get('rank_of') or {}
-    textio.dump_json({
-        'tag': TAG,
-        'source': source,
-        'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
-        'n': n,
-        'counts': counts,
-        'ranking': {
-            'by': counts.get('ranked_by'),
-            'calls': counts.get('rank_calls'),
-            'secs': counts.get('rank_secs'),
-            'cached': counts.get('rank_cached'),
-            'rubric': '动漫对白实用度 > 学习/编卡价值 > 一般通用度',
-            'per_episode': (rank_meta or {}).get('per_episode'),
-        },
-        'formula': {'mu': counts['mu'], 'lam': counts['lam'], 'jar_max': JAR_MAX,
-                    'flip_ratio': flip_ratio(counts['lam'])},
-        'plan': {'old': len(plan['old']), 'keep': len(plan['keep']),
-                 'remove': len(plan['remove']), 'add': len(plan['add'])},
-        'picked': [{
+    rows = []
+    for w in picked:
+        first_nid = int(w['notes'][0])
+        rows.append({
             'word': w['word'], 'reading': w.get('reading') or '',
             'pos': w.get('pos') or '', 'deck': w.get('deck') or '',
             'level': w.get('level') or '',
@@ -719,15 +713,67 @@ def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None,
             'occurrences': int(w['occurrences']), 'episodes': int(w['episodes']),
             'jiten': int(w['jiten']),
             # 兼容旧的「一个词一张卡」消费者：noteId = 第一张笔记
-            'noteId': int(w['notes'][0]), 'cardId': int(w['note_cards'][w['notes'][0]][0]),
+            'noteId': first_nid,
+            'cardId': int(w['note_cards'][first_nid][0]),
             'notes': [int(x) for x in w['notes']],
+            'note_cards': {str(k): [int(c) for c in v]
+                           for k, v in (w.get('note_cards') or {}).items()},
             'first': w.get('first'),
-        } for w in picked],
+            'examples': w.get('examples') or [],
+        })
+    return rows
+
+
+def build_payload(source, picked, dropped, plan, n, counts, sense_dropped=None,
+                  rank_meta=None, why_of=None, sense_repaired=None):
+    """一次选词的完整结果（``picked.json`` 与 ``--json`` 用同一份数据结构）。"""
+    flip = flip_ratio(counts['lam'])
+    return {
+        'schema': 1,
+        'tool': 'today-new',
+        'tag': TAG,
+        'source': source,
+        'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
+        'n': n,
+        'counts': counts,
+        'ranking': {
+            'by': counts.get('ranked_by'),
+            'calls': counts.get('rank_calls'),
+            'secs': counts.get('rank_secs'),
+            'cached': counts.get('rank_cached'),
+            'rubric': '动漫对白实用度 > 学习/编卡价值 > 一般通用度',
+            'per_episode': (rank_meta or {}).get('per_episode'),
+        },
+        'formula': {'mu': counts['mu'], 'lam': counts['lam'], 'jar_max': JAR_MAX,
+                    'flip_ratio': flip if math.isfinite(flip) else None},
+        'plan': {'old': len(plan['old']), 'keep': len(plan['keep']),
+                 'remove': len(plan['remove']), 'add': len(plan['add'])},
+        'picked': picked_rows(picked, counts, rank_meta, why_of),
         'dropped': [{'word': word, 'noteId': nid, 'reason': why}
                     for word, nid, why in dropped],
-        'dropped_sense': sense_dropped,
+        'dropped_sense': sense_dropped or [],
         'sense_repaired': sense_repaired or [],
-    }, json_path)
+    }
+
+
+def _rel(path):
+    """工作区相对路径（面板显示用；跨盘时退回绝对路径）。"""
+    try:
+        return os.path.relpath(path, WSP.ROOT).replace('\\', '/')
+    except ValueError:
+        return path
+
+
+def write_outputs(source, picked, dropped, plan, n, counts, sense_dropped=None,
+                  rank_meta=None, why_of=None, sense_repaired=None):
+    today = dt.date.today().isoformat()
+    out_dir = os.path.join(DATA_ROOT, today)
+    os.makedirs(out_dir, exist_ok=True)
+    json_path = os.path.join(out_dir, 'picked.json')
+    payload = build_payload(source, picked, dropped, plan, n, counts,
+                            sense_dropped, rank_meta=rank_meta, why_of=why_of,
+                            sense_repaired=sense_repaired)
+    textio.dump_json(payload, json_path)
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     textio.write_text(REPORT_PATH, _report_md(source, picked, dropped, plan, n,
                                               counts, sense_dropped, why_of,
@@ -805,9 +851,25 @@ def sense_filter(picked, order, n, index, buffer=15, particles=0, quiet=False,
     return kept, dropped, repaired
 
 
-def do_pick(a):
+def do_pick(a, out=None):
+    """跑一次选词。``out`` 收到与 ``--json`` 相同的机器可读结果（供 main 输出）。"""
+    result = out if out is not None else {}
+    result.setdefault('schema', 1)
+    result.setdefault('tool', 'today-new')
+    result.setdefault('source', a.input)
+    result.setdefault('generated_at',
+                      dt.datetime.now().isoformat(timespec='seconds'))
+    result.setdefault('commit', bool(a.commit))
+    result.setdefault('dry_run', not bool(a.commit))
     index = SW.VocabIndex.load(scopes=SCOPES)
     sources = episode_sources(a.input, season=a.season)
+    result['window'] = {'episodes': len(sources), 'season': bool(a.season),
+                        'labels': [label for label, _ in sources]}
+    result['params'] = {
+        'n': a.n, 'particles': a.particles, 'mu': a.mu, 'lam': a.lam,
+        'llm_rank': bool(a.llm_rank), 'sense_check': bool(a.sense_check),
+        'sense_repair': bool(a.sense_repair), 'season': bool(a.season),
+    }
     stats = collect_stats(sources, index, include_names=a.include_names,
                           extra_pos=PARTICLE_POS if a.particles > 0 else ())
     items, skipped = build_candidates(stats, index, mu=a.mu, lam=a.lam,
@@ -888,6 +950,14 @@ def do_pick(a):
                             and w['word'] not in {d['word'] for d in sense_dropped}),
                            None),
     }
+    result['counts'] = counts
+    result['skipped'] = {
+        'no_rank': counts['skipped_no_rank'],
+        'no_notes': counts['skipped_notes'],
+        'reading': counts['skipped_reading'],
+        'phrases': counts['skipped_phrases'],
+        'unranked': 0,
+    }
 
     print('来源：%s' % a.input)
     if len(sources) > 1:
@@ -920,6 +990,8 @@ def do_pick(a):
         print('')
         print('没有可选的词：本次不改库，旧的「%s」原样保留。' % TAG)
         print('（若确实要清空，显式加 --clear --commit。）')
+        result.update({'ok': False, 'exit_code': 2,
+                       'error': '没有可选的词：本次不改库，旧标签原样保留。'})
         return 2
 
     picked, dropped = live_check(picked)
@@ -933,14 +1005,43 @@ def do_pick(a):
     if not picked:
         print('')
         print('现场复核后没有可用的词：本次不改库。')
+        result.update({
+            'ok': False, 'exit_code': 2,
+            'error': '现场复核后没有可用的词：本次不改库。',
+            'dropped': [{'word': word, 'noteId': nid, 'reason': why}
+                        for word, nid, why in dropped],
+        })
         return 2
 
     counts['notes'] = sum(len(w['notes']) for w in picked)
+    counts['picked'] = len(picked)
     for w in picked:
         describe(w, index)
 
     notes = [nid for w in picked for nid in w['notes']]
     plan = diff_ids(tagged_note_ids(), notes)
+
+    # 机器可读结果：与 picked.json 同源，额外带上窗口 / 参数 / 待建卡 / 写入状态。
+    result.update(build_payload(a.input, picked, dropped, plan, a.n, counts,
+                                sense_dropped, rank_meta=rank_meta,
+                                why_of=why_of, sense_repaired=sense_repaired))
+    result['pending'] = [{
+        'word': w['word'],
+        'reading': w.get('reading') or SW.word_reading(w['word']),
+        'pos': w.get('pos') or '',
+        'jiten': int(w['jiten']),
+        'occurrences': int(w['occurrences']),
+        'episodes': int(w['episodes']),
+        'score': round(float(w.get('score') or 0), 4),
+        'first': w.get('first'),
+    } for w in pending]
+    result['window'] = {'episodes': len(sources), 'season': bool(a.season),
+                        'labels': [label for label, _ in sources]}
+    result['params'] = {
+        'n': a.n, 'particles': a.particles, 'mu': a.mu, 'lam': a.lam,
+        'llm_rank': bool(a.llm_rank), 'sense_check': bool(a.sense_check),
+        'sense_repair': bool(a.sense_repair), 'season': bool(a.season),
+    }
 
     print_picked(picked, why_of, (rank_meta or {}).get('rank_of'))
     if pending:
@@ -968,6 +1069,7 @@ def do_pick(a):
     # ---- 无 JAR 排名：登记待办（演练只报数，不落盘） ----
     no_rank_items = [it for it in (skipped.get('no_rank_items') or []) if it.get('word')]
     counts['unranked'] = len(no_rank_items)
+    result['skipped']['unranked'] = len(no_rank_items)
     if no_rank_items:
         for it in no_rank_items:
             if not it.get('reading'):
@@ -988,6 +1090,12 @@ def do_pick(a):
     print('')
     print('模式：%s' % ('★ 真写库' if a.commit else '演练（不写库，加 --commit 才写）'))
     if not a.commit:
+        result.update({
+            'ok': True, 'exit_code': 0, 'commit': False, 'dry_run': True,
+            'write': {'committed': False, 'verified': None, 'removed': 0,
+                      'added': 0, 'tagged': 0},
+            'artifacts': None,
+        })
         print('演练结束，未写库。')
         return 0
 
@@ -1035,6 +1143,15 @@ def do_pick(a):
     print('')
     print('Anki 浏览器搜索：tag:"%s"' % TAG)
     print('回退：python code\\tools\\today_new_words.py --revert --commit')
+    result.update({
+        'ok': bool(ok), 'exit_code': 0 if ok else 1, 'commit': True,
+        'dry_run': False,
+        'write': {'committed': True, 'verified': bool(ok),
+                  'removed': len(plan['remove']), 'added': len(plan['add']),
+                  'tagged': len(after)},
+        'artifacts': {'picked_json': _rel(json_path),
+                      'report_md': _rel(report_path)},
+    })
     return 0 if ok else 1
 
 
@@ -1128,6 +1245,8 @@ def main(argv=None):
                     help='保留人名/专有名词（默认过滤）')
     ap.add_argument('--clear', action='store_true', help='清空「%s」标签' % TAG)
     ap.add_argument('--revert', action='store_true', help='恢复到上一次运行前的标签集合')
+    ap.add_argument('--json', action='store_true',
+                    help='stdout 输出机器可读 JSON（人读日志转到 stderr）')
     ap.add_argument('--commit', action='store_true', help='真写库（不加则只演练）')
     a = ap.parse_args(argv)
 
@@ -1140,6 +1259,29 @@ def main(argv=None):
             ap.error('--n 必须大于 0')
 
     with AK.guard():
+        if a.json:
+            out = {}
+            mode = 'clear' if a.clear else ('revert' if a.revert else 'pick')
+            real_stdout = sys.stdout
+            sys.stdout = sys.stderr          # 人读日志/子脚本输出不污染 JSON
+            try:
+                if a.clear:
+                    code = do_clear(a)
+                elif a.revert:
+                    code = do_revert(a)
+                else:
+                    code = do_pick(a, out)
+            finally:
+                sys.stdout = real_stdout
+            if mode != 'pick':
+                out = {'schema': 1, 'tool': 'today-new', 'mode': mode,
+                       'ok': code == 0, 'exit_code': code, 'source': a.input}
+            out.setdefault('mode', mode)
+            out.setdefault('ok', code == 0)
+            out.setdefault('exit_code', code)
+            sys.stdout.flush()
+            print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+            return code
         if a.clear:
             return do_clear(a)
         if a.revert:
