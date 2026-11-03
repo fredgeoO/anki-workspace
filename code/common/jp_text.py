@@ -305,6 +305,42 @@ def conjugation_variants(w):
     return {v for v in out if len(v) >= 2}
 
 
+#: 活用词干的合法结尾（含汉字词的「连用形截断」边界：調べる→調べ）。
+_CONJ_STEM_TAIL = 'るうくすつぬぶむぐい'
+
+
+def vocab_shape_variants(w):
+    """词典形的**写法**变体：活用词干 + 平假名↔片假名。
+
+    与 :func:`conjugation_variants`（展开具体活用形）互补：这里只产「同一个词的
+    另一种写法」，不产时态/敬体形态。判定口径正本在
+    ``pipeline.rebuild_known_index``（原 ``build_variants`` 的单词体，issue #10 B1
+    上提到这里），词汇索引类脚本（VocabIndex）与挖掘判据共用同一份写法变体，
+    「这个词是不是已有」才不会再出现两边数字对不上的情况。
+
+    词干只对**含汉字**的词生成：纯假名 2 字词干极易误命中
+    （かえる→かえ 会命中「おかえりなさい」）。
+    """
+    vs = {w}
+    if len(w) >= 3 and w[-1] in _CONJ_STEM_TAIL and KANJI.search(w):
+        vs.add(w[:-1])
+    if KANA_ONLY.match(w) or KATA_ONLY.match(w):
+        vs.add(hira2kata(w))
+        vs.add(kata2hira(w))
+    return [v for v in vs if len(v) >= 2]
+
+
+def vocab_known_keys(w):
+    """一个词典形在「已有词汇」判定里能匹配上的**全部写法**。
+
+    = 写法变体（:func:`vocab_shape_variants`）∪ 活用展开
+    （:func:`conjugation_variants`）。这是 ``rebuild_known_index`` 的
+    ``variant2canonical`` 每词那一半；索引侧（VocabIndex）与挖掘侧（mine /
+    immersionkit）都从这里取，口径只有一份。
+    """
+    return sorted(set(vocab_shape_variants(w)) | conjugation_variants(w))
+
+
 # ============================================================================
 # 自检：python code\common\jp_text.py
 # ============================================================================
@@ -345,6 +381,16 @@ def _selfcheck():
        '%d vs %d' % (len(VOCAB_DECKS), len(JD.KAOKYU_UNITS)))
     ck('已知词汇参照系 = 考级 + core6000',
        [s['deck'] for s in KNOWN_VOCAB_SCOPES] == [JD.DECK_KAOKYU, JD.DECK_CORE6000], '')
+    # issue #10 B1：写法变体与索引/mine 共用的判定口径
+    ck('vocab_shape_variants 含汉字词给词干', sorted(vocab_shape_variants('調べる')) == ['調べ', '調べる'],
+       repr(sorted(vocab_shape_variants('調べる'))))
+    ck('vocab_shape_variants 纯假名只给假名互转（不给词干）',
+       sorted(vocab_shape_variants('かえる')) == sorted(['かえる', 'カエル']),
+       repr(sorted(vocab_shape_variants('かえる'))))
+    ck('vocab_known_keys ⊇ shape ∪ conj',
+       set(vocab_shape_variants('調べる')) <= set(vocab_known_keys('調べる'))
+       and '調べて' in vocab_known_keys('調べる')
+       and '介抱して' in vocab_known_keys('介抱する'), '')
     return bad
 
 

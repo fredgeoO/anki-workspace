@@ -1,6 +1,6 @@
 # 实现与内部机制（implementation）
 
-> 状态：active ｜ 最后核实：2026-11-02
+> 状态：active ｜ 最后核实：2026-11-03
 
 **这是什么**：从根 [README](../README.md) 迁出的实现细节——数据流、流水线各阶段、选词打分、
 覆盖率口径、测试矩阵、仓库边界。README 只留使用者要的「怎么用」，想知道「它到底怎么算、产物落在哪、
@@ -90,6 +90,13 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 **JAR > 30000 不再是门槛**（2026-11-01 去掉）：有排名就进候选，重要性交给模型精排；
 公式里的频率项对 ≥30000 一律记 0 分（夹在 1–30000），不会爆分也不会算出负数。
 
+**「这个词库里有没有」的写法口径**（issue #10 B1，2026-11-03）：`today-new` /
+`subtitle-tag` 用的 `VocabIndex` 与 mine 的收录判据共用 `jp_text.vocab_shape_variants`
+——含汉字词的活用词干（`調べる→調べ`）与平假名↔片假名互转（卡上 `せりふ` 现在认得字幕里的
+`セリフ`）。完整活用展开仍只给 mine（它拿原始文本做最长匹配；这条链先过 Sudachi，
+表面形已折成词典形），两边不再各说各话。实测 ARIA 第 1 集：可标记词 57 → 59（多出
+`せりふ`、`かっと` 这类此前认不出的写法）。
+
 **只写 `tags`**，不碰 `due/ivl/factor/type/queue`；每次运行先把全库旧标签摘掉，所以这个标签
 永远只代表「今天这一批」。产物：`output/daily/today_new_words.md`（名单 + 模型理由）、
 `data/daily_new/<日期>/picked.json`（模型名次 / 理由 / 分数拆解 / noteId）、
@@ -151,6 +158,7 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
 | `test_writeback.py` | 写库事务：演练不写、提交备份、回读失败上报、分块/quiet、调度接口不出现 |
 | `test_batchjob.py` | 批处理清单：分批/manifest、同源跳过、`--force`、failed 形状与清理 |
+| `test_pipeline_write.py` | `pipeline.py write` 的写库路径：每一张都被回读（不是抽查 3 张）、回读不一致非零退出、AnkiConnect 回 error 记进 bad、空产出不送去写、已有内容默认拒绝覆盖（2026-11-03 issue #10：write 收进 `writeback.write_fields`） |
 | `test_batchjob_patch.py` | 收尾层三份实现（mine/pipeline/proper）的共同契约：批号相同但输入已换必须判不同源、missing 告警点名、并回落盘逐字节（dump_json / dump_crlf）、merge-fix 的解析→校验→并回（2026-11-02 issue #3 收敛前的漂移钉死） |
 | `test_episode_retag.py` | 编排 retag：走 `write_tags` 双向回读、演练不写 |
 | `test_episode_scripts.py` | 编排脚本表存在性 + `rank` 进程内调用 |
@@ -160,7 +168,7 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_import_guard.py` | execution 跨脚本借用的白名单（issue #5）：白名单外新增即失败；汉字/假名正则不许再造第二份 |
 
 跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。动过 `common/` 或
-`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 25 个），与本环境无关的
+`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 26 个），与本环境无关的
 都应 0 才算完；缺依赖的那几个（`sudachipy` / `requests` / `jmdictpy` / 全局技能 local-llm）
 按各自的 ImportError 判定，不算回归。只改文档不用跑。
 

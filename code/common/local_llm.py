@@ -3,7 +3,7 @@
 
 2026-10-25 收口：`~/.dsh/skills/local-llm/scripts/local_llm.py` 是唯一实现，
 本文件只负责把它加载进来，让 `import local_llm` 的老调用方（cards / pipeline /
-local_filter / mine / immersionkit…）一行都不用改。
+mine / immersionkit…）一行都不用改。
 
 * **不要在这里加逻辑**。改行为去改技能里那份，本文件保持「零实现」。
 * 端点/模型/窗口配置走技能的查找链：`<workspace>/.dsh/local-llm.json`（若存在）

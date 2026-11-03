@@ -1,52 +1,41 @@
 """Analyze Anki revlog: per-deck review volume and real time-per-card.
 
 Reads a *copy* of collection.anki2 (+ WAL/SHM) so the live collection is untouched.
+取数走 `AK.Snapshot.open(live_copy=True)`（issue #10 B3：不再自己 sqlite3.connect，
+副本统一放 `data/snapshots/live-*`，跑完即删）。
 
 ⚠ 考级词汇已扁平化：原先 11 个按级别/频段切分的子 deck 合并成「2-考级词汇」一层，
   级别与频段改由 eggrolls 笔记标签区分（见 code/common/jp_decks.py）。所以本脚本
   的分区判定从「只看 deck 名」改成「deck 名 + 笔记标签」，扁平化前后的快照都能跑。
 """
-import json
-import shutil
-import sqlite3
 import sys
-import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
+import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里只用离线 Snapshot）
 import jp_decks as JD  # noqa: E402
-import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-SRC = Path(WSP.ANKI_PROFILE)
-TMP = Path(WSP.SNAPSHOTS) / "ankisnap"
-TMP.mkdir(exist_ok=True)
+with AK.guard():
+    snap = AK.Snapshot.open(live_copy=True)   # live 收藏的只读副本，close 时删
 
-for suffix in ("", "-wal", "-shm"):
-    s = Path(str(SRC / "collection.anki2") + suffix)
-    if s.exists():
-        shutil.copy2(s, Path(str(TMP / "c.anki2") + suffix))
+    decks = snap.decks()   # {deckId: 'A::B'}（\x1f 已换成 ::）
+    models = {r["id"]: r["name"] for r in snap.con.execute("select id, name from notetypes")}
 
-db = sqlite3.connect(str(TMP / "c.anki2"))
-db.row_factory = sqlite3.Row
+    # 考级词汇的分支：笔记 id -> 分支名。全在同一个 deck 里，只能靠 eggrolls 标签分。
+    KAOKYU_NOTE_BRANCH = {}
+    for r in snap.con.execute("select id, tags from notes"):
+        tags = (r["tags"] or "").split()
+        lv = JD.level_from_tags(tags)
+        if not lv:
+            continue
+        band = JD.band_from_tags(tags)
+        KAOKYU_NOTE_BRANCH[r["id"]] = "考级词汇-%s" % (
+            band if band else lv)          # N5 / N4；高频 / 中频 / 低频
 
-db.create_collation("unicase", lambda a, b: (a > b) - (a < b))
-decks = {r["id"]: r["name"].replace("\x1f", "::")
-         for r in db.execute("select id, name from decks")}
-models = {r["id"]: r["name"] for r in db.execute("select id, name from notetypes")}
-
-# 考级词汇的分支：笔记 id -> 分支名。全在同一个 deck 里，只能靠 eggrolls 标签分。
-KAOKYU_NOTE_BRANCH = {}
-for r in db.execute("select id, tags from notes"):
-    tags = (r["tags"] or "").split()
-    lv = JD.level_from_tags(tags)
-    if not lv:
-        continue
-    band = JD.band_from_tags(tags)
-    KAOKYU_NOTE_BRANCH[r["id"]] = "考级词汇-%s" % (
-        band if band else lv)          # N5 / N4；高频 / 中频 / 低频
+    db = snap.con   # 下面 A–G 各节的聚合 SQL 原样跑在这份只读副本上
 
 # 输出顺序（也是分区名的白名单）
 BRANCHES = [
@@ -221,4 +210,4 @@ for label in BRANCHES:
           f"平均 {sum(v)/len(v):>6.1f} 天")
 
 print()
-print(f"snapshot dir: {TMP}")
+snap.close()   # live-* 副本随关随删（data/snapshots/ 不留垃圾）

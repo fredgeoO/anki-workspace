@@ -1,41 +1,48 @@
 # -*- coding: utf-8 -*-
-"""近两天（昨天0点起）复习中答错/困难的卡片，输出单词 + 简单解释。"""
-import os, sqlite3, json, re, html, sys, datetime as dt
+"""近两天（昨天0点起）复习中答错/困难的卡片，输出单词 + 简单解释。
+
+取数走 `AK.Snapshot`（issue #10 B3：不再自己 sqlite3.connect）。窗口 = 昨天 0 点起
+（`reviewed_rows(days=2)`），与 today_weak 的「近 N 天」口径一致。默认读离线快照
+`data/snapshots/_anki_snap/collection.anki2`，位置参数可换别的快照路径（沿用旧契约）。
+"""
+import os, json, re, html, sys, datetime as dt
 from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
+import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里只用离线 Snapshot）
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-DB = sys.argv[1] if len(sys.argv) > 1 else WSP.SNAP_ANKI_SNAP
-con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-con.create_collation("unicase", lambda a, b: (a > b) - (a < b))
-con.row_factory = sqlite3.Row
-cur = con.cursor()
+DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → Snapshot.open 的默认快照
 
 now = dt.datetime.now()
 start = now.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=1)
-t0 = int(start.timestamp() * 1000)
 
-# ---- model metadata: mid -> (name, [field names in order]) ----
-mid2model = {}
-for ntid, name in list(cur.execute("SELECT id, name FROM notetypes")):
-    sub = con.cursor()
-    cols = {r[0]: r[1] for r in sub.execute(
-        "SELECT ord, name FROM fields WHERE ntid = ?", (ntid,))}
-    mid2model[int(ntid)] = (name, [cols[i] for i in sorted(cols)])
+with AK.guard():
+    snap = AK.Snapshot.open(path=DB)   # DB=None → 默认离线快照
 
-rows = cur.execute(
-    """
-    SELECT r.id AS rid, r.cid, r.ease, r.type, r.ivl, r.lastIvl,
-           c.nid, c.did, n.mid, n.flds, d.name AS deck
-    FROM revlog r
-    JOIN cards c  ON c.id = r.cid
-    JOIN notes n  ON n.id = c.nid
-    JOIN decks d  ON d.id = c.did
-    WHERE r.id >= ? AND r.ease IN (1,2)
-    """, (t0,)
-).fetchall()
+    try:
+        rows = snap.reviewed_rows(days=2, ease=(1, 2))   # 昨天0点起，重来+困难
+
+        agg = defaultdict(lambda: {"again": 0, "hard": 0, "nid": 0, "mid": 0,
+                                   "deck": "", "last": 0})
+        for r in rows:
+            a = agg[r["cid"]]
+            a["again" if r["ease"] == 1 else "hard"] += 1
+            a["nid"] = r["nid"]; a["mid"] = r["mid"]; a["deck"] = r["deck"]
+            a["last"] = max(a["last"], r["rid"])
+
+        # ⚠ ids=[] 时 cards()/notes() 是「不加 WHERE」= 全表扫，必须先挡住空窗口
+        cids = list(agg.keys())
+        state = {c["cardId"]: c for c in snap.cards(ids=cids)} if cids else {}
+
+        nids = sorted({a["nid"] for a in agg.values()})
+        notes = {}   # noteId -> (模型名, {字段名: 值（按 ord 序）})
+        for ch in AK.chunks(nids, 500):
+            for n in snap.notes(ids=ch):
+                notes[n["noteId"]] = (n["modelName"], n["fields"])
+    finally:
+        snap.close()
 
 print(f"窗口: {start:%Y-%m-%d %H:%M} → {now:%Y-%m-%d %H:%M}")
 print(f"重来/困难 作答记录数 = {len(rows)}")
@@ -52,42 +59,18 @@ def clean(s):
     s = re.sub(r"[\x00-\x08\x0b-\x1f]", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
-agg = defaultdict(lambda: {"again": 0, "hard": 0, "nid": 0, "mid": 0,
-                           "deck": "", "last": 0})
-for r in rows:
-    a = agg[r["cid"]]
-    a["again" if r["ease"] == 1 else "hard"] += 1
-    a["nid"] = r["nid"]; a["mid"] = r["mid"]; a["deck"] = r["deck"]
-    a["last"] = max(a["last"], r["rid"])
-
-cids = list(agg.keys())
-q = ",".join("?" * len(cids))
-state = {r["id"]: dict(r) for r in cur.execute(
-    f"SELECT id, type, queue, due, ivl, reps, lapses FROM cards WHERE id IN ({q})", cids)}
-
-nids = sorted({a["nid"] for a in agg.values()})
-notes = {}
-for i in range(0, len(nids), 500):
-    ch = nids[i:i + 500]
-    qq = ",".join("?" * len(ch))
-    for nr in cur.execute(f"SELECT id, flds FROM notes WHERE id IN ({qq})", ch):
-        notes[nr["id"]] = nr["flds"]
-
-def extract(mid, flds_raw):
-    name, order = mid2model.get(mid, ("?", []))
-    vals = (flds_raw or "").split("\x1f")
-    d = {order[i]: vals[i] for i in range(min(len(order), len(vals)))}
-    if name == "Japanese Vocabulary":
-        return (name, clean(d.get("Word", "")) or clean(d.get("Index", "")),
+def extract(model_name, d):
+    if model_name == "Japanese Vocabulary":
+        return (model_name, clean(d.get("Word", "")) or clean(d.get("Index", "")),
                 clean(d.get("Transliteration", "")), clean(d.get("Meaning", "")),
                 clean(d.get("Part of Speech", "")))
-    if name == "eggrolls-JLPT10k-v3.5":
-        return (name, clean(d.get("VocabKanji", "")) or clean(d.get("VocabFurigana", "")),
+    if model_name == "eggrolls-JLPT10k-v3.5":
+        return (model_name, clean(d.get("VocabKanji", "")) or clean(d.get("VocabFurigana", "")),
                 clean(d.get("VocabFurigana", "")), clean(d.get("VocabDefSC", "")),
                 clean(d.get("VocabPoS", "")))
-    ne = [(k, clean(d.get(k, ""))) for k in order]
+    ne = [(k, clean(v)) for k, v in d.items()]
     ne = [(k, v) for k, v in ne if v]
-    return (name,
+    return (model_name,
             clean(d.get("Card", "")) or (ne[0][1] if ne else "?"),
             clean(d.get("Bracket", "")),
             clean(d.get("MeaningCN", "")) or clean(d.get("MeaningJP", "")) or
@@ -96,7 +79,7 @@ def extract(mid, flds_raw):
 
 out = []
 for cid, a in agg.items():
-    name, word, read, mean, pos = extract(a["mid"], notes.get(a["nid"], "[]"))
+    name, word, read, mean, pos = extract(*notes.get(a["nid"], ("?", {})))
     st = state.get(cid, {})
     out.append(dict(cid=cid, again=a["again"], hard=a["hard"], deck=a["deck"],
                     model=name, word=word, read=read, mean=mean, pos=pos,
@@ -119,4 +102,3 @@ for o in out:
         "deck": o["deck"].replace("\x1f", "::"), "word": o["word"][:50],
         "read": o["read"][:30], "pos": o["pos"][:20], "mean": o["mean"][:130],
     }, ensure_ascii=False))
-con.close()

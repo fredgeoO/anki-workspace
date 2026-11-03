@@ -905,12 +905,14 @@ class Snapshot(object):
     def reviewed_rows(self, days=None, since_ms=None, ease=None):
         """revlog ⨝ cards ⨝ notes ⨝ decks —— 「今天/近 N 天答得不好的卡」的原始行。
 
-        返回 [{cid, ease, nid, did, mid, flds, deck}]；`deck` 已把 \\x1f 换成 `::`。
+        返回 [{rid, cid, ease, nid, did, mid, flds, deck}]；`rid` 是 revlog 行的时间戳
+        id（按天统计 / 找最后一次作答用），`deck` 已把 \\x1f 换成 `::`。
         days 与 since_ms 二选一（days = 本地 0 点往前推 days-1 天，近似 Anki 换日）。
         """
         if days is not None and since_ms is None:
             since_ms = start_of_window_ms(days)
-        sql = ('''SELECT r.cid, r.ease, c.nid, c.did, n.mid, n.flds, d.name AS deck
+        sql = ('''SELECT r.id AS rid, r.cid, r.ease, c.nid, c.did, n.mid, n.flds,
+                         d.name AS deck
                   FROM revlog r
                   JOIN cards c ON c.id = r.cid
                   JOIN notes n ON n.id = c.nid
@@ -926,6 +928,7 @@ class Snapshot(object):
         if where:
             sql += ' WHERE ' + ' AND '.join(where)
         return [{
+            'rid': int(r['rid']),
             'cid': int(r['cid']), 'ease': int(r['ease']), 'nid': int(r['nid']),
             'did': int(r['did']), 'mid': int(r['mid']), 'flds': r['flds'] or '',
             'deck': _deck_name(r['deck']),

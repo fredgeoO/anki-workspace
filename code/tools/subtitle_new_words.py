@@ -57,6 +57,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'analysis', 'vocab_cover
 
 import anki_api as AK          # noqa: E402  Anki 访问的唯一入口
 import jp_decks as JD          # noqa: E402  牌组常量
+import jp_text as JT           # noqa: E402  「已有词汇」写法变体的判定口径（issue #10 B1）
 import paths as WSP           # noqa: E402  工作区路径
 import textio                  # noqa: E402  UTF-8 stdio / 文件 I/O
 
@@ -513,8 +514,17 @@ class VocabIndex:
                     ))
 
         for word in entries:
-            for key in _word_keys(word):
-                key2words.setdefault(key, []).append(word)
+            # issue #10 B1：写法变体走 jp_text.vocab_shape_variants —— 与
+            # pipeline.rebuild_known_index（mine 的收录判据）同一份口径。此前这里只认
+            # 逐字写法 + 读音兜底，同一个词走 today-new 和走 mine 会得出不同的
+            # 「已学/未学」结论（实测：卡片 `せりふ` 认不出字幕里的 `セリフ`）。
+            # **刻意不加** conjugation_variants（完整活用展开）：这条链路先过 Sudachi，
+            # 表面形已被折成词典形再查键；把「介抱すた」这类废活用作键反而制造误命中。
+            # mine 是拿原始文本做最长匹配，才需要那份展开 —— 两份口径各自成立，
+            # 分歧点（写法变体）从这次起收敛。
+            for key in set(_word_keys(word)) | set(JT.vocab_shape_variants(word)):
+                if word not in key2words.setdefault(key, []):
+                    key2words[key].append(word)
             if KANA_ONLY.match(word) and len(word) >= 2:
                 kana2words.setdefault(kata2hira(word), []).append(word)
         return cls(entries, key2words, kana2words)

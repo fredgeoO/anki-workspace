@@ -1,6 +1,6 @@
 # 本地模型链路 · 防错手册
 
-> 状态：active ｜ 最后核实：2026-10-20
+> 状态：active ｜ 最后核实：2026-11-03
 
 **这是什么**：本地模型（qwen3.8-27b @ NInfer 4090）在这条链路里干两件活（补讲解、挖生词），
 这份手册讲怎么用代码把「出错」变成「可诊断、可重试、不连坐」。
@@ -116,5 +116,5 @@ $EXE = "$WS\code\execution"
   `origin_possible` 拦下并要求重做，但重做仍可能再错，最终进 `failed.json`。
 * **长句批次**：`fit_groups` 只按估算切，估算偏保守；极端长对白仍可能单条超预算，
   这类卡会稳定进 `failed.json`（不是随机失败）。
-* 其它本地模型调用点：`code/tools/local_filter.py`（字幕筛选）已是"正则提取 + try/except"
-  的写法，暂时没加固的必要。
+* 其它本地模型调用点（原先的 `code/tools/local_filter.py` 字幕筛选已随预筛链删除，
+  见 [docs/deprecated.md](../deprecated.md) §10）：现存调用点都走这份加固后的入口。
