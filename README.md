@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.png" width="128" alt="anki-workspace logo">
+</p>
+
 # anki-workspace
 
 > 状态：active ｜ 最后核实：2026-11-03
