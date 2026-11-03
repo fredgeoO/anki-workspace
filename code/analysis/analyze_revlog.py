@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Anki 自评按钮校准分析：基于 revlog 原始作答记录。"""
+"""Anki 自评按钮校准分析：基于 revlog 原始作答记录。
+
+取数走 `AK.Snapshot`（issue #10 B3：不再自己 sqlite3.connect）。默认读离线快照
+`data/snapshots/_anki_snap/collection.anki2`（introspect.py 可重建），位置参数可换路径。
+"""
 import os, sys
-import sqlite3, json, statistics, datetime as dt
+import json, statistics, datetime as dt
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
-import paths as WSP  # noqa: E402
+import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里只用离线 Snapshot）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-DB = WSP.SNAP_ANKI_SNAP   # 离线快照（code/analysis/anki_analyze/introspect.py 可重建）
-con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-con.row_factory = sqlite3.Row
-cur = con.cursor()
+DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → Snapshot.open 的默认快照
 
 NAME = {1: "重来", 2: "困难", 3: "良好", 4: "简单"}
 TNAME = {0: "学习(新/学)", 1: "复习", 2: "重学", 3: "筛选/ cram", 4: "手动", 5: "重排"}
@@ -19,27 +20,34 @@ TNAME = {0: "学习(新/学)", 1: "复习", 2: "重学", 3: "筛选/ cram", 4: "
 def pct(n, d):
     return f"{100.0*n/d:.2f}%" if d else "n/a"
 
-print("=" * 78)
-print("0. 环境检查")
-print("=" * 78)
-col = cur.execute("SELECT * FROM col").fetchone()
-conf = json.loads(col["conf"]) if col["conf"] else {}
-print("col.ver =", col["ver"])
-gc = cur.execute("SELECT id, name, config FROM deck_config").fetchall()
-fsrs_hits = sum(1 for r in gc if b"fsrs" in bytes(r["config"]).lower())
-print("deck_config 条数 =", len(gc), "| 二进制中出现 'fsrs' 的配置数 =", fsrs_hits)
-ck = [r["KEY"] for r in cur.execute("SELECT KEY FROM config")]
-print("config 表中的键:", ", ".join(sorted(ck))[:600])
-print("col.conf 顶层键:", ", ".join(sorted(conf.keys()))[:600])
+
+with AK.guard():
+    snap = AK.Snapshot.open(path=DB)
+
+    print("=" * 78)
+    print("0. 环境检查")
+    print("=" * 78)
+    col = snap.con.execute("SELECT * FROM col").fetchone()
+    conf = json.loads(col["conf"]) if col["conf"] else {}
+    print("col.ver =", col["ver"])
+    gc = snap.con.execute("SELECT id, name, config FROM deck_config").fetchall()
+    fsrs_hits = sum(1 for r in gc if b"fsrs" in bytes(r["config"]).lower())
+    print("deck_config 条数 =", len(gc), "| 二进制中出现 'fsrs' 的配置数 =", fsrs_hits)
+    ck = [r["KEY"] for r in snap.con.execute("SELECT KEY FROM config")]
+    print("config 表中的键:", ", ".join(sorted(ck))[:600])
+    print("col.conf 顶层键:", ", ".join(sorted(conf.keys()))[:600])
 
 
-rows = cur.execute(
-    "SELECT id, cid, ease, ivl, lastIvl, factor, time, type FROM revlog ORDER BY id"
-).fetchall()
+    rows = snap.revlog()   # {revlogId, cardId, ease, ivl, lastIvl, factor, timeMs, type}，按时间升序
+
+    # 第 6 节要用的卡片表快照：列名保持原样（factor/ivl/type/reps/lapses 不是调度判据，只读）
+    cards = snap.con.execute(
+        "SELECT id, factor, ivl, type, reps, lapses FROM cards").fetchall()
+
 print("revlog 总条数 =", len(rows))
 if rows:
-    t0 = dt.datetime.fromtimestamp(rows[0]["id"] / 1000)
-    t1 = dt.datetime.fromtimestamp(rows[-1]["id"] / 1000)
+    t0 = dt.datetime.fromtimestamp(rows[0]["revlogId"] / 1000)
+    t1 = dt.datetime.fromtimestamp(rows[-1]["revlogId"] / 1000)
     print("时间跨度:", t0, "→", t1)
 
 # ---------- 1. 全体按钮分布（含所有类型） ----------
@@ -102,24 +110,24 @@ print("（若「困难」与「良好」的下次失忆率接近，说明这个�
 print(" 若「简单」的下次失忆率明显更高，说明当时高估了自己）")
 bycard = defaultdict(list)
 for r in main:
-    bycard[r["cid"]].append(r)
+    bycard[r["cardId"]].append(r)
 cur_e = lambda r: r["ease"]
 nxt_e = {}
 for cid, lst in bycard.items():
     for i in range(len(lst) - 1):
-        nxt_e[(cid, lst[i]["id"])] = lst[i + 1]["ease"]
+        nxt_e[(cid, lst[i]["revlogId"])] = lst[i + 1]["ease"]
 
 for tlabel, tsel in (("复习卡(type=1)", 1), ("学习+重学(type=0,2)", 0)):
     print()
     print(f"-- {tlabel} --")
     print(f"{'按下':<8}{'次数':>8}{'下次失忆率':>12}{'下次仍按困难+':>14}{'平均间隔增长':>14}")
     for k in (1, 2, 3, 4):
-        g = [r for r in main if r["type"] == tsel and r["ease"] == k and (r["cid"], r["id"]) in nxt_e]
+        g = [r for r in main if r["type"] == tsel and r["ease"] == k and (r["cardId"], r["revlogId"]) in nxt_e]
         if not g:
             continue
         n = len(g)
-        again = sum(1 for r in g if nxt_e[(r["cid"], r["id"])] == 1)
-        hard = sum(1 for r in g if nxt_e[(r["cid"], r["id"])] == 2)
+        again = sum(1 for r in g if nxt_e[(r["cardId"], r["revlogId"])] == 1)
+        hard = sum(1 for r in g if nxt_e[(r["cardId"], r["revlogId"])] == 2)
         # 间隔增长倍数（仅复习卡有意义）
         gr = [r["ivl"] / r["lastIvl"] for r in g if r["lastIvl"] and r["lastIvl"] > 0]
         gm = f"{statistics.mean(gr):.2f}x" if gr else "-"
@@ -133,7 +141,7 @@ print("=" * 78)
 for tsel, tlabel in ((1, "复习卡"), (0, "学习卡")):
     print(f"-- {tlabel} --")
     for k in (1, 2, 3, 4):
-        g = [r["time"] for r in main if r["type"] == tsel and r["ease"] == k and r["time"] > 0]
+        g = [r["timeMs"] for r in main if r["type"] == tsel and r["ease"] == k and r["timeMs"] > 0]
         if not g:
             continue
         med = statistics.median(g)
@@ -146,7 +154,6 @@ print()
 print("=" * 78)
 print("6. 易度因子(ease factor)变化 —— 复习卡上的失败是否在持续惩罚")
 print("=" * 78)
-cards = cur.execute("SELECT id, factor, ivl, type, reps, lapses FROM cards").fetchall()
 fac = [c["factor"] for c in cards if c["type"] == 2 and c["factor"]]
 if fac:
     print(f"复习中卡片数={len(fac)} 平均易度={statistics.mean(fac)/1000:.3f} "
@@ -170,7 +177,7 @@ print("7. 时间趋势：自评习惯是否在漂移（按自然月）")
 print("=" * 78)
 bym = defaultdict(Counter)
 for r in main:
-    d = dt.datetime.fromtimestamp(r["id"] / 1000)
+    d = dt.datetime.fromtimestamp(r["revlogId"] / 1000)
     bym[f"{d.year}-{d.month:02d}"][r["ease"]] += 1
 print(f"{'月份':<9}{'条数':>8}{'重来':>9}{'困难':>9}{'良好':>9}{'简单':>9}")
 for m in sorted(bym):
@@ -186,8 +193,8 @@ print("=" * 78)
 first = {}
 for r in rows:
     if r["ease"] in (1, 2, 3, 4):
-        if r["cid"] not in first:
-            first[r["cid"]] = r
+        if r["cardId"] not in first:
+            first[r["cardId"]] = r
 c = Counter(r["ease"] for r in first.values())
 n = sum(c.values())
 print(f"卡片总数(有作答记录) = {n}")
@@ -206,8 +213,8 @@ print("9. 同一天内同一张卡被反复作答（学习步骤循环）情况"
 print("=" * 78)
 byday = defaultdict(list)
 for r in main:
-    d = dt.datetime.fromtimestamp(r["id"] / 1000).date()
-    byday[(d, r["cid"])].append(r)
+    d = dt.datetime.fromtimestamp(r["revlogId"] / 1000).date()
+    byday[(d, r["cardId"])].append(r)
 multi = {k: v for k, v in byday.items() if len(v) > 1}
 print(f"同一张卡同一天被作答>1次的情况：{len(multi)} 次组合，"
       f"占当天卡片总数 {pct(len(multi), len(byday))}")

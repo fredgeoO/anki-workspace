@@ -433,6 +433,9 @@ ad-hoc 的 python 一行加 `-X utf8`。
 
 离线读快照的入口：`anki_api.Snapshot.open(...)`（`--source snapshot`）、
 `today_weak.py --source snapshot`、`weak_words_2d_live.py`（位置参数给快照路径）。
+issue #10 B3 起，`analyze_revlog.py` / `weak_words_2d_live.py`（固定快照）与
+`anki_revlog_analysis.py`（`live_copy=True`：复制 live 收藏 + wal/shm 到
+`data/snapshots/live-*`，跑完即删）都不再自己 `sqlite3.connect`。
 ⚠ **快照会过期**：`doctor` 会对比快照与 live 收藏库的 mtime，差得太多就提醒 ——
 离线分析看到的可能是旧数据。
 
