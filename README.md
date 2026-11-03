@@ -5,12 +5,84 @@
 一个「日语学习 × Anki」自动化工作区：把「看动画 → 做卡 → 复习 → 查漏」串成可重跑的脚本，
 而不是每次手工整理。当前收藏 **39,820 张卡 / 26 个牌组**，所有入口都在 `code/cli.py`。
 
+## 先看效果：卡面与面板
+
+六张都是 2026-11-03 的真实运行截图。一张图配一段说明——**图里是什么、练什么、数字从哪来**；
+点图可看原尺寸。
+
+### 三种卡，三种问法
+
+<p align="center">
+  <a href="docs/images/card-1-listening.png"><img src="docs/images/card-1-listening.png" width="620" alt="0-素材生词：听辨卡（翻面）"></a>
+</p>
+
+**听辨卡 · `0-素材生词`：先听声音，再认词形**
+
+正面只有词形和词性，词音频自动播放；翻面才给读音、词性释义、挖出这个词的那句台词（带振假名）、
+动画画面和讲解。底部 `[动画-002505][全局-004673]` 是 Jiten 词频——挖词时先按这个排名决定收不收、
+先不先学。
+
+> `0-素材生词` 和 `1-高频日语单词 6000`（core6000）共用同一个笔记类型 `Japanese Vocabulary`
+> 与同一个模板（`Word → Meaning`），卡面完全一样；区别只在词的来源：一个从看过的字幕里挖，
+> 一个来自 Core 6000 词表。
+
+<p align="center">
+  <a href="docs/images/card-2-recall.png"><img src="docs/images/card-2-recall.png" width="620" alt="2-考级词汇：看字回想卡（翻面）"></a>
+</p>
+
+**看字回想卡 · `2-考级词汇`：只看词形，回想读音和释义**
+
+正面给词形和原句音频，读音与释义要自己先想；翻面才给读音、音调、词性、中文释义与例句。
+底部同样是 Jiten 词频。
+
+<p align="center">
+  <a href="docs/images/card-3-sentence.png"><img src="docs/images/card-3-sentence.png" width="620" alt="2-例句：例句卡（翻面）"></a>
+</p>
+
+**例句卡 · `2-例句`：整句听辨**
+
+正片画面 + 原声提问，翻面是带振假名的整句、中文翻译、核心词汇与语法要点。画面和字幕是素材，
+**讲解文字才是工作区生成的**。
+
+### 三张面板 tab
+
+<p align="center">
+  <a href="docs/images/今日选词.png"><img src="docs/images/今日选词.png" width="720" alt="今日选词 tab"></a>
+</p>
+
+**今日选词**：候选 121 → 入选 31 词 / 35 张笔记，LLM 精排 10.2 秒
+
+选字幕或作品目录 → 候选 / 入选 / 笔记 KPI、词卡分数条与模型理由、标签计划、义项修复与被剔清单。
+默认演练，勾「真写标签」才给 `today-new` 加 `--commit`。
+
+<p align="center">
+  <a href="docs/images/词汇覆盖率.png"><img src="docs/images/词汇覆盖率.png" width="720" alt="词汇覆盖率 tab"></a>
+</p>
+
+**词汇覆盖率**：1,908 词元 / 502 词种，可懂度 83.4%
+
+可懂度 headline、卡组 / 已学 / 严格三条覆盖率条、三套分母对比表、卡组外新词与待激活 chips。只读。
+
+<p align="center">
+  <a href="docs/images/每月报告.png"><img src="docs/images/每月报告.png" width="720" alt="每月报告 tab"></a>
+</p>
+
+**每月报告**：留存率 82.3%，42,377 张卡 / 57,669 次复习 / 325.2 小时
+
+留存率、卡片构成、成熟卡 / 年轻卡比例，原始 JSON 可折叠；只读 Anki，每月写一份
+`output/reports/ankir/monthly-YYYY-MM.json`。
+
+> 截图是 2026-11-03 的真实运行：选词是 `ヤニねこ` 第 1 集，覆盖率是 `葬送のフリーレン` 第 1 集。
+
+## 从这里开始
+
 | 你想… | 从哪开始 |
 |---|---|
+| 先看卡面、面板长什么样 | 上面「先看效果」六张图 |
 | 直接拿它学日语 | §2 五分钟上手 → §3 每天怎么用 |
 | 把一集新番字幕做成卡 | §4 新素材：一集字幕变卡 |
 | 只想要牌组文件 | §12 整库下载 |
-| 想在 Harness 面板里点着用 | §6 DSH 插件（三张面板截图） |
+| 想在 Harness 面板里点着用 | §6 DSH 插件 |
 | 想看输出长什么样 | [docs/reports/sample/](docs/reports/sample/README.md)（作者的真实报告样板） |
 | 改脚本 / 核对某个数字怎么算 | [docs/implementation.md](docs/implementation.md) |
 | 让 AI 代理替你操作 | [AGENTS.md](AGENTS.md)（行为契约） |
@@ -47,33 +119,9 @@
 ### 三个牌组，三种卡
 
 三个牌组问的不是同一件事：素材生词练**听辨**（词音频先响，认词形与意思），考级词汇练**看字回想**
-（只看词形，回想读音和释义），`2-例句` 练**整句**（画面 + 原声 → 句子和讲解）。下面三张都是翻面后的
-答案面：
-
-<table>
-  <tr>
-    <td align="center" width="33%"><img src="docs/images/card-1-listening.png" width="240" alt="0-素材生词：听辨卡"></td>
-    <td align="center" width="33%"><img src="docs/images/card-2-recall.png" width="240" alt="2-考级词汇：看字回想卡"></td>
-    <td align="center" width="33%"><img src="docs/images/card-3-sentence.png" width="240" alt="2-例句：例句卡"></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top"><b>听辨卡</b><br><code>0-素材生词</code></td>
-    <td align="center" valign="top"><b>看字回想卡</b><br><code>2-考级词汇</code></td>
-    <td align="center" valign="top"><b>例句卡</b><br><code>2-例句</code></td>
-  </tr>
-</table>
-
-- **听辨卡（`0-素材生词`）**：正面只有词形和词性，词音频自动播放；翻面给读音、词性释义、
-  挖出这个词的那句台词（带振假名）、动画画面和讲解。底部 `[动画-002505][全局-004673]` 是
-  Jiten 词频——挖词时先按这个排名决定收不收、先不先学。
-- **看字回想卡（`2-考级词汇`）**：正面给词形和原句音频，读音与释义要自己先想；翻面才给读音、
-  音调、词性、中文释义与例句。底部同样是 Jiten 词频。
-- **例句卡（`2-例句`）**：正片画面 + 原声提问，翻面是带振假名的整句、中文翻译、核心词汇与语法要点
-  ——就是上面第三张图；**画面与字幕是素材，讲解文字才是工作区生成的**。
-
-> **听辨卡不止一个牌组**：`0-素材生词` 和 `1-高频日语单词 6000`（core6000）共用同一个笔记类型
-> `Japanese Vocabulary` 与同一个模板（`Word → Meaning`），卡面完全一样——区别只在词的来源：
-> 一个从看过的字幕里挖，一个来自 Core 6000 词表。
+（只看词形，回想读音和释义），`2-例句` 练**整句**（画面 + 原声 → 句子和讲解）。三张卡面（翻面后的
+答案面）与逐张说明见开头「先看效果」；`0-素材生词` 与 core6000（`1-高频日语单词 6000`）共用同一个
+笔记类型与模板，卡面完全一样，区别只在词的来源——一个从看过的字幕里挖，一个来自 Core 6000 词表。
 
 ---
 
@@ -183,23 +231,7 @@ $PY = "python"          # 换成你的 Python 3
 `anki_study_report`；面板和工具**共用同一份实现**（`lib/core.js`），所以「点按钮」和「让代理跑」
 结果一致，工具返回值也直接喂回对话。
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="docs/images/今日选词.png" width="300" alt="今日选词 tab"></td>
-    <td align="center" width="50%"><img src="docs/images/词汇覆盖率.png" width="300" alt="词汇覆盖率 tab"></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top"><b>今日选词</b><br>候选 121 → 入选 31 词 / 35 张笔记，LLM 精排 10.2 秒</td>
-    <td align="center" valign="top"><b>词汇覆盖率</b><br>1,908 词元 / 502 词种，可懂度 83.4%</td>
-  </tr>
-</table>
-
-<p align="center">
-  <img src="docs/images/每月报告.png" width="560" alt="每月报告 tab"><br>
-  <b>每月报告</b>：留存率 82.3%，42,377 张卡 / 57,669 次复习 / 325.2 小时
-</p>
-
-> 截图为 2026-11-03 的真实运行：选词是 `ヤニねこ` 第 1 集，覆盖率是 `葬送のフリーレン` 第 1 集。
+三张 tab 的截图与逐张说明在开头「先看效果」；每个 tab 做什么、写不写库见上表，装法与回退见本节末尾。
 
 ### 上下文注入：代理怎么知道 Anki 开着
 
