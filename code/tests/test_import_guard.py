@@ -12,7 +12,8 @@
 
 * **流程依赖**：生成循环、排位置、序号、Jiten 排名口径、已知词判据 —— 都要查库或跑模型。
 * **同族模块**：一个能力的「巨石 + 已抽出的纯渲染层」是一对（core6000_example /
-  core6000_text、today_new / lesson_check / lesson_text）。巨石 import 自己抽出去的那层
+  core6000_text·text2·jisho·gates·render，today_new / lesson_check / lesson_text /
+  lesson_paths / lesson_render）。巨石 import 自己抽出去的那层
   是为了保住模块级名字（测试与探针脚本仍用 `CE.ruby_word`），不是隔壁借工具。
 
 纯离线：只 parse `code/execution/*.py`，不 import 任何脚本、不连 Anki。
@@ -50,11 +51,28 @@ ALLOWED = {
 
 #: 同族模块：巨石 import 自己抽出去的纯渲染/判定层，保住模块级名字不变。
 #: 只认这些配对；别的脚本想走这条路进来要先说明理由。
+#: core6000_* 五件是一对（Issue #4「按能力切分」）：巨石 import 自己抽出的
+#: text2 / jisho / gates / render 只为保住模块级名字，测试与探针仍用 CE.flatten；
+#: lesson_render / lesson_paths 是 today_new 抽出的渲染层与落盘层（同族）。
 SAME_FAMILY = {
     ("core6000_example.py", "core6000_text"),
+    ("core6000_example.py", "core6000_text2"),
+    ("core6000_example.py", "core6000_jisho"),
+    ("core6000_example.py", "core6000_gates"),
+    ("core6000_example.py", "core6000_render"),
+    ("core6000_gates.py", "core6000_text2"),
+    ("core6000_gates.py", "core6000_jisho"),
+    ("core6000_jisho.py", "core6000_text2"),
+    ("core6000_render.py", "core6000_text"),
+    ("core6000_render.py", "core6000_text2"),
     ("lesson_check.py", "lesson_text"),
+    ("lesson_render.py", "lesson_check"),
+    ("lesson_render.py", "lesson_paths"),
+    ("lesson_render.py", "lesson_text"),
     ("today_new.py", "lesson_check"),
     ("today_new.py", "lesson_text"),
+    ("today_new.py", "lesson_paths"),
+    ("today_new.py", "lesson_render"),
 }
 
 #: 已有正本的同名/近名正则：execution 里再手写这套字符区间就是第二份口径。

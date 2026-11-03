@@ -52,7 +52,7 @@ $PY = "python"
 **用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
 `doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
 
-改过代码还要跑回归测试（`code/tests/` 现 24 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
+改过代码还要跑回归测试（`code/tests/` 现 25 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
 
 ```powershell
 & $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
