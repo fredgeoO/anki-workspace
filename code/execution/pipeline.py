@@ -58,12 +58,16 @@ import jp_text as JT  # noqa: E402  纯文本清洗与字符判定的唯一实�
 import llm_out as OUT  # noqa: E402  模型产出吸收层（类型归一 / 原始回复留证）
 import paths as WSP  # noqa: E402  工作区路径的唯一来源（见 code/common/paths.py）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import writeback as WB  # noqa: E402  写库事务：备份 + 全量回读（issue #10：write 走这里）
 
 WS = WSP.ROOT                                     # 兼容旧引用（提示词里的 {ws} 等）
 GEN = os.path.join(WSP.DATA_PIPELINE, 'gen')      # 阶段 0-2 工作目录（原 ./gen）
 PLAN = os.path.join(WSP.DATA_PIPELINE, 'plan.json')
 DROP_MD = os.path.join(WSP.DATA_PIPELINE, 'drop_candidates.md')
 KEEP_MD = os.path.join(WSP.DATA_PIPELINE, 'keep_list.md')
+# 写后回读前的等待秒数：AnkiConnect 写完到能读出一致的延迟（writeback.DEFAULT_SETTLE）。
+# 放在模块级是为了测试能把整条 write 路径跑成离线几秒（tests/test_pipeline_write.py）。
+WRITE_SETTLE = 0.5
 
 # ============================================================================
 # 配置区：换收藏结构时改这里
@@ -1047,37 +1051,34 @@ def cmd_write(a):
     if not ids:
         print('没有待写入的卡。')
         return
-    info = AK.notes_map(ids)
+    live = AK.note_values(ids, names=('AINote', 'Sentence HTML'))
     notempty = [i for i in ids
-                if info[i]['fields']['AINote']['value'] or info[i]['fields']['Sentence HTML']['value']]
+                if (live.get(i) or {}).get('AINote') or (live.get(i) or {}).get('Sentence HTML')]
     if notempty and not a.overwrite:
         raise SystemExit('以下卡已有内容，拒绝覆盖（加 --overwrite 可强制）：%s' % notempty[:10])
-    for i, nid in enumerate(ids, 1):
-        c = by_id[nid]
-        AK.update_note_fields(nid, {'AINote': c['AINote'],
-                                    'Sentence HTML': c['SentenceHTML']})
-        if i % 25 == 0:
-            print('  已写入 %d/%d' % (i, len(ids)))
-    print('写入完成：%d 张' % len(ids))
 
-    # 轻量回读：一次查询统计「AINote 仍为空」的卡（有意跳过的卡本来就该是空的），
-    # 再抽 3 张逐字比对兜底。原来是把全部卡的字段拉回来逐字重比一遍 ——
-    # 那是把入库前已经跑过的规则又算了一遍，收益低于它的耗时。
-    skipped = [i for i in ids if not by_id[i]['AINote']]
-    still = AK.find_notes('nid:%s AINote:' % ','.join(str(i) for i in ids))
-    unexpected = [i for i in still if i not in skipped]
-    sample = ids[:3]
-    back = AK.notes_map(sample)
-    mism = [i for i in sample
-            if i not in back
-            or back[i]['fields']['AINote']['value'] != by_id[i]['AINote']
-            or back[i]['fields']['Sentence HTML']['value'] != by_id[i]['SentenceHTML']]
-    print('回读：抽查 %d 张逐字一致 %d 张；AINote 仍为空 %d 张（有意跳过 %d、异常 %d）'
-          % (len(sample), len(sample) - len(mism), len(still), len(skipped), len(unexpected)))
-    if mism:
-        print('  抽查不一致：%s' % mism)
-    if unexpected:
-        print('  未写进去：%s' % unexpected[:10])
+    # 写库走 common/writeback.py：备份旧值 → 写 → **全量**回读。
+    # 这里原来是逐张 `AK.update_note_fields` + 「抽查 3 张」兜底——一次 AnkiConnect
+    # 往返一张、回读只覆盖 ids[:3]，第 4 张之后的静默失败没人接（issue #10 B2）。
+    # 有意跳过的卡（模型没做出来 → 两个字段都留空）不写：writeback.write_fields 会
+    # 丢掉「一个字段都没有」的条目，但 {'AINote': '', 'Sentence HTML': ''} 会被当成
+    # 要写的空值、并把已有内容清空，所以必须在这里显式排除。
+    want = {nid: {'AINote': by_id[nid]['AINote'],
+                  'Sentence HTML': by_id[nid]['SentenceHTML']}
+            for nid in ids if by_id[nid]['AINote'] or by_id[nid]['SentenceHTML']}
+    skipped = len(ids) - len(want)
+    if not want:
+        print('没有要写的字段（%d 张都是有意跳过的空产出）。' % skipped)
+        return
+    rep = WB.write_fields(want, commit=True, label='pipeline-write', settle=WRITE_SETTLE)
+    bad = rep['bad']
+    print('写入：应写 %d 张，回读一致 %d 张；有意跳过 %d 张（AINote 为空）'
+          % (len(want), len(want) - len(bad), skipped))
+    if rep['backup']:
+        print('  旧值备份：%s' % rep['backup'])
+    if bad:
+        raise SystemExit('回读不一致 / 写入失败 %d 张：%s'
+                         % (len(bad), list(bad.items())[:10]))
 
 
 # ============================================================================
