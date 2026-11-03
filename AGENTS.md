@@ -134,6 +134,12 @@ README §6 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | `code/execution/lesson_text.py` | 讲义 teach 整形 / 接续清洗 / Markdown 渲染（从 `today_new.py` 抽出） |
 | `code/execution/core6000_text.py` | core6000 补例句②的纯渲染：词性中文化 / 注音 / 词表（从 `core6000_example.py` 抽出） |
 | `code/execution/lesson_check.py` | 讲义的机械判定：词形/读音/词性、内容问题、渲染后闸门（从 `today_new.py` 抽出，不渲染） |
+| `code/execution/lesson_paths.py` | 每日讲义落盘路径与原子写：`today_new` 与 `lesson_render` **共用**的下沉层（避免二者互引） |
+| `code/execution/lesson_render.py` | 每日讲义渲染：manifest + 模型产出 → Markdown（从 `today_new.py` 抽出；只吃数据，不碰 Anki / LLM） |
+| `code/execution/core6000_text2.py` | core6000 补例句②的共享底座：HTML 正则 + JSON / 文本小工具（纯函数，从 `core6000_example.py` 抽出） |
+| `code/execution/core6000_jisho.py` | core6000 补例句②的例句源：Jisho 真实语料抓取 + 缓存 + 四道挑句闸门（从 `core6000_example.py` 抽出，不连网时可换桩） |
+| `code/execution/core6000_gates.py` | core6000 补例句②的机械闸门 1-5：判模型刚交回的 entry（从 `core6000_example.py` 抽出；闸门 6-9 仍在巨石，绑 apply 事务） |
+| `code/execution/core6000_render.py` | core6000 补例句②的字段渲染：卡片结构体 + entry → 5 个字段的值（从 `core6000_example.py` 抽出；常量经 `bind_constants` 注入） |
 | `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `rank_gate.py`（选词精排）`unranked.py`（待建卡清单）`proper_extract.py` `jisho_example.py` |
 | `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
