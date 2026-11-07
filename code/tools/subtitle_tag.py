@@ -166,10 +166,11 @@ def do_revert(a):
 
 def do_tag(a):
     tag = tag_for(a.name)
-    index = SW.VocabIndex.load(scopes=SCOPES)
-    # 词级「是否已标过」要看过整个 0-词汇（含 4-复习 等子牌组）的笔记标签；
-    # 取词仍只认三个词卡组，所以标签检查单独建一份只读索引。
+    # 词级「是否已标过」要看整个 0-词汇（含 4-复习 等子牌组）的笔记标签；
+    # 取词仍只认三个词卡组。索引从 AnkiConnect 现读一次全量，再派生受限视图
+    # （以前是各建一份、把词库读两遍）。
     tag_index = SW.VocabIndex.load(scopes=(JD.DECK_VOCAB,))
+    index = tag_index.restrict(SCOPES)
     result = SW.extract(a.input, scopes=SCOPES, out_root=a.out,
                         min_occ=a.min_occ, include_names=a.include_names,
                         include_phrases=a.include_phrases, index=index)

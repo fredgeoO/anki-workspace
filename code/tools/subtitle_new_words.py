@@ -37,7 +37,8 @@
 * `words.tsv`  —— 人看 / Excel
 * `report.md`  —— 人看的摘要与词表
 
-只读：不写 Anki。Anki 的词表索引走 `Snapshot.open(live_copy=True)` 的只读副本；
+只读：不写 Anki。Anki 的词表索引**只从 AnkiConnect 现读**（2026-11-07 起不再复制
+收藏库文件、也不读 `data/snapshots/` 里的备份 —— 备份没有学习记录，「没学过」会判错）；
 写库只有 `subtitle_tag.py` 的加标签（只打 `复习::<来源>`，不改 due）。
 """
 from __future__ import annotations
@@ -407,7 +408,7 @@ def is_content_token(t, extra_pos=(), drop_aux=False):
 
 
 # ============================================================================
-# Anki 词表索引（只读快照）
+# Anki 词表索引（AnkiConnect 直读，不复制收藏库、不读备份）
 # ============================================================================
 @dataclass
 class Entry:
@@ -430,55 +431,98 @@ class Entry:
     tags: tuple = ()
 
 
+def _build_keys(entries):
+    """词形表 → (key2words, kana2words) 两张查表。
+
+    issue #10 B1：写法变体走 jp_text.vocab_shape_variants —— 与
+    pipeline.rebuild_known_index（mine 的收录判据）同一份口径。此前这里只认
+    逐字写法 + 读音兜底，同一个词走 today-new 和走 mine 会得出不同的
+    「已学/未学」结论（实测：卡片 `せりふ` 认不出字幕里的 `セリフ`）。
+    **刻意不加** conjugation_variants（完整活用展开）：这条链路先过 Sudachi，
+    表面形已被折成词典形再查键；把「介抱すた」这类废活用作键反而制造误命中。
+    mine 是拿原始文本做最长匹配，才需要那份展开 —— 两份口径各自成立，
+    分歧点（写法变体）从这次起收敛。
+    """
+    key2words = {}
+    kana2words = {}
+    for word in entries:
+        for key in set(_word_keys(word)) | set(JT.vocab_shape_variants(word)):
+            if word not in key2words.setdefault(key, []):
+                key2words[key].append(word)
+        if KANA_ONLY.match(word) and len(word) >= 2:
+            kana2words.setdefault(kata2hira(word), []).append(word)
+    return key2words, kana2words
+
+
 class VocabIndex:
-    """Anki 词汇卡的词形 → 卡片状态索引。"""
+    """Anki 词汇卡的词形 → 卡片状态索引（每次运行从 AnkiConnect 现读）。"""
 
     def __init__(self, entries, key2words, kana2words):
         self.entries = entries          # canonical word -> [Entry]
         self.key2words = key2words      # 归一化写法 -> [canonical word]
         self.kana2words = kana2words    # 假名读音 -> [纯假名词]
+        self.by_card = {e.card_id: e for lst in entries.values() for e in lst}
+        self._exact = set()             # 已按卡取过精确状态的 cardId
 
     # ---- 构建 ------------------------------------------------------------
     @classmethod
-    def load(cls, scopes=None, snapshot_path=None):
+    def load(cls, scopes=None):
+        """从 AnkiConnect 现读卡组 → 词形索引。
+
+        **不再复制 `collection.anki2`**（2026-11-07）。原先是把 73 MB 的收藏连同
+        `-wal/-shm` 复制到临时目录再开 sqlite：既白烧 SSD 写入，又把「读的是不是
+        当前库」变成一个可传参项 —— 谁传了 `snapshot_path`，读到的就是没有学习记录的
+        旧备份，「没学过」会整批判错。现在只有一条数据源：AnkiConnect。
+
+        * 词形 / 读音 / 词性 / JAR / 标签 ← ``notesInfo``（分批取，峰值内存只占一批）
+        * 卡片状态 ← ``is:new`` / ``is:suspended`` / ``is:buried`` 检索集合
+          （全量 ``cardsInfo`` 实测 47 s / 913 MB —— 因为它把每张卡的渲染 HTML 都
+          塞回来，所以只用来给真正要用的卡补精确字段，见 :meth:`refresh_cards`）
+
+        实测 27,206 张卡：findNotes 0.6 s + notesInfo 16 s / 约 56 MB 本机流量，
+        **0 次磁盘写入**（原来是每次复制 73 MB）。
+        """
         scopes = list(scopes or DEFAULT_SCOPES)
         entries = {}
-        key2words = {}
-        kana2words = {}
-        with AK.Snapshot.open(path=snapshot_path,
-                              live_copy=not bool(snapshot_path)) as snap:
-            decks = snap.decks()
-            deck_ids = set()
-            for scope in scopes:
-                ids = snap.deck_id(scope)
-                if not ids:
-                    raise SystemExit('牌组不存在或没有子牌组：%s' % scope)
-                deck_ids.update(ids)
-            if not deck_ids:
-                raise SystemExit('没有找到任何词汇牌组')
 
-            sql = (
-                'SELECT n.id AS nid, n.mid AS mid, n.flds AS flds, n.tags AS tags, '
-                'c.id AS cid, c.did AS did, c.type AS type, c.queue AS queue, '
-                'c.due AS due, c.ivl AS ivl, c.factor AS factor, '
-                'c.reps AS reps, c.lapses AS lapses '
-                'FROM notes n JOIN cards c ON c.nid = n.id '
-                'WHERE c.did IN (%s)' % ','.join('?' * len(deck_ids))
-            )
-            rows = list(snap.con.execute(sql, tuple(sorted(deck_ids))))
+        names = list(AK.deck_names_and_ids())
+        leaves = {}
+        for scope in scopes:
+            kids = [n for n in names if n == scope or n.startswith(scope + '::')]
+            if not kids:
+                raise SystemExit('牌组不存在或没有子牌组：%s' % scope)
+            for n in kids:
+                if any(o != n and o.startswith(n + '::') for o in kids):
+                    continue            # 中间层牌组：它的卡由最末一级牌组自己算
+                leaves[n] = None
+        if not leaves:
+            raise SystemExit('没有找到任何词汇牌组')
 
-            # 按笔记分组：字段只解一次
-            by_note = {}
-            for r in rows:
-                by_note.setdefault(int(r['nid']), []).append(r)
+        # 卡 → 所在牌组（只认这些卡组里的卡，等价于原 SQL 的 `c.did IN (…)`）
+        card_deck = {}
+        for name in leaves:
+            for cid in AK.find_cards('deck:"%s"' % name):
+                card_deck[int(cid)] = name
 
-            for nid, cards in by_note.items():
-                r0 = cards[0]
-                model, _order = snap.notetype(int(r0['mid']))
+        # 卡状态：批量阶段只用检索集合（判 new / suspended / buried 够用）
+        q = '(%s)' % ' OR '.join('deck:"%s"' % n for n in leaves)
+        new_ids = {int(c) for c in AK.find_cards(q + ' is:new')}
+        susp_ids = {int(c) for c in AK.find_cards(q + ' is:suspended')}
+        buried_ids = {int(c) for c in AK.find_cards(q + ' is:buried')}
+
+        nids = []
+        for scope in scopes:
+            nids.extend(AK.find_notes('deck:"%s"' % scope))
+        nids = sorted(set(nids))
+
+        for part in AK.chunks(nids, 1000):
+            # 分批：notesInfo 一次 27k 条会长期占着几百 MB，分批后峰值只有一个批次
+            for note in AK.notes_info(part):
+                model = note.get('modelName') or ''
                 fmap = _MODEL_FIELDS.get(model)
                 if not fmap:
                     continue
-                vals = snap.split_fields(int(r0['mid']), r0['flds'])
+                vals = AK.field_values(note)
                 word = norm(vals.get(fmap['word']) or '')
                 if not word or len(word) > MAX_WORD_LEN:
                     continue
@@ -489,45 +533,74 @@ class VocabIndex:
                     jiten = int(str(vals.get('JitenAnimeRank') or '999999').strip())
                 except ValueError:
                     jiten = 999999
-                tags = tuple((r0['tags'] or '').split())
-                deck0 = decks.get(int(r0['did']), '')
-                level = JD.level_from_tags(tags)
-                if not level:
-                    if deck0 == JD.DECK_CORE6000:
-                        level = 'Core6000'
-                    elif deck0 == JD.DECK_MINED:
-                        level = '素材生词'
-                    else:
-                        level = deck0.split('::')[-1] if deck0 else '?'
-
-                for r in cards:
-                    deck = decks.get(int(r['did']), deck0)
+                tags = tuple(note.get('tags') or ())
+                nid = int(note['noteId'])
+                tagged_level = JD.level_from_tags(tags)
+                for cid in (note.get('cards') or []):
+                    cid = int(cid)
+                    deck = card_deck.get(cid)
+                    if deck is None:
+                        continue        # 不在这些卡组里的卡（原 SQL 同样不算）
+                    level = tagged_level
+                    if not level:
+                        if deck == JD.DECK_CORE6000:
+                            level = 'Core6000'
+                        elif deck == JD.DECK_MINED:
+                            level = '素材生词'
+                        else:
+                            level = deck.split('::')[-1] if deck else '?'
                     entries.setdefault(word, []).append(Entry(
                         word=word, reading=reading, pos=pos, deck=deck,
-                        level=(JD.level_from_tags(tags) or level),
-                        note_id=nid, card_id=int(r['cid']),
-                        type=int(r['type']), queue=int(r['queue']),
-                        due=int(r['due']), interval=int(r['ivl'] or 0),
-                        factor=int(r['factor'] or 0), reps=int(r['reps'] or 0),
-                        lapses=int(r['lapses'] or 0), jiten=jiten,
-                        meaning=meaning, tags=tags,
-                    ))
+                        level=level, note_id=nid, card_id=cid,
+                        type=(0 if cid in new_ids else 1),
+                        queue=(-1 if cid in susp_ids
+                               else (-3 if cid in buried_ids else 0)),
+                        due=0, interval=0, factor=0, reps=0, lapses=0,
+                        jiten=jiten, meaning=meaning, tags=tags))
 
-        for word in entries:
-            # issue #10 B1：写法变体走 jp_text.vocab_shape_variants —— 与
-            # pipeline.rebuild_known_index（mine 的收录判据）同一份口径。此前这里只认
-            # 逐字写法 + 读音兜底，同一个词走 today-new 和走 mine 会得出不同的
-            # 「已学/未学」结论（实测：卡片 `せりふ` 认不出字幕里的 `セリフ`）。
-            # **刻意不加** conjugation_variants（完整活用展开）：这条链路先过 Sudachi，
-            # 表面形已被折成词典形再查键；把「介抱すた」这类废活用作键反而制造误命中。
-            # mine 是拿原始文本做最长匹配，才需要那份展开 —— 两份口径各自成立，
-            # 分歧点（写法变体）从这次起收敛。
-            for key in set(_word_keys(word)) | set(JT.vocab_shape_variants(word)):
-                if word not in key2words.setdefault(key, []):
-                    key2words[key].append(word)
-            if KANA_ONLY.match(word) and len(word) >= 2:
-                kana2words.setdefault(kata2hira(word), []).append(word)
+        key2words, kana2words = _build_keys(entries)
         return cls(entries, key2words, kana2words)
+
+    def restrict(self, deck_names):
+        """只保留这些牌组（含子牌组）里的卡 → 派生索引。
+
+        `subtitle_tag` 要同时看「三个词卡组」（取词）和「整个 0-词汇」（查已有
+        复习标签）。以前各建一份索引、把词库读两遍；现在读一次全量再派生。
+        """
+        prefixes = tuple(deck_names)
+        entries = {}
+        for word, lst in self.entries.items():
+            keep = [e for e in lst
+                    if any(e.deck == p or e.deck.startswith(p + '::')
+                           for p in prefixes)]
+            if keep:
+                entries[word] = keep
+        return VocabIndex(entries, *_build_keys(entries))
+
+    # ---- 精确状态（按需） -------------------------------------------------
+    def refresh_cards(self, card_ids):
+        """给真正要用的卡补精确状态：type / queue / due / ivl / factor / reps / lapses。
+
+        批量索引里的状态是从检索集合推出来的，判 new / suspended 够用，但 ``due``
+        （新卡位置）和精确的 ``type`` 只有逐卡才拿得到。**只对命中字幕的卡调用**
+        （几十到几百张，实测 300 张 0.6 s），不碰全量 —— 全量 `cardsInfo` 要 913 MB。
+        """
+        ids = sorted({int(c) for c in card_ids} - self._exact)
+        if not ids:
+            return 0
+        for c in AK.cards_info(ids):
+            e = self.by_card.get(int(c['cardId']))
+            if e is None:
+                continue
+            e.type = int(c.get('type') or 0)
+            e.queue = int(c.get('queue') or 0)
+            e.due = int(c.get('due') or 0)
+            e.interval = int(c.get('interval') or 0)
+            e.factor = int(c.get('factor') or 0)
+            e.reps = int(c.get('reps') or 0)
+            e.lapses = int(c.get('lapses') or 0)
+            self._exact.add(e.card_id)
+        return len(ids)
 
     # ---- 查询 ------------------------------------------------------------
     def words_for_key(self, key):
@@ -698,6 +771,11 @@ def build_records(cues, index, min_occ=1, include_names=False,
             if len(rec['examples']) < 3:
                 if not any(e.index == cue.index for e in rec['examples']):
                     rec['examples'].append(cue)
+
+    # 索引里卡的 type/queue 是检索集合推出来的；只给命中字幕的词补精确值
+    # （due=新卡位置 也在这一步拿到，report 要显示它）
+    index.refresh_cards([e.card_id for w in found
+                         for e in index.entries.get(w, ())])
 
     words, excluded = [], {'learned': [], 'suspended': []}
     filtered = {'names': 0, 'phrases': 0}

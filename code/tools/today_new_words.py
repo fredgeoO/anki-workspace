@@ -353,6 +353,9 @@ def collect_stats(sources, index, include_names=False, extra_pos=()):
                         and all(e['text'] != cue.text for e in rec['examples'])):
                     rec['examples'].append({'episode': label, 'index': cue.index,
                                             'start': cue.start, 'text': cue.text})
+    # 索引里卡的 type/queue 是检索集合推的；只给命中字幕的词补精确值
+    index.refresh_cards([e.card_id for w in stats
+                         for e in index.entries.get(w, ())])
     return stats
 
 
