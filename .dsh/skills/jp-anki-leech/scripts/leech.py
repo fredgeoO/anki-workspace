@@ -49,6 +49,13 @@ ALLOWED_FIELDS = {
     ),
 }
 
+# 追加第 2 条例句槽：**默认关闭**，只有 apply 显式加 `--allow-sentence-slot` 才放开。
+# 场景：用户明确要求给只有 1 句的 eggrolls 卡补一句真实语料（jisho），句子/读音/译文/音频
+# 一起写；SentKanji3/4 仍不允许写（避免把「补一句」变成批量堆例句）。
+SENTENCE_SLOT_FIELDS = (
+    'SentKanji2', 'SentFurigana2', 'SentDefTC2', 'SentAudio2',
+)
+
 VERDICTS = ('overload', 'vague', 'understanding', 'interference', 'mnemonic')
 VERDICT_CN = {
     'overload': '信息过载',
@@ -561,7 +568,7 @@ def prepare_groups(groups):
     return prepared, errors, warnings
 
 
-def prepare_apply(items, allow_untagged):
+def prepare_apply(items, allow_untagged, allow_sentence=False):
     """校验整个计划；任何硬错误都返回 (None, errors)，绝不写半批。"""
     errors, warnings = [], []
     nids = []
@@ -588,6 +595,8 @@ def prepare_apply(items, allow_untagged):
             continue
         model = n.get('modelName') or ''
         allowed = ALLOWED_FIELDS.get(model)
+        if allowed and allow_sentence and model == 'eggrolls-JLPT10k-v3.5':
+            allowed = tuple(allowed) + SENTENCE_SLOT_FIELDS
         if not allowed:
             errors.append('[%s] 不认识的笔记类型 %r（本技能只处理 Basic / Japanese Vocabulary / eggrolls-JLPT10k-v3.5）'
                           % (nid, model))
@@ -651,7 +660,8 @@ def prepare_apply(items, allow_untagged):
                 if key == 'VocabPlus' and re.search(r'[<>]', val):
                     hard.append('VocabPlus 用 furigana: 过滤器渲染，不能写 HTML 标签')
                 if '[sound:' in val or '{{' in val:
-                    hard.append('不能写音频占位符或模板语法')
+                    if not (allow_sentence and key.startswith('SentAudio')):
+                        hard.append('不能写音频占位符或模板语法')
                 if key in ('Meaning', 'VocabDefSC') and len(split_senses(val)) > 3:
                     warnings.append('[%s] %s 有 %d 个义项，检查是否该收敛'
                                     % (nid, key, len(split_senses(val))))
@@ -859,7 +869,8 @@ def cmd_apply(args):
     prepared_groups, gerrors, gwarnings = prepare_groups(groups)
     warnings = list(gwarnings)
     if items:
-        prepared, errors, iwarnings = prepare_apply(items, args.allow_untagged)
+        prepared, errors, iwarnings = prepare_apply(items, args.allow_untagged,
+                                                    getattr(args, 'allow_sentence_slot', False))
         warnings += iwarnings
     else:
         prepared, errors = [], []
@@ -1104,6 +1115,8 @@ def build_parser():
     a.add_argument('--keep-leech', action='store_true', help='写成功后保留 leech 标签')
     a.add_argument('--allow-untagged', action='store_true',
                    help='允许写没有 leech 标签的笔记（计划过期时用，慎用）')
+    a.add_argument('--allow-sentence-slot', action='store_true',
+                   help='允许写 eggrolls 的第 2 条例句槽（SentKanji2/Furigana2/DefTC2/Audio2）')
     a.set_defaults(func=cmd_apply)
 
     r = sub.add_parser('restore', help='按备份回滚字段')

@@ -58,7 +58,9 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   直接「选择此目录」，词汇覆盖率可一次勾选多个文件。对话框里的路径全部
   是**相对工作区根**的写法，与 `today-new` / `vocab cover` 的解析口径一致；
   浏览范围被限制在 `workspaceRoot` 内，不会列出或返回工作区外的路径。
-- 中英文界面文案走 Client locale；颜色只用 `--dsw-alias-*` 主题变量。
+- 中英文界面文案走 Client locale；`locale` 是插件的硬依赖（`inject: ['slots', 'locale']`），
+  因为 locale 服务在异步 bootstrap 之后才 provide，按可选项读取会让整个面板显示翻译键；
+  颜色只用 `--dsw-alias-*` 主题变量。
 - 「今日选词」「词汇覆盖率」「每月报告」都只读 Python 生成的结构化 JSON，
   不重新解析人类可读日志：
   - 今日选词：候选/入选/笔记 KPI、排序来源、词卡（词形/读音/词性/牌组/JAR/
@@ -124,6 +126,7 @@ node --check code\plugins\anki-workspace\client.js
 node --check code\plugins\anki-workspace\lib\core.js
 node --test --test-isolation=none code\plugins\anki-workspace\test\logic.test.mjs
 node --test --test-isolation=none code\plugins\anki-workspace\test\render.test.mjs
+node --test --test-isolation=none code\plugins\anki-workspace\test\locale.test.mjs
 ```
 
 > Windows + DSH 沙箱下 `node --test` 默认会 spawn 子进程并触发 EPERM；

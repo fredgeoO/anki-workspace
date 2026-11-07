@@ -2097,12 +2097,24 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      const locale = ctx.get('locale')
+      // 'locale' is a hard dependency (see the returned `inject`): the locale
+      // plugin provides its service only after its own async bootstrap, so an
+      // opportunistic ctx.get('locale') here can still be undefined and would
+      // leave every label as a raw translation key. The dynamic fallback below
+      // only matters if this plugin was applied before that service appeared.
       let t = (key) => key
-      if (locale !== undefined) {
+      let localeBound = false
+      const useLocale = (locale) => {
+        if (localeBound || locale === undefined) return
+        localeBound = true
         ctx.effect(() => locale.register('anki-workspace', 'en', EN))
         ctx.effect(() => locale.register('anki-workspace', 'zh', ZH))
         t = locale.bind('anki-workspace')
+      }
+
+      useLocale(ctx.get('locale'))
+      if (!localeBound && typeof ctx.inject === 'function') {
+        ctx.inject(['locale'], (inner) => useLocale(inner.get('locale')))
       }
 
       const slots = ctx.get('slots')
@@ -2122,7 +2134,10 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots'],
+      // `locale` must be declared here, not read opportunistically in apply:
+      // its service is provided after an async bootstrap, and a plain
+      // ctx.get('locale') at apply time can still be undefined.
+      inject: ['slots', 'locale'],
       apply,
       // 供离线渲染冒烟测试直接调用（ModuleLoader 只读 inject/apply）。
       __components: {

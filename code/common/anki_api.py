@@ -72,6 +72,10 @@ r"""Anki 访问的唯一接口 —— AnkiConnect 传输 + 类型化读写 + 学
 ------
     python code/common/anki_api.py check [--json]        体检：版本/牌组/笔记类型/媒体数
     python code/common/anki_api.py count "<查询串>"       只数张数
+    python code/common/anki_api.py find "<查询串>" [--limit N] [--json]   查询串 → 笔记 id
+    python code/common/anki_api.py notes "<查询串>" [--ids 1,2] [--fields Word,Meaning] [--cards] [--json]
+                                                         看笔记内容（字段/标签/牌组），只读
+                                                         （查询串也可以写成 --query "<查询串>"）
     python code/common/anki_api.py tags                  列出所有标签
     python code/common/anki_api.py revlog --days 3 [--ease again] [--source anki|snapshot] [--json]
     python code/common/anki_api.py exec <动作> [--params '{"query":"deck:*"}']   逃生口
@@ -1224,6 +1228,91 @@ def cmd_count(args):
     return 0
 
 
+def _note_row(note, names=None, card_map=None):
+    """notesInfo 的一条 → 可直接打印 / JSON 的扁平结构（只读，不写库）。"""
+    nid = int(note['noteId'])
+    row = {'noteId': nid, 'modelName': note.get('modelName'),
+           'tags': list(note.get('tags') or []),
+           'fields': field_values(note, names)}
+    if card_map is not None:
+        row['cards'] = card_map.get(nid, [])
+    return row
+
+
+def cmd_find(args):
+    """查询串 → 笔记 id（只读）。stdout 每行一个 id，条数走 stderr。"""
+    query = args.query or args.query_opt
+    if not query:
+        print('需要查询串：find "<查询串>"（也可以写 --query "<查询串>"）', file=sys.stderr)
+        return 2
+    ids = find_notes(query, limit=args.limit)
+    if args.json:
+        print(json.dumps(ids, ensure_ascii=False))
+        return 0
+    for nid in ids:
+        print(nid)
+    print('共 %d 个笔记' % len(ids), file=sys.stderr)
+    return 0
+
+
+def cmd_notes(args):
+    """看笔记内容：字段 / 标签 / 可选牌组与卡状态（只读，永不写库）。"""
+    query = args.query or args.query_opt
+    ids = dedupe_ids(args.ids or [])
+    if not ids and query:
+        ids = find_notes(query, limit=args.limit)
+    if args.limit:
+        ids = ids[:args.limit]
+    if not ids:
+        print('没有命中笔记：至少给一个查询串或 --ids', file=sys.stderr)
+        return 2
+
+    names = None
+    if args.fields:
+        names = [x for part in args.fields.split(',') for x in part.split() if x]
+
+    notes = notes_info(ids)
+    got = {int(n['noteId']) for n in notes}
+    missing = [nid for nid in ids if nid not in got]
+
+    card_map = None
+    if args.cards:
+        cids = [int(c) for n in notes for c in (n.get('cards') or [])]
+        card_map = {}
+        for c in cards_info(cids):
+            card_map.setdefault(int(c.get('note') or 0), []).append({
+                'cardId': int(c['cardId']), 'deckName': c.get('deckName'),
+                'queue': c.get('queue'), 'type': c.get('type'),
+                'due': c.get('due'), 'interval': c.get('interval')})
+
+    rows = [_note_row(n, names, card_map) for n in notes]
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+    else:
+        for i, row in enumerate(rows):
+            if i:
+                print()
+            print('=' * 70)
+            head = 'noteId %s ｜ %s' % (row['noteId'], row['modelName'] or '?')
+            if row.get('cards'):
+                decks = sorted({c['deckName'] for c in row['cards'] if c.get('deckName')})
+                if decks:
+                    head += ' ｜ ' + '、'.join(decks)
+                head += ' ｜ cards ' + '、'.join('%s(q%s/t%s/due %s)' % (
+                    c['cardId'], c.get('queue'), c.get('type'), c.get('due'))
+                    for c in row['cards'])
+            print(head)
+            if row['tags']:
+                print('tags: ' + ', '.join(row['tags']))
+            for k, v in row['fields'].items():
+                print('  -- %s --' % k)
+                print(v)
+    if missing:
+        print('缺失 noteId（已被删/不存在）：%s'
+              % '、'.join(str(x) for x in missing), file=sys.stderr)
+    return 0
+
+
 def cmd_tags(args):
     got = sorted(tags())
     if args.json:
@@ -1307,6 +1396,24 @@ def main(argv=None):
     p.add_argument('query')
     p.set_defaults(func=cmd_count)
 
+    p = sub.add_parser('find', help='查询串 → 笔记 id（只读；查不到给空列表）')
+    p.add_argument('query', nargs='?', help='Anki 查询串（也可写 --query）')
+    p.add_argument('--query', dest='query_opt', help='同位置参数；参数里带空格/引号时用')
+    p.add_argument('--limit', type=int)
+    p.add_argument('--json', action='store_true')
+    p.set_defaults(func=cmd_find)
+
+    p = sub.add_parser('notes', help='看笔记内容：字段/标签/牌组（只读）')
+    p.add_argument('query', nargs='?', help='Anki 查询串（与 --ids 二选一）')
+    p.add_argument('--query', dest='query_opt', help='同位置参数；参数里带空格/引号时用')
+    p.add_argument('--ids', help='直接给 noteId，逗号/空格分隔')
+    p.add_argument('--fields', help='只看这些字段，逗号分隔（默认全部）')
+    p.add_argument('--cards', action='store_true',
+                   help='附带卡信息：牌组/queue/type/due/interval（只读）')
+    p.add_argument('--limit', type=int)
+    p.add_argument('--json', action='store_true')
+    p.set_defaults(func=cmd_notes)
+
     p = sub.add_parser('tags', help='列出所有标签')
     p.add_argument('--json', action='store_true')
     p.set_defaults(func=cmd_tags)
@@ -1336,6 +1443,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == 'revlog' and args.card_ids:
         args.card_ids = [x for x in args.card_ids.replace(',', ' ').split() if x]
+    if args.cmd == 'notes' and args.ids:
+        args.ids = [x for x in args.ids.replace(',', ' ').split() if x]
     try:
         return args.func(args)
     except AnkiError as exc:                            # noqa: BLE001

@@ -90,6 +90,15 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 **JAR > 30000 不再是门槛**（2026-11-01 去掉）：有排名就进候选，重要性交给模型精排；
 公式里的频率项对 ≥30000 一律记 0 分（夹在 1–30000），不会爆分也不会算出负数。
 
+**词表索引不再复制收藏库**（2026-11-07）：`today-new` / `subtitle-tag` 的 `VocabIndex`
+改为只从 AnkiConnect 现读 —— `notesInfo` 取词形/读音/词性/JAR/标签，`is:new` /
+`is:suspended` / `is:buried` 三个检索集合取卡片状态，命中字幕的卡再用 `cardsInfo` 补
+`due` 等精确字段。此前每次运行都把 73 MB 的 `collection.anki2` 连同 `-wal/-shm` 复制到
+`data/snapshots/live-*` 再开 sqlite：白烧一次 SSD 写入，而且 `snapshot_path` 这个口子一旦
+被传入，读到的就是**没有学习记录的旧备份**——「这张卡我没学过」会整批判错。代价是每次
+多约 20 秒（实测 27,206 张卡 / 约 56 MB 本机流量 / 0 次磁盘写入）；全量 `cardsInfo` 因为
+带渲染 HTML 要 47 秒 / 913 MB，所以只按命中的卡取。
+
 **「这个词库里有没有」的写法口径**（issue #10 B1，2026-11-03）：`today-new` /
 `subtitle-tag` 用的 `VocabIndex` 与 mine 的收录判据共用 `jp_text.vocab_shape_variants`
 ——含汉字词的活用词干（`調べる→調べ`）与平假名↔片假名互转（卡上 `せりふ` 现在认得字幕里的
@@ -166,9 +175,10 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_ruby_wrap.py` | `<ruby>` 构造唯一：wrap / to_ruby / ruby_word / ruby_text |
 | `test_core6000_text.py` | core6000 ② 的纯渲染：词性中文化、注音、词表目标行/去重，且只实现一份 |
 | `test_import_guard.py` | execution 跨脚本借用的白名单（issue #5）：白名单外新增即失败；汉字/假名正则不许再造第二份。issue #12 后按**相对 `code/execution/` 的路径**扫子夹（`core6000/…`、`lesson/…`），同族配对的键也跟着改 |
+| `test_anki_api_cli.py` | `anki_api.py` 的只读 CLI：`find` 的 id 走 stdout／条数走 stderr、`--json`、`--limit` 透传；`notes` 的 `--ids`/`--fields`/`--cards`/`--json` 分支、缺失 noteId 报 stderr、无参数退出 2；源码级只读保证（不出现写接口） |
 
 跑完会在 `temp/test_*` 留下产物，属于正常（`temp/` 就是一次性文件区）。动过 `common/` 或
-`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 26 个），与本环境无关的
+`execution/` 就把 `code\tests\*.py` 全跑一遍（以目录实际数量为准，现 27 个），与本环境无关的
 都应 0 才算完；缺依赖的那几个（`sudachipy` / `requests` / `jmdictpy` / 全局技能 local-llm）
 按各自的 ImportError 判定，不算回归。只改文档不用跑。
 
