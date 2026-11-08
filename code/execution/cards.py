@@ -10,8 +10,9 @@
 --------------------------
 1. 输入契约：`Sentence` / `Word` / `Source` 三个字段。`Sentence` 是唯一骨架，
    `Word` 非空时核心词汇第一条必须是它，`Source` 只用来判断语域。
-2. 生成：本地模型（OpenAI Responses API），提示词正本 =
-   `pipeline.py` 的 `LOCAL_INSTRUCTION`（改提示词只改那一处）。
+2. 生成：本地模型（OpenAI Responses API），讲解/振假名规则正本 =
+   `code/execution/card_rules.md`（pipeline 与 core6000 共用；这里直接用
+   `pipeline.LOCAL_INSTRUCTION`，改规则只改正本）。
 3. **`Sentence HTML` 不信模型**：`ruby_engine` 拿原始 `Sentence` 当骨架重渲染。
    逐字一致是构造出来的，缺的读音按「人工例外表 → 字幕注音 → 本 deck → Sudachi」补。
    模型给的读法只在没有更权威来源时保留（`repair(mode='fix')`）。

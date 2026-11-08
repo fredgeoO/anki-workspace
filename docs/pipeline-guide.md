@@ -194,8 +194,9 @@ deck 读音词典盖住 20 个、**两道都盖不到 185 个（274 次）**。
 真觉得某集重要，就把 `verify` 和写后回读加回去跑一遍。
 
 还有两处**没有**动，因为它们直接关系教学质量：
-- 阶段四的判定仍要读完整规范（`mine-agent-instruction.md`）；阶段二已改成
-  `pipeline.py` 里自包含的 `LOCAL_INSTRUCTION`（本地模型读不了文件，规范必须压进提示词）；
+- 阶段四的判定仍要读完整规范（`mine-agent-instruction.md`）；阶段二的讲解/振假名规则
+  收敛成**一份正本** `code/execution/card_rules.md`（与 core6000 补例句共用），
+  加载时展开进提示词，模型侧仍是自包含全文；
 - `check_ruby.py --blind-out` 的读音清单仍建议让强模型过一遍（读音错了看不出来）。
   想再省，就从这两处下手，不要从"少查一遍结构"下手。
 
@@ -294,8 +295,9 @@ PS 侧只能这样加载：本 shell 是受限令牌，`.ps1` 文件跑不了（
 & $PY "$EXE\pipeline.py" write                                # 校验 + 入库
 ```
 
-- **提示词正本 = `pipeline.py` 的 `LOCAL_INSTRUCTION`**（改提示词只改这一处；
-  `jp-card-agent-instruction.md` 附录 B 只留对照表）。一次请求默认 **6 张**（`--per-request`），
+- **规则正本 = `code/execution/card_rules.md`**（改规则只改这一处；pipeline 的
+  `LOCAL_INSTRUCTION` 与 core6000 的提示词都由它拼出，`jp-card-agent-instruction.md`
+  附录 B 只留对照表）。一次请求默认 **6 张**（`--per-request`），
   14 张的批 ≈ 3 次请求，一趟 4–8 分钟，**零云端 token**。
 - **按 ~14 张/批** 切开：一张卡要产出 350–600 字符的讲解，一次全塞进去会把输出上限吃满。
 - `gen` **默认跳过已存在的 `output_NN.json`**，中断了直接重跑即可续跑；重做整批加 `--force`。
@@ -381,8 +383,8 @@ PS 侧只能这样加载：本 shell 是受限令牌，`.ps1` 文件跑不了（
 **试跑只在"提示词或规范刚改过"时才需要。** 2026-09 首次跑通时，试跑 3 张发现了 3 处规范缺陷
 （"剥标签后逐字一致"表述不可实现、变形解析段漏标 ruby、纯假名被标 ruby），
 都是看到真实产出才暴露的；定稿之后每集再试跑一遍只是把同一份提示词送两遍，
-所以第 6 步之后直接全量跑即可。**改动过 `pipeline.py` 的 `LOCAL_INSTRUCTION`
-或 `jp-card-agent-instruction.md` 时才回来试跑 2–3 张。**
+所以第 6 步之后直接全量跑即可。**改动过 `code/execution/card_rules.md`
+（讲解/振假名规则正本）或 `jp-card-agent-instruction.md` 时才回来试跑 2–3 张。**
 
 **第 10–11 步的演练不能跳**（这是唯一"人看载荷"的机会，见下面的踩坑）：先 `write`（不加 `--commit`）
 看一遍 `dryrun_notes.json` 的 `word` 列与例句振假名，再到 Anki 里确认 1 张卡的渲染，
@@ -402,7 +404,8 @@ PS 侧只能这样加载：本 shell 是受限令牌，`.ps1` 文件跑不了（
 | 文件 | 作用 |
 |---|---|
 | [filter_subtitle.py](../code/execution/filter_subtitle.py) | 入库前的字幕前置筛选（probe / apply / verify），判据同阶段一 |
-| [pipeline.py](../code/execution/pipeline.py) | 流水线主脚本（prepare / triage / apply / split / gen / write；verify 为可选的事后校验）。**阶段二的提示词正本 = 脚本里的 `LOCAL_INSTRUCTION`** |
+| [pipeline.py](../code/execution/pipeline.py) | 流水线主脚本（prepare / triage / apply / split / gen / write；verify 为可选的事后校验）。**阶段二的提示词 = 规则正本 `card_rules.md` 拼出的 `LOCAL_INSTRUCTION`** |
+| [card_rules.md](../code/execution/card_rules.md) | **讲解/振假名规则正本**（阶段二与 core6000 补例句共用；装载器 `code/common/card_prompt.py`） |
 | [jp-card-agent-instruction.md](jp-card-agent-instruction.md) | 生成阶段的完整规范（附录 B 是提示词对照表） |
 | [check_cards.py](../code/common/check_cards.py) | 自检器，支持文件模式和 `--anki` 直接扫库 |
 | [check_ruby.py](../code/common/check_ruby.py) | **振假名读音**自检：拿字幕自带注音 + deck 已有卡的先例校验，`--blind-out` 列出盖不到的读音（见 §0.3）|

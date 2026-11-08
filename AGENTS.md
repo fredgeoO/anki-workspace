@@ -156,7 +156,7 @@ README §7 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 | 某功能怎么用 | `docs/<功能>-使用说明.md` | 5–24 KB |
 | 已退场的旧入口 | `docs/deprecated.md` | 10 KB（**历史只记这里**） |
 | 为什么这么设计 | `docs/decisions/` | 按主题 |
-| 改提示词 | `docs/jp-card-agent-instruction.md`、`mine-agent-instruction.md`、`japanese-word-example-teaching.md` | 大，只在改提示词时读 |
+| 改提示词 | `code/execution/card_rules.md`（讲解/振假名规则正本）、`docs/jp-card-agent-instruction.md`、`mine-agent-instruction.md`、`japanese-word-example-teaching.md` | 大，只在改提示词时读 |
 
 **禁读**（烧 token，或根本不是文本）：
 

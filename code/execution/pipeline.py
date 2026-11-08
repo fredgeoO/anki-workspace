@@ -52,6 +52,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py 
 sys.path.insert(0, _HERE)
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
 import batchjob as BJ  # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
+import card_prompt as CP  # noqa: E402  讲解规则正本的装载器（card_rules.md）
 import check_cards  # noqa: E402
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
 import jp_text as JT  # noqa: E402  纯文本清洗与字符判定的唯一实现（issue #5：上提进 common）
@@ -495,62 +496,11 @@ JSON 数组，每项 {{noteId, sentence, AINote, SentenceHTML}}，sentence 原�
 【禁止】不要调用 AnkiConnect，不要写入 Anki，不要修改输入文件，不要改动 {gen} 目录之外的任何文件。
 不要跑 check_cards.py 自检、不要反复重写整批 —— 入库前 write 会统一校验一次，把结果交给它。'''
 
-# 本地模型用的提示词（正本）。**改提示词只改这里**：docs/jp-card-agent-instruction.md 附录 B
-# 是它的说明版，SKILL.md 指向本节。特点：自包含（本地模型读不了文件）、一次一批、
-# 只输出 JSON、不要自检（校验由 cmd_gen 机械地做一次）。
-LOCAL_INSTRUCTION = '''你是精通日语的语言学教授。输入是一批 Anki 例句卡，为每张卡生成讲解（AINote）与带振假名的例句 HTML（SentenceHTML）。
-
-【输入】JSON 数组，每项 {noteId, sentence, word, source}
-  sentence：字幕例句原文，可能含 <br>、全角空格、〓 这类字幕噪声——一律原样对待
-  word：非空时是这张卡指定的重点词，核心词汇的第一条必须是它
-  source：出处，只用来判断语域（动画口语 / 新闻 / 旁白），不要写进结果
-
-【输出】只输出一个 JSON 对象，前后不要任何解释或 markdown 围栏：
-{"cards":[{"noteId":123,"AINote":"…","SentenceHTML":"…"}]}
-输入里每张卡都要有一条对应输出，noteId 原样照抄，顺序与输入一致。
-
-【AINote】固定三段、每段一个 <p>，第四段按需出现：
-<p><b>中文翻译：</b>自然流畅、符合语境的中文翻译。</p>
-<p><b>核心词汇：</b><br><ruby>漢字<rt>かな</rt></ruby>：词性。中文释义。（外来语附源词）<br>…</p>
-<p><b>语法要点：</b><br>句型：含义 + 接续 + 功能<br>…</p>
-<p><b>动词变形解析：</b><br>原形 → 变形（名称） → 变形（名称）＋辅助词<br>…</p>
-- 核心词汇只列句中真的出现过的词，2–5 个，不要堆词典；word 非空时它的词条排第一
-- 词性用：名词／イ形容词／ナ形容词／自动词／他动词／副词／接续词／惯用句
-- 动词变形解析只写句中真实存在的活用（例：戻る（原形）→ 戻っ（连用形·促音便）→ 戻った（た形）＋時に）；
-  全句没有活用动词（名词句、形容词句）就整段省略
-- 整段 AINote 控制在 400 字以内：这是复习卡，不是词条页
-
-【SentenceHTML】只含例句本身：给日语汉字标 ruby，不加翻译、不加解释、不用 <p> 包裹、
-不加句末标点、不改任何空格与标点、<br> 原位置保留单个。
-
-【铁律】
-1. 只用 <p> <br> <b> <ruby> <rt> 五个标签；禁止 div/span/style/class 与任何属性
-2. 禁止 LaTeX、禁止反斜杠、禁止 $；推导一律用全角箭头 →
-3. 禁止 markdown（不要 ``` 围栏、不要 **）；禁止半角双引号 "，需要引号时用「」
-4. 送假名放在 <rt> 之外：<ruby>食<rt>た</rt></ruby>べる、<ruby>届<rt>とど</rt></ruby>ける；熟字训整体标：<ruby>今日<rt>きょう</rt></ruby>
-5. 敬语接头辞 お/ご 放在 <ruby> 之外：お<ruby>墓<rt>はか</rt></ruby>
-6. 纯假名词不标 ruby（不要写 <ruby>と<rt>と</rt></ruby>）；中文汉字绝不标 ruby（中文翻译、中文释义里的字都不标）
-7. 读音吃不准的人名、生僻字：不猜，该词不加 ruby，其余照常
-8. SentenceHTML 删掉全部 <rt>…</rt> 整块、再剥掉其余标签后，必须与 sentence 逐字相同，<br> 数量也要相同
-9. 确实无法给出可靠讲解时（乱码、整句没有可解释的语义单位）：AINote 与 SentenceHTML 都输出空字符串 ""，
-   不要编造；其余卡照常生成
-10. **值的类型**：noteId 必须是 JSON 数字（照抄输入，别加引号）；AINote / SentenceHTML 的值必须是
-   JSON 字符串 —— 不要写数字、true/false、数组或 null（类型不对这张会被打回重做，白跑一趟）
-11. 输入里**每张卡都要有一条输出对象**：不确定的卡按第 9 条把两个字段留空，**不要省略整个对象**
-12. **振假名以"词"为单位**：读音要覆盖整个汉字词（食わす → くわす），不要只给词的一部分标读音、
-   也不要把助词/送假名的读音塞进汉字的 <rt>；同形异读（如 辛い=からい/つらい）拿不准时按第 7 条不加 ruby
-13. **核心词汇必须是这句里真出现过的词**：句中是「あの子」，就不要把词条写成「子ども」；
-   词典形对活用形（送る → 送った）可以，但必须是同一个词，不许拿上位词/近义词顶替
-14. **语法要点要写完整、不自相矛盾**：一句话说完，不要停在「…」「「」这类半截上；
-   「一定是～」就写「表示高确信度的推测」，不要写成「觉得一定是～」（既"觉得"又"一定"）
-
-【示例】输入 {"noteId":1,"sentence":"郵便局に戻った時に調べてみるよ","word":"","source":"…"}
-输出 {"cards":[{"noteId":1,"AINote":"<p><b>中文翻译：</b>回邮局的时候我查查看。</p><p><b>核心词汇：</b><br><ruby>郵便局<rt>ゆうびんきょく</rt></ruby>：名词。邮局。<br><ruby>戻<rt>もど</rt></ruby>る：自动词（五段）。返回、回到。<br><ruby>調<rt>しら</rt></ruby>べる：他动词（一段）。调查、查询。</p><p><b>语法要点：</b><br>〜た時に：表示「在……的时候」，接在动词た形后，提示后项动作发生的时间点。<br>〜てみる：表示「试着做某事」，接在动词て形后，带有尝试的语感。</p><p><b>动词变形解析：</b><br>戻る（原形）→ 戻っ（连用形·促音便）→ 戻った（た形）＋時に<br>調べる（原形）→ 調べて（て形）＋みる → 調べてみる（〜てみる）</p>","SentenceHTML":"<ruby>郵便局<rt>ゆうびんきょく</rt></ruby>に<ruby>戻<rt>もど</rt></ruby>った<ruby>時<rt>とき</rt></ruby>に<ruby>調<rt>しら</rt></ruby>べてみるよ"}]}
-
-【输出前逐张核对（最常见的三类错误）】
-1. SentenceHTML 里**不能有任何 <ruby> 之外的汉字** —— 逐字扫一遍，漏一个就算不合格
-2. <br> 的数量与位置和 sentence 完全一致；全角空格、〓 等噪声原样保留
-3. 任何半角双引号 " 都换成「」；不要出现 $ 与反斜杠'''
+# 本地模型用的提示词：**规则正本在 code/execution/card_rules.md**
+# （pipeline 与 core6000 补例句共用同一份；装载器 code/common/card_prompt.py）。
+# 这里只保留本入口的输入/输出外壳：一次一批、输出 AINote HTML + SentenceHTML。
+# **改讲解/振假名规则去改正本，不要把规则再抄回这里。**
+LOCAL_INSTRUCTION = CP.pipeline_instruction()
 
 GEN_MAX_TOKENS = 8192        # 单次请求的输出上限（Responses 的 max_output_tokens）
 

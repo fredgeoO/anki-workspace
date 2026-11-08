@@ -74,6 +74,8 @@ REPORTS = os.path.join(DOCS, 'reports')
 CHECK_CARDS = os.path.join(COMMON, 'check_cards.py')
 CHECK_MINE = os.path.join(COMMON, 'check_mine.py')
 DOC_JP_CARD = os.path.join(DOCS, 'jp-card-agent-instruction.md')
+# 卡片讲解规则正本（Sentence HTML / AINote 共用）：pipeline 与 core6000 都从这里拼提示词
+DOC_CARD_RULES = os.path.join(EXECUTION, 'card_rules.md')
 DOC_MINE_AGENT = os.path.join(DOCS, 'mine-agent-instruction.md')
 
 SNAP_ANKISNAP = os.path.join(SNAPSHOTS, 'ankisnap', 'c.anki2')

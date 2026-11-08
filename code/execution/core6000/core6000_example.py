@@ -158,6 +158,7 @@ import audio_names as AN      # noqa: E402  [sound:…] 解析（common）
 import htmltext as HT         # noqa: E402  HTML 去标签（common）
 import jp_text as JT          # noqa: E402  纯文本清洗与字符判定（common；issue #5）
 import llm_client as LC       # noqa: E402  本地模型客户端（common；issue #5）
+import card_prompt as CP      # noqa: E402  讲解规则正本装载器（code/execution/card_rules.md）
 import ruby_text as RT        # noqa: E402  振假名解析与纯文本（common）
 import edge_tts_min as TTS    # noqa: E402
 # ② 的纯渲染（词性/注音/词表）：实现在 core6000_text.py；这里 import 是为了模块级
@@ -823,7 +824,7 @@ def capabilities(system_prompt_path=None):
     if os.path.exists(path):
         try:
             with open(path, encoding='utf-8') as fh:
-                text = fh.read()
+                text = CP.expand(fh.read())      # 与真正发给模型的是同一份（含共用正本）
         except OSError:
             text = ''
     return {'merge': all(k in text for k in ('core1', 'grammar1', 'conjugation1', 'context1')),
@@ -1335,13 +1336,18 @@ def gate_apply(card, entry, rendered, write=None):
 # gen：直连本地模型
 # ============================================================================
 def load_system_prompt(path=None):
+    """读系统提示词外壳，并把 `{{RULES}}` 展开成共用规则正本。
+
+    正本是 `code/execution/card_rules.md`（pipeline 阶段二用的是同一份）：讲解/振假名规则
+    只维护那一处，本文件只保留「输入是什么、输出成什么键」的外壳。
+    """
     path = path or PROMPT_FILE
     if not os.path.exists(path):
         raise SystemExit('找不到系统提示词文件：%s\n'
                          '（默认 code/execution/core6000/core6000_example_prompt.md；'
                          '用 --system-prompt 指别处）' % path)
     with open(path, encoding='utf-8') as fh:
-        return fh.read().strip()
+        return CP.expand(fh.read()).strip()
 
 
 def build_messages(system_prompt, payloads, nudge=None):
