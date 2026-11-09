@@ -1,6 +1,6 @@
 # 本地模型链路 · 防错手册
 
-> 状态：active ｜ 最后核实：2026-11-03
+> 状态：active ｜ 最后核实：2026-11-09
 
 **这是什么**：本地模型（qwen3.8-27b @ NInfer 4090）在这条链路里干两件活（补讲解、挖生词），
 这份手册讲怎么用代码把「出错」变成「可诊断、可重试、不连坐」。
@@ -38,7 +38,7 @@
 | # | 现象 | 根因 | 防护（代码位置） | 测试 |
 |---|---|---|---|---|
 | 1 | `merge-fix` 报"并入 2 条"，真实词条 `錆` 被覆盖成排除条目，`write` 被堵死 | `patch_outputs` 前缀回退不区分占位条目，`錆` 恰是 `錆臭ぇ` 的前缀 | 前缀回退**只允许落在占位条目**（`is_placeholder`）+ 排除本批其他原词 + 一条 fix 只改一条 + 落空告警（`mine.py patch_outputs`） | test_mine_patch 1–5 |
-| 2 | `write` 报「例句中找不到该词形 ['介抱する']」 | `conjugation_variants` 把 `する` 当普通词尾，`サ変` 生不出 `介抱し/した/して` | `endswith('する') and len>2` 单独展开并提前返回（`pipeline.conjugation_variants`） | test_mine_patch 8 |
+| 2 | `write` 报「例句中找不到该词形 ['介抱する']」 | `conjugation_variants` 把 `する` 当普通词尾，`サ変` 生不出 `介抱し/した/して` | `endswith('する') and len>2` 单独展开并提前返回（`jp_text.conjugation_variants`，原在 pipeline.py，后上收到 common） | test_mine_patch 8 |
 | 3 | `write --commit` 整批被拒 `cannot create note because it is a duplicate`（6 条全新词） | `Index` 是笔记类型**首字段**，而序号用了"笔记条数+1"，曾删卡留空洞 → 撞上仍在的 6100 | `next_index()` 取**模型内数字最大值 + 1**，写前打印序号（`mine.py next_index`） | — |
 | 4 | 整批 `gen` 崩：`AttributeError: 'int' object has no attribute 'strip'`，已判好的条目一起丢 | 本地模型把 `translation` 回成了数字，校验器假设字段是字符串 | **吸收层** `code/common/llm_out.py`（`as_text`/`as_bool`/`is_boolish`）+ 校验器报"字段类型不是字符串"这条硬错误 + 每组 try/except | test_llm_out 1/3/4 |
 | 5 | 候选 `食わして` 一直进 `failed.json`；强模型"好心"补成 `食わす` 又被 `write` 判 mismatch | `same_origin` 要求"残差是输出词的子串"，而口语缩略形的词典形不含残差 | 提示词写死"**只能往后接**，否则原样保留候选" + `origin_possible()` 在**判定阶段**就拦下并给出可执行提示 | test_mine_patch 13 |
@@ -87,7 +87,7 @@ $EXE = "$WS\code\execution"
 & $PY "$EXE\mine.py" scan --tag "动画::…::第NN集"
 & $PY "$EXE\mine.py" split --batches N        # ≈10–15 候选/批
 & $PY "$EXE\mine.py" gen
-& $PY "$EXE\mine.py" write --commit           # 直接写（2026-10-12 口径）
+& $PY "$EXE\mine.py" write                   # 默认演练；确认清单无误再 --commit 真写
 ```
 
 跑完看三样东西，别的都不用查：
@@ -118,4 +118,10 @@ $EXE = "$WS\code\execution"
 * **长句批次**：`fit_groups` 只按估算切，估算偏保守；极端长对白仍可能单条超预算，
   这类卡会稳定进 `failed.json`（不是随机失败）。
 * 其它本地模型调用点（原先的 `code/tools/local_filter.py` 字幕筛选已随预筛链删除，
-  见 [docs/deprecated.md](../deprecated.md) §10）：现存调用点都走这份加固后的入口。
+  见 [docs/deprecated.md](../deprecated.md) §10）：每集流水线的两个 `gen` 走这份加固后的入口。
+  另有两个客户端**不经过本手册的吸收层**，各自自带闸门与重试：
+  * 每日讲义 / core6000 补例句 → `code/common/llm_client.py`（OpenAI Responses API `/v1/responses`）；
+    key 查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`
+    （全局正本；工作区 `.dsh/local-llm.json` 可选覆盖）。**不要把 key 写进代码或文档。**
+  * 选词精排等短上下文调用 → `code/common/local_llm.py`（转发层，实现唯一正本在全局技能
+    `~/.dsh/skills/local-llm/scripts/local_llm.py`；配置查找链同上）。

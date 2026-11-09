@@ -1,6 +1,6 @@
 # 架构与内部约定（architecture）
 
-> 状态：active ｜ 最后核实：2026-11-03
+> 状态：active ｜ 最后核实：2026-11-09
 
 **这是什么**：工作区的细节层 —— 代码怎么分区、六条约定怎么落地、各子系统的口径与踩坑。
 **为什么存在**：根 README 只讲入口与规矩，[implementation.md](implementation.md) 收数据流与阶段/口径；改代码、加脚本、排查「为什么这样设计」时看这里。
@@ -20,8 +20,8 @@
 | ＋ 共享库 | 被多个区 import 的实现与**路径常量** | 只提供服务，不单独当任务跑 | `code/common/` |
 | ＋ 一次性文件区 | **跑一次就该消失的东西**：临时脚本草稿、排查 dump、跑批日志、实验中间产出 | 不进代码库、不做长期依赖；做完一条命令清空 | `temp/` |
 
-统一入口 `code/cli.py` 与开工体检 `code/tools/doctor.py` 是 2026-10-10 新增的
-**门面**：`cli.py` 不含业务逻辑，只做「组 → 脚本」映射与参数透传。
+统一入口 `code/cli.py` 与开工体检 `code/tools/doctor.py` 是工作区的**门面**：
+`cli.py` 不含业务逻辑，只做「组 → 脚本」映射与参数透传。
 
 各区现有脚本：
 
@@ -102,7 +102,7 @@ deck 改名时只改那一处。
 ```
 
 **退出码**：`0` 全绿；`2` 只有提示（可开工，但看一眼）；`1` 有阻塞项 —— 先修再动手。
-它**只读**，一次跑完九项：
+它**只读**，一次跑完十项：
 
 | # | 检查 | 来源 | 判定 |
 |---|---|---|---|
@@ -112,13 +112,14 @@ deck 改名时只改那一处。
 | 4 | 废弃符号残留（doctor 独有） | 本仓库活跃区扫描 | 命中 = fail |
 | 5 | 快照卫生（manifest / probe 临时目录 / 快照是否过期） | doctor 独有 | 只 warn |
 | 6 | 文档状态行（`docs/**` 头部有「状态：」） | doctor 独有 | 只 warn（`reports/` 除外） |
-| 7 | 每集 preflight（待生成/判弃张数、建议 `--batches`、可用标签、孤儿产出） | skill 的 `preflight.py` | 退出码 + `[!]` 提示 → warn |
-| 8 | 环境与依赖（Python 版本、`data/pylibs` 条目、`pylibs.lock`） | doctor 独有 | 只 warn |
-| 9 | 工作区卫生（根目录白名单、`temp/` 里还有多少待清） | doctor 独有 | 只 warn |
+| 7 | 待建卡清单（`data/daily_new/unranked.json` 里还有多少没有 JAR 排名的词） | doctor 独有 | 只 warn |
+| 8 | 每集 preflight（待生成/判弃张数、建议 `--batches`、可用标签、孤儿产出） | skill 的 `preflight.py` | 退出码 + `[!]` 提示 → warn |
+| 9 | 环境与依赖（Python 版本、`data/pylibs` 条目、`pylibs.lock`） | doctor 独有 | 只 warn（`--quiet` 跳过） |
+| 10 | 工作区卫生（根目录白名单、`temp/` 里还有多少待清） | doctor 独有 | 只 warn |
 
-**为什么不重复实现**：第 1-3 项是既有自审，第 7 项是既有 preflight —— doctor 只做编排与
+**为什么不重复实现**：第 1-3 项是既有自审，第 8 项是既有 preflight —— doctor 只做编排与
 汇总，不另写一套规则（否则「同一件事只校验一次」这条约定自己先破了）。
-第 4-6、8-9 项是原来**没有任何脚本在查**的东西，这才放在 doctor 里。
+其余各项是原来**没有任何脚本在查**的东西，这才放在 doctor 里。
 
 **第 4 项的口径**（避免误报）：
 - 只扫「给当前指令」的文件：`code/execution|analysis|tools`、`.dsh/skills`、`README.md`、
@@ -248,9 +249,8 @@ Jiten 排名却是 #20,089；`琵琶` #46,461、`棟梁` #44,068 同理）。换
 上的 [Jiten](https://jiten.moe/frequency-dictionaries) Anime 词表，排序深度和泛化性都好得多；
 它按「出现在多少部不同作品里」排、不按单部里的重复次数排，正好抵消这种单集噪声。
 
-**最硬的一条理由**：现在可发的 live 新卡（9,986 个不同的词 / 11,990 张卡）里，只有 **1,949** 个
-词在那 36 集里出现过 —— 本地清单能排的就这些，其余次数一律为 0、**完全排不了先后**。
-Jiten 能给其中 **96.0%** 排上名。完整对比见
+**最硬的一条理由**：本地清单只覆盖在那些字幕里出现过的词，其余新卡次数一律为 0、
+**完全排不了先后**；Jiten 能给绝大多数排上名。完整对比见
 `docs/reports/外部词表排序对比.md`（本地报告，未入库）。
 
 ```powershell
@@ -259,9 +259,9 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 & $PY $FE download --media Anime      # → data/freq/jiten_freq_Anime.csv（CC BY-SA 4.0）
 & $PY $FE build    --media Anime      # → data/vocab_cover/study_plan_jiten_anime.json
 & $PY $FE compare  --media Anime      # 只读对比：覆盖率 / 秩相关 / 长尾队列 → 报告
-& $PY $FE field    --plan data/plans/plan_activate_jiten.json --add-field            # 演练：只写池子里的 11,990 个笔记
+& $PY $FE field    --plan data/plans/plan_activate_jiten.json --add-field            # 演练：只写计划池子里的笔记
 & $PY $FE field    --plan data/plans/plan_activate_jiten.json --add-field --commit   # 真写
-& $PY $FE field    --plan data/plans/plan_activate_jiten.json --all-notes --commit   # 连已学过的旧卡一起写（16,649 个笔记）
+& $PY $FE field    --plan data/plans/plan_activate_jiten.json --all-notes --commit   # 连已学过的旧卡一起写
 ```
 
 > **日常别手敲这一串**：用 preset `python code/cli.py vocab reorder-jiten`（§2.1），
@@ -280,35 +280,27 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 
 | 开关 | 不写会怎样 |
 |---|---|
-| `--all-cards` | 只排「一个词一张卡」，**同一个词的其余新卡保留原来的随机插队位置**（1、3、4…），插到排好的队列**前面**去。实测有 **2,326 张**这种卡。 |
-| `--exclude-decks "0-日本语学习::2-例句"` | 例句卡会被算进来（231 张），但例句卡有自己的激活路径，不该混进词汇词频队列 —— 不排它们，计划覆盖的卡才是「词汇卡」这一批。 |
+| `--all-cards` | 只排「一个词一张卡」，**同一个词的其余新卡保留原来的随机插队位置**（1、3、4…），插到排好的队列**前面**去。 |
+| `--exclude-decks "0-日本语学习::2-例句"` | 例句卡会被算进来，但例句卡有自己的激活路径，不该混进词汇词频队列 —— 不排它们，计划覆盖的卡才是「词汇卡」这一批。 |
 | `--global` | `activate.py` 默认把位置**按卡组分开**编号（每个牌组各从 1 排起），跨卡组的 `due` 大量并列，全局顺序就散了。 |
 
-**词表里查不到的卡**（实测 **101** 张：`自然に`/`必死に` 这类带助词的词条、`剝げる` 这类异体字、
-以及 Jiten 动画表里确实没有的词）统一排到**队尾**（`freq_rank: null`），不会被留在原来的随机位置。
+**词表里查不到的卡**（带助词的词条、异体字，以及 Jiten 动画表里确实没有的词）统一排到
+**队尾**（`freq_rank: null`），不会被留在原来的随机位置。
 
-实测结果（2026-10-06）：计划 **11,990** 张（= 覆盖到的全部新卡）；`due` 取值 1…11990 **全部唯一**；
-有排名的 11,889 张排名**单调不减**（28 → 176,614），101 张无排名的全在尾部。前 20 个：
-`でも(28) 私(29) ああ(35) お前(64) 俺(69) さ(87) 前(95) 前(95) より(107) 中(116) かえる(119) なの(134) まあ(156) ただ(159) まさか(162) ごめん(188) こいつ(214) バカ(255) 許す(275) 日(276)`。
-
-**2026-10-10 复跑**：计划变成 **11,907** 张（少 83 张 —— 已有卡毕业离开新卡池，属正常漂移），
-`data/plans/plan_activate_jiten.json` 已按当天状态重新生成；
-上一份（11,990 张、含各卡 `due_before` 的回退依据）备份在
-`data/plans/_prev/plan_activate_jiten.prev-<时间戳>.json` —— preset 每次覆盖前都会这样留一份
+每次重排都会覆盖 `data/plans/plan_activate_jiten.json`；preset 在覆盖前先把上一份
+（含各卡 `due_before`，是回退依据）备份到 `data/plans/_prev/plan_activate_jiten.prev-<时间戳>.json`
 （备份放 `_prev/` 子目录，`activate.py:latest_plan()` 只 glob 本层，不会误取）。
+计划张数随新卡池漂移属正常：已有卡毕业离开新卡池就会少几张。
 
 ### 5.3 排名字段 `JitenAnimeRank`（注解，不参与排序）
 
 `freq_external.py field` 把排名写成笔记字段：**`%06d` 补零**（浏览器按字段排序是文本序，
 补零后文本序 == 数值序），词表里查不到的写 `999999`（文本序排最后）。
-两个范围：默认只写池子里那 **11,990** 个笔记；加 `--all-notes` 连**已学过的旧卡**一起写 ——
-旧卡不在 plan 里，改按「笔记里的词 → 词表排名」重新查，实测共 **16,649** 个笔记
-（`Japanese Vocabulary` 6,040 + `eggrolls-JLPT10k-v3.5` 10,609，含 106 个 `999999`）。
+两个范围：默认只写计划池子里的笔记；加 `--all-notes` 连**已学过的旧卡**一起写 ——
+旧卡不在 plan 里，改按「笔记里的词 → 词表排名」重新查（覆盖两类词汇卡的全部笔记）。
 
-写回值可信度有一步自检：`--all-notes` 那条推导路与 plan 的值**逐条对照，不一致 0 个**
-（说明 plan 的 `freq_rank` 与字段写回同源）。抽样：`する`→`000013`、`これ`→`000023`、
-`私`→`000029`、`行く`→`000041`、`見る`→`000050`、`でも`→`000028`、`随想`→`176614`。
-**重跑幂等**：值对了就跳过、不动 `mod`（实测第二次「需要写入/更新：0 个」）。
+写回值可信度有一步自检：`--all-notes` 那条推导路与 plan 的值**逐条对照，不一致应为 0**
+（说明 plan 的 `freq_rank` 与字段写回同源）。**重跑幂等**：值对了就跳过、不动 `mod`。
 
 **它决定不了学习顺序**，别指望它替代 `due`：Anki 新卡队列的顺序只有一个来源 —— `cards.due`
 （= 位置）。`Filtered.SearchTerm.Order` 和卡组的 `NewCardGatherPriority` /
@@ -317,19 +309,16 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 可以建「只学排名 < N」的筛选牌组（regex 搜字段）、排序依据留在库里不依赖工作区脚本。
 想在卡片上直接看到：给模板加一行 `{{JitenAnimeRank}}`，或先把它在浏览器加成列。
 
-⚠ **加字段的副作用**：Anki 会给这两个笔记类型的**全部**笔记补一个空字段 —— 实测 17,633 个
-笔记里 **16,649 个**的 `flds`/`mod` 被改（11,990 写值 + 4,659 自动补空，后来那 4,659 也用
-`--all-notes` 补上了值）。所以下次同步要传这 16,649 个笔记（一次性大 delta，多设备建议先同步再动）。
+⚠ **加字段的副作用**：Anki 会给这两个笔记类型的**全部**笔记补一个空字段 ——
+`flds`/`mod` 被大面积改动，下次同步要传一大批笔记（一次性大 delta，多设备建议先同步再动）。
 **卡片调度列（`due/ivl/factor/reps/lapses/type/queue`）零改动** —— 写库前后逐字段 diff 过两次：
 写库前已学的 6,227 张卡**调度列改动 0 张**，新卡只有 `due` 那 11,990 张。
 
 > `--all-notes` 自带护栏：演练/真写都打印「改 N 个笔记 → 下次同步要传 N 个」；`--commit` 前落
 > 写前快照（1 小时内的直接复用），写后用快照 diff 调度列，非零就告警。
 
-**`JitenGlobalRank`（2026-10-29 加）** —— 同一套实作逻辑，换一把尺子：词表用 Jiten 的
-**Global**（全媒介合并，460,896 行 / 554,660 个归一化键），写 `JitenGlobalRank`，覆盖两类
-词汇卡的**全部**笔记（`Japanese Vocabulary` 15,212 + `eggrolls-JLPT10k-v3.5` 10,650 =
-25,862 张）：
+**`JitenGlobalRank`** —— 同一套实作逻辑，换一把尺子：词表用 Jiten 的
+**Global**（全媒介合并），写 `JitenGlobalRank`，覆盖两类词汇卡的**全部**笔记：
 
 ```powershell
 & $PY -X utf8 code\analysis\vocab_cover\freq_external.py field `
@@ -338,10 +327,10 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 
 `--models` 是「按笔记类型全量回填」入口：不需要 plan、不需要待办 tag、不摘任何 tag；
 护栏与 `--all-notes` 相同（同步影响行、写前快照、写后调度列 diff），另加写后
-`verify_note_fields` 回读。**它同样只是注解**：`jiten_reorder` 与 `activate.py` 仍只认
+`verify_note_fields` 回读。**它同样只是注解**：重排链与 `activate.py` 仍只认
 `JitenAnimeRank`（Global 与 Anime 是两套排名，换尺子要先改配置、并想清楚后果）。
-查不到的词仍写 `999999`；实测查不到 60 个（`似ている`、`介抱する`、`でかくて` 这类活用形/
-词组条目），它们在 Anime 表里同样是 `999999` —— 两条路的分歧只来自词表本身。
+查不到的词仍写 `999999`（活用形/词组条目这类），它们在 Anime 表里通常同样是 `999999` ——
+两条路的分歧只来自词表本身。
 
 ### 5.4 顺序为什么会生效
 
@@ -370,21 +359,19 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
   **类别标签扁平**（一个专名可同时是「人名」+「称号」），**出处标签继承 `动画::<作品>` 两层**
   （不带季度/集数，所以 `tag:动画::水星领航员` 同时搜到例句卡与专名卡）；
   脚本不写 `due`/不 suspend/不改牌组选项。
-  `today_new.py` 的 `STUDY_UNITS`、`collect_vocab.py` 的 `DECK_SPECS`、`jiten_reorder` 的 `decks`
-  都没有它 → 讲义、覆盖率、词频序自动看不见它（这是刻意的）。
+  `today_new.py` 的 `STUDY_UNITS`、`collect_vocab.py` 的 `DECK_SPECS` 都没有它 → 讲义、覆盖率自动看不见它（这是刻意的）。
 * ⚠ **顺序会自己漂移**：新加入的卡拿的是**随机位置**（`new_card_insert_order = RANDOM`），
   会随机插进排好的队列中间。加了一批词之后要重排：脚本走
   `python code/cli.py vocab reorder-jiten --commit`（= §5.2 那条链）；
   手动则是浏览器按 **Sort Field 列**（现在就是 `JitenAnimeRank`）排序 → 全选 → Cards → Reposition。
 
-### 5.5 只动没学过的卡（三重保证 + 实测，2026-10-06 核实）
+### 5.5 只动没学过的卡（三重保证）
 
 ① 计划生成时只查 `is:new`；② `activate.py apply` 写库前**逐张从 live 重读**，
 `type != 0`（学习中/复习/重学）一律剔除并打印「⛔ 已不是新卡」；③ `revert` 也只还原
 `type == 0` 的卡。已学卡的位置、ease、interval 都不会被碰。
-写库前后拿快照逐字段 diff（`data/snapshots/pre_freq_reorder/`，
-`type,due,ivl,factor,reps,lapses,queue` 七列全比）：**6,227 张已学卡改动 0 张**；
-11,990 张新卡只改了 `due` 一列，其余六列零改动。
+写库前后拿快照逐字段 diff（`type,due,ivl,factor,reps,lapses,queue` 七列全比）核对：
+已学卡改动应为 0，新卡只改 `due` 一列。
 
 ### 5.6 它换不掉什么（别混）
 
@@ -401,9 +388,7 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 ### 6.1 本机 shell 是 PowerShell 5.1，默认编码 ANSI=GBK
 
 `Get-Content` / `Import-Csv` / `Out-File` 的默认编码是 ANSI=GBK，而工作区文本几乎都是 UTF-8。
-**2026-10-08 的事故**：用 `Get-Content cmp_out.json -Raw | ConvertFrom-Json` 读 UTF-8 产出，
-`ConvertFrom-Json` 直接报「传入的对象无效」，`$o` 为 `$null`，于是「字段为空就删」的判断对
-**每一个**文件都成立 —— 误删了 `output/cmp4` 里 39 个产出（回归结果丢失，只能重跑）。
+用它读 UTF-8 产出会把日文解成乱码、按日文字段名取的属性全 `$null`，判断随之失真（历史上因此误删过产出）。
 
 两半解法：Python 侧 `code/common/textio.py`（import 即接管）；PowerShell 侧
 `code/common/ps-utf8.ps1`。**加载方式有实测结论**：DSH 的 shell 是受限令牌，`.ps1` 文件
@@ -413,18 +398,15 @@ $FE = "$WS\code\analysis\vocab_cover\freq_external.py"
 `iex ([IO.File]::ReadAllText("$WS\code\common\ps-utf8.ps1", [Text.Encoding]::UTF8))`，
 或 `Set-ExecutionPolicy -Scope Process Bypass -Force` 之后再 dot-source；
 ad-hoc 的 python 一行加 `-X utf8`。
-`$PROFILE`（UTF-8 带 BOM）2026-10-08 已装好，**对你自己开的 PowerShell 窗口生效**，
-沙箱会话吃不到。迁移前的完整备份在 `data/evidence/textio_migration_backup/`；
-档案见 [docs/plans/2026-10-08-编码统一-textio.md](plans/2026-10-08-编码统一-textio.md)。
+`$PROFILE`（UTF-8 带 BOM）已装好，**只对你自己开的 PowerShell 窗口生效**，沙箱会话吃不到。
 
 ### 6.2 删除 / 覆盖前先打印「将删 N 个」
 
-这条是从上面那起事故里长出来的：**任何删除或覆盖前，先打印将被删/改的清单与计数，
-数字与预期不符就 abort**。`code/oneshot/migrate_textio.py` 是这种默认演练的写法。
-原因很直白：一旦 PowerShell 把日文解成乱码，按日文字段名取的属性全 `$null`，
-`if (-not $x.字段)` 就对每一个文件成立 —— 打印计数是唯一能在动手前看出来的信号。
+**任何删除或覆盖前，先打印将被删/改的清单与计数，数字与预期不符就 abort**。
+原因：一旦编码把日文解成乱码、字段属性全 `$null`，「为空就删」的判断会对每个文件都成立 ——
+打印计数是唯一能在动手前看出来的信号。
 
-一次性文件区的清理就是这个模式的**现役实现**（2026-10-20 起）：`temp_clean.py` 先打印
+一次性文件区的清理就是这个模式的**现役实现**：`temp_clean.py` 先打印
 「将删 N 个文件 / X MB」与按顶层条目的汇总，再动手；`--dry-run` 只看不删。
 
 ### 6.3 快照现状（`data/snapshots/`）

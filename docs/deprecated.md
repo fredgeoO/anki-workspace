@@ -115,6 +115,8 @@
 见 [architecture §2.1](architecture.md)）；② `revert` 历史批次。
 回退依据：`data/plans/plan_activate_*.json`（每张卡的 `due_before`），**别删**。
 
+> 2026-11-09 注：写 due 的实现已两度变更——脚本直写（见 §13，AnkiConnect 现把 `due` 列为 protected）→ 插件 `jiten_reorder` → ImmersionKit `write` 落 due。本节的「激活」判定口径不变。
+
 ## 7. 关于 `docs/plans/` 与 `docs/reports/`
 
 这两处是**史料**，不是指令：
@@ -129,6 +131,8 @@
 `reports/` 每篇都加状态行。
 
 ## 8. `wordlist_due.py` / `subtitle_review.py` —— 字幕生词排期
+
+> 注：`subtitle_new_words.py` **仍在役**（`subtitle_tag` / `today_new_words` / `rank_gate` 都 import 它），退场的只是上面两个排期入口。
 
 **删除日期**：2026-10-23
 
@@ -185,3 +189,71 @@ git 历史取回参考。
 **恢复路径**：`git show <删除提交>^:code/tools/prefilter_subtitle.py`（三个文件同理）。
 数据侧无需处理：`data/evidence/<集>/prefilter.csv`、`subtitle_index.json`、
 `subtitle_common.json` 只是失去写入者，留着无害。
+
+## 11. `jiten_reorder` —— 词频序重排的旧入口名（2026-11-09 归档）
+
+`architecture.md` §5.4 曾把 `jiten_reorder` 当作 `code/` 下的现役脚本入口引用；grep 核实代码里并无此入口。
+按 JitenAnimeRank 重排新卡位置的实际链路：原先走脚本（见 §13），现走 Anki 插件 `data/anki_addon/jiten_reorder/`（见 §6）。
+文档侧已改为「重排链」表述；本条只记录旧入口名不再使用。
+
+## 12. `ainote_enrich.py` 直连脚本入口（2026-11-09 起文档只写 cli.py）
+
+`docs/ainote-enrich-使用说明.md` 曾给出 `$AE = code\execution\ainote_enrich.py` 式直连写法。
+现行唯一入口是 `cli.py ainote …`（GROUPS['ainote'] 映射不变，脚本仍可直接跑，但文档不再提供直连示例）。
+
+## 13. `reposition.py --commit` —— 脚本直写 due 排新卡位置（2026-11-09 归档）
+
+旧 `jiten-reorder-使用说明.md` 描述的 `reposition.py --commit` 直写 `due` 路径已退场：
+本库 AnkiConnect 把 `due` 列为 protected，脚本直写在现网会报 protected 错（同 §6）。
+现役入口是 Anki 插件 `jiten_reorder`（`data/anki_addon/jiten_reorder/`）；`cli.py vocab reorder-jiten` preset 指向 activate 全局重排，非本插件。
+
+## 14. ImmersionKit 旧标签与脚本直写 due（2026-11-09 归档）
+
+ImmersionKit 链路早期使用过的旧标签写法与「脚本直写 cards.due」的排期方式已退场：
+due 受 protected 约束（同 §6、§13），词表索引现经 AnkiConnect 现读 live 收藏（git f23721e，不再复制收藏库/快照）。
+打标口径以技能 `jp-anki-subtitle-tag` 与 `docs/immersionkit-使用说明.md` 现行版为准。
+
+## 15. core6000 补例句的「先演练再 commit」习惯（2026-11-09 起作废）
+
+旧文档要求 `core6000_example.py apply` 先不带 `--commit` 演练、人工看过输出再真写。
+用户 2026-11-09 定新规矩：**apply 直接带 `--commit` 真写，不再演练**（AGENTS.md §3 铁律 4）。
+闸门 1–4（含与第一句的换皮相似度）在 gen 阶段判掉；写前自动落 `backup_<时间戳>.json`、写后回读，退路是 `revert --commit`。
+不带 `--commit` 的演练路径只留作排错。
+
+## 16. 每日讲义与选词的旧口径（2026-11-09 归档，说明文档只留指针）
+
+`docs/today_new-使用说明.md` 曾展开以下内容，现已从活跃文档移除，正本改指向技能：
+- 公式打分表 `S = ln(1+次数) + MU·ln(1+集数) + LAM·ln(30000/JAR)` 作为主排序（现：本地模型精排为主、公式仅在模型不可用时兜底）；
+- `JAR > 30000` 挡词门槛（现：没有 JAR 的词不进名单但登记 `data/daily_new/unranked.json`，JAR>30000 不再挡）；
+- 义项闸 / `--particles` 等选词细节展开（正本 = 技能 `jp-anki-today-new`）；
+- 讲义语法/例句单元与逐次查词典的展开描述（正本 = 技能 `jp-anki-daily-lesson`）。
+
+## 17. `code/execution/core6000_example.py` 直连路径（2026-11-09 归档）
+
+core6000 系列脚本已迁入子目录 `code/execution/core6000/`（issue #12）。
+文档中残留的旧直连路径 `code/execution/core6000_example.py` 不再有效；入口统一 `cli.py core6000`。
+
+## 18. 指令文档里的三处旧口径（2026-11-09 从活跃文档移除）
+
+- `<<<AINote>>>` 纯文本分块投递格式：现行契约是 JSON 字段（`AINote` / `SentenceHTML`），见 `docs/jp-card-agent-instruction.md` 现行版；
+- mine 的 word「填词典形、允许任意对应」口径：现行规则见 `mine.py` origin_possible/same_origin——保留候选写法、只能往后接，活用/口语缩略形原样回填，词典形写进 a_note；
+- 讲义闸门函数名 `check_examples`：已迁移为 `lesson_check.example_uses_target`（`code/execution/lesson/`）。
+
+## 19. core6000 设计契约里的旧口径与旧快照（2026-11-09 从活跃文档移除）
+
+`docs/core6000-example-design.md` 曾保留：
+- 「现状实测（2026-10-06）」快照表（跑 scan 现场统计即可，文档不维护计数）；
+- 复用清单指向 `today_new.py` / `mine_audio.py` 的旧组合（现列 common 层与同目录 `core6000_*` 模块）；
+- 「路径常量写死绝对路径」口径（现走 `paths.py`：`WSP.DATA_CORE6000` / `OUT_AUDIO_CORE6000` / `EXEC_CORE6000`）；
+- system 提示词 = 整个提示词文件（现为外壳 + `card_prompt.py` 展开 `{{RULES}}` → `code/execution/card_rules.md`）。
+
+## 20. backup-sop 的旧直连入口与旧排除目录（2026-11-09 从活跃文档移除）
+
+- 旧入口写法 `code\tools\backup_anki.py --dest`：现统一 `cli.py backup --dest`；
+- robocopy 旧排除项 `/XD __pycache__ live-cfemqh6w probe-mk-c3ozfqej`（沙箱残留目录名）：现为 `/XD __pycache__ temp`，与代码 `WS_EXCLUDE_DIRS=('__pycache__','temp')` 一致；
+- 执行台账（手填备份数字）与 unicase 坑的实测数字叙述：数字只存在于各备份自己的 `_verify\manifest.json`，SOP 不再维护台账。
+
+## 21. `proper.py` 直连脚本入口（2026-11-09 起文档只写 cli.py）
+
+`docs/proper-noun-使用说明.md` 曾给出 `$EXE = code\execution\proper.py` 式直连写法。
+现行唯一入口是 `cli.py proper …`（GROUPS['proper'] 映射；脚本仍可直接跑，但文档不再提供直连示例）。

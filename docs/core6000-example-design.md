@@ -1,9 +1,13 @@
 # Core6000 例句补全（例句② + 振假名 + 合并讲解 + 配音）设计契约
 
-> 状态：active ｜ 最后核实：2026-11-03
+> 状态：active ｜ 最后核实：2026-11-09
 
 本文件是 `code/execution/core6000/core6000_example.py` 与 `code/execution/core6000/core6000_example_prompt.md`
 的**唯一接口契约**。实现者按本文件写代码，改接口先改本文件。
+
+脚本按职责拆在同目录（issue #12）：`core6000_text.py` / `core6000_text2.py`（词性映射、注音、
+JSON·文本小工具）、`core6000_jisho.py`（Jisho 真实语料例句源）、`core6000_gates.py`（闸门 1–5）、
+`core6000_render.py`（五字段渲染 + 「这次写哪几个」）。契约不变，实现落点看这些文件。
 
 ---
 
@@ -30,9 +34,9 @@
 **核心原则**：原句的信息一个字都不丢（技能规则 1/2）。原句相关的 ① 讲解
 **直接沿用卡里已有的 AINote 文本**，不交给模型改写。
 
-**新例句必须来自真实语料，不是模型造句**（2026-10-26 起）：`gen` 先用
+**新例句必须来自真实语料，不是模型造句**：`gen` 先用
 `code/tools/jisho_example.py` 抓 jisho.org 的 Sentence 搜索结果（Tatoeba / Jreibun），
-按「振假名结构合格 / 含目标词 / 长度 6–45 字 / 与第一句相似度 < 0.72」挑一条，
+按「振假名结构合格 / 含目标词 / 长度进闸门（6–45 字）/ 与第一句不像（相似度 < 0.72）」挑一条，
 把 `jp` + `ruby` **钉死**写进 payload 的 `sentence_source`；模型只负责
 `cn2` / `new_word_gloss` / `grammar2` / `conjugation2` / `context2` / `contrast`。
 模型若改写了那句，脚本按 Jisho 原句写回并记 `sentence_overridden` 警告；
@@ -40,18 +44,10 @@ Jisho 零候选时**这张卡失败**（不退回造句；`--allow-model-sentenc
 
 ---
 
-## 二、现状实测（2026-10-06，6000 张）
+## 二、库的现状怎么看
 
-```
-Sentence（例句块数）   1 块 3942 / 2 块 2057 / 3 块 1
-Sentence Audio         1 条 3942 / 2 条 2057 / 3 条 1
-Sentence HTML 外层包裹 <div> 889 / <p> 2640 / 裸 ruby 2471 / 空 0（没有空字段）
-AINote                 6000 张全部非空；其中只有 2 张含 ①
-```
-
-即：**真正做过「①②合并」的只有这 2 张**，其余 5998 张的 `AINote` 都还是单句讲解的版式。
-**上面的数字只是 2026-10-06 这一天的快照。** `scan` 每次都会重新读 Anki 现场重新统计
-（句块数、版式族、缺什么、是否已合规），**不要把这些数字当常量**。
+不要背任何一份数字快照。`scan` 每次都重新读 Anki 现场统计（句块数、版式族、缺什么、是否已合规），
+**以它当次的输出为准**。写库前对范围有疑问就跑一次 `scan`。
 
 ---
 
@@ -94,10 +90,10 @@ $PY code/execution/core6000/core6000_example.py status
   所以默认只做「真的缺句 / 缺振假名」这两类；要三项并集请显式 `--only all`。
 * 全局可覆盖项（都带默认值，默认值就是工作区的正确值）：
   `--system-prompt PATH`、`--base-url URL`、`--model NAME`、`--api-key KEY`
-  （api key 的查找顺序照抄 `today_new.py::load_llm_config` 与 `~/.dsh/local-llm.json`）
-* `gen` 默认 `--per-batch 1`（一次一张卡，和 `today_new.py` 一致：断点续跑粒度最小）
-* `apply` 默认演练，只打印**将要写入的字段**（§5.4：通常 1 句的卡是 5 个、已有 2 句的卡只有
-  `Sentence HTML`）的前后对照，并列出不写的字段；`--commit` 才 `updateNoteFields`
+  （api key 的查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`，见 `code/common/llm_client.py::load_llm_config`）
+* `gen` 默认 `--per-batch 1`（一次一张卡：断点续跑粒度最小）
+* `apply` 直接带 `--commit` 真写（不再先演练）：写前自动落 `backup_<时间戳>.json`、
+  写后逐卡回读；不带 `--commit` 的演练路径代码还在，只留作排错
 * `revert` 从 `data/core6000/backup_<批次>.json` 还原那批被改过的字段（只还原被备份的字段）
 
 ### 3.2 典型会话（用户点名的场景）
@@ -106,20 +102,19 @@ $PY code/execution/core6000/core6000_example.py status
 # 用户：「这几个词我老记不住，给我各加一句例句」—— 直接点名
 & $PY "$EXE\core6000_example.py" gen   --words "徹夜,適当,残り"
 & $PY "$EXE\core6000_example.py" tts   --words "徹夜,適当,残り"
-& $PY "$EXE\core6000_example.py" apply --words "徹夜,適当,残り"            # 演练：先看
-& $PY "$EXE\core6000_example.py" apply --words "徹夜,適当,残り" --commit   # 真写（2026-10-06 起不再要求听音频确认）
+& $PY "$EXE\core6000_example.py" apply --words "徹夜,適当,残り" --commit   # 真写（写前自动备份、写后回读）
 
 # 用户：「今天答得不好的那些词，挑记不住的补一句」
 & $PY "$EXE\core6000_example.py" gen --from-weak --days 3 --rating again
 ```
 
-### 3.3 实现与本文档的偏差（实测，以本节为准）
+### 3.3 实现口径（以本节为准）
 
 1. **`--per-batch` 只接受 1。** 传 `--per-batch N`（N>1）会被**直接拒绝**并打印一段说明：
    本契约 §4.2 的响应按**单张卡**组织（`entries` 只有一个键），提示词也明说「你一次只处理一张卡」，
    一次塞多张只会漏卡 / 串卡。默认值就是 1；要省时间请用选择器缩小范围
    （`--words` / `--note-ids` / `--from-weak`）。
-2. **闸门 1/2 只针对「模型新造的句子」。** 原卡**已经有两条**例句时，输入里带
+2. **闸门 1/2 只针对「新补的第二句」。** 原卡**已经有两条**例句时，输入里带
    `sentence2_is_existing`，模型必须把卡上第二句**逐字原样**交回来（只用来对齐振假名与 ② 讲解），
    闸门 1/2 对这张卡**跳过** —— 拿「必须含目标词」去卡一句本来就存在的句子属于误伤
    （例如 `する` 的第二句本来就不含「する」）。「原样交回」是**硬闸门**：交回的不是那一句就拦下
@@ -127,25 +122,23 @@ $PY code/execution/core6000/core6000_example.py status
    第二句本身缺/坏振假名时，输入里带 `need_sentence2_ruby`，模型用 **`sentence2_ruby`**
    交回「同一句 + 振假名」，由**闸门 5b** 验（去 ruby 后与卡上第二句逐字一致 + 闸门 3/4 的 ruby 规则）；
    不合格**拒绝这张卡**，绝不把模型改写过的句子写进库。`apply` 写库前会再复核一遍 5b。
-3. **3 句以上的卡跳过**（全库 1 张）：闸门 6 要求恰好 2 块，而脚本没有安全的自动处置方式，
+3. **3 句以上的卡跳过**：闸门 6 要求恰好 2 块，而脚本没有安全的自动处置方式，
    这类卡在报告里记作 `multi-sentence`，交人工处理。
-4. **已有 ≥2 条例句的卡一律「只补振假名」**（契约 §5.4）：这类卡的 `Sentence` /
+4. **已有 ≥2 条例句的卡一律「只补振假名」**（§5.4）：这类卡的 `Sentence` /
    `Sentence Translation` / `AINote` / `Sentence Audio` 目标状态**就是卡上现值**，
-   一个字都不写（见 §5.4 的判定表）。所以 `apply` 演练里只看到 `Sentence HTML` 一个 `≠`。
-   这是修 bug：早先这类卡会被整篇重渲染 —— `AINote` 里已有的 ①② 讲解变成
-   `① 旧正文 + ② 新正文` 的冗余，`<ul><li>` 排版被换成 `<p>`，还套出 `<div><div>` / `<p><p>`。
+   一个字都不写（见 §5.4 的判定表），只有 `Sentence HTML` 一个字段会变。
+   已有的 ①② 讲解与 `<ul><li>` / `<div>` 排版都是原作者的版式，一律逐字保留。
 5. **`gen` 的警告**（只进 `out.json` 的 `gate.warnings` / `meta` / 报告，**不拦卡**）：
    * `target_reading_mismatch`：新句里出现了目标词，而它在 `new_sentence_ruby` 里被注的读音
      和卡上 `reading` 对不上（抽不出读音就不报，宁可漏报）。
    * `target_gloss_missing`：`new_word_gloss` 里没有目标词那一行，② 的义项行只能用卡上
      `Meaning` 兜底、看不出新句实际用的义项。
-   * `sentence_overridden`（2026-10-26 加）：模型改写了 `sentence_source` 给的 Jisho 句子，
-     脚本已按 Jisho 原句写回。
-   * `contrast_format`（2026-10-26 加）：`contrast` 没写成「①是…，②是…」。
+   * `sentence_overridden`：模型改写了 `sentence_source` 给的 Jisho 句子，脚本已按 Jisho 原句写回。
+   * `contrast_format`：`contrast` 没写成「①是…，②是…」。
      注意 `norm_entry` **不对 `contrast` 剥开头 ①②**（那是内容，剥了会变成「是礼貌体…」）。
 6. **闸门 6–9 是字段级**：只检查这次真的要写的字段（§5.4）。已有 2 句的卡不写 `AINote`，
-   所以闸门 7/8 对它不适用 —— 拿卡上**旧** AINote 去卡一张本来能修好振假名的卡是误伤。
-   闸门 5b、1–5 的严格程度一个字没变。
+    所以闸门 7/8 对它不适用 —— 拿卡上**旧** AINote 去拦一张本来能修好振假名的卡是误伤。
+   闸门 5b 与闸门 1–5 一样严格。
 
 ### 落盘（全部在 `data/core6000/` 与 `output/`）
 
@@ -157,6 +150,7 @@ data/core6000/gen/<noteId>_in.json  发给模型的那张卡（追溯）
 data/core6000/gen/<noteId>_out.json 模型产出（**断点续跑的最小单位**）
 data/core6000/gen/<noteId>_meta.json usage/耗时
 data/core6000/metrics_<日期>.json   token 账本
+data/core6000/jisho/<noteId>.json   Jisho 候选缓存（按 noteId，尊重 crawl-delay；`--refresh-jisho` 重抓）
 data/core6000/backup_<时间戳>.json  apply --commit 前的字段快照（revert 的唯一依据）
 output/audio/core6000/<file>.mp3    TTS 产物（同时 storeMediaFile 进 Anki）
 ```
@@ -167,7 +161,9 @@ output/audio/core6000/<file>.mp3    TTS 产物（同时 storeMediaFile 进 Anki�
 
 ### 4.1 请求
 
-system = `code/execution/core6000/core6000_example_prompt.md`（整个文件，一次发送，逐卡复用）。
+system = `code/execution/core6000/core6000_example_prompt.md` 这个**外壳**：它只写「输入是什么、
+输出成什么键」，正文里的讲解/振假名规则由 `code/common/card_prompt.py` 把 `{{RULES}}` 展开成
+共用正本 `code/execution/card_rules.md`（与 pipeline 阶段二同一份）。一次发送、逐卡复用。
 user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发）：
 
 ```json
@@ -202,7 +198,7 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
 ```
 
 * `existing_sentences` 只放已有的例句（通常 1 条）。
-* **`sentence_source`（2026-10-26 起，`missing-sentence` 范围必有）**：脚本从 Jisho 挑定的
+* **`sentence_source`（`missing-sentence` 范围必有）**：脚本从 Jisho 挑定的
   真实例句。`jp` / `ruby` 是硬给定的，模型只许**逐字照抄**；`en` 仅供理解参考；
   `source` / `url` 是语料出处（Tatoeba / Jreibun + Jisho 句子详情页），写进
   `<noteId>_in.json` 供追溯，也用于报告。模型交回的 `new_sentence` 若与 `jp` 不一致，
@@ -256,7 +252,8 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
 * **不要输出 `例句` 板块**：例句本身在 `Sentence` / `Sentence HTML` 字段里，AINote 不重复。
 * 提示词里另有两条**警告级**（不是闸门）要求：新句的义项以卡上 `meaning` 为准（换义项必须在
   ② 的目标词那一行写明）、目标词在新句里的读音必须等于卡上 `reading`。脚本在 `gen` 里做两个
-  便宜检查并记进 `out.json` / 报告的警告列，见 §3.3 第 5 条。
+  便宜检查并记进 `out.json` / 报告的警告列，见 §3.3 第 4 条（共四条警告，另两条是
+  `sentence_overridden` / `contrast_format`）。
 
 ---
 
@@ -278,10 +275,9 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
   * 原来是裸 ruby 或空 → 不加包裹，只写「原句 ruby`<br><br>`新句 ruby」。
 * 原句 ruby 的取值优先级：卡里已有的 `Sentence HTML` 分段解析结果 > 模型给的 `sentence1_ruby`。
   只有解析失败才用模型值。**绝不用模型重写已有振假名。**
-  * `Sentence HTML` 的分段：按 `<br><br>` / `</p>\s*<p>` 切成块，逐块去包裹取内层 HTML。
+  * `Sentence HTML` 的分段（`core6000_render.py`）：按 `<br><br>` / `</p>\s*<p>` 切成块，逐块去包裹取内层 HTML。
   * 若切不出与原句数量相等的块（例如 2 句但 HTML 只有 1 块）→ 视为不可用，走模型值。
-* 已有 `Sentence HTML` 里出现 `<ruby>` 嵌套畸形（`<ruby><br>…`）→ 先按
-  `today_new.py::sentence_html_line` 的做法清掉 base 里的 `<br>`。
+* 已有 `Sentence HTML` 里出现 `<ruby>` 嵌套畸形（`<ruby><br>…`）→ 先清掉 base 里的 `<br>` 再分段。
 
 ### 5.2 `AINote` 版式（**沿用原卡版式**）
 
@@ -317,16 +313,14 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 * **清洗原卡正文**：删掉 `<p>/<b>/<strong>/<h3>/<h4>/<ul>/<li>/<div>` 等外壳标签，
   保留 `<ruby>`、`<br>`、正文文字。原卡正文里的 `1.` `2.` 序号行保留（属于内容）。
 
-### 5.3 `not-merged` 范围（已有 2 句、AINote 未合并）—— **当前故意未实现**
+### 5.3 `not-merged` 范围（已有 2 句、AINote 未合并）—— **当前未启用**
 
-设计意图：该范围下 ① 和 ② **都由模型产出**（因为原 AINote 无法可靠切分），
-响应里额外给 `core1` / `grammar1` / `conjugation1` / `context1`。
-
-**实现现状（以此为准）**：`code/execution/core6000/core6000_example_prompt.md` 现在只要求模型输出 10 个键，
-**没有这四个键**。所以脚本在真正调模型之前先检测提示词
-（`capabilities()`：文件正文里是否出现这四个键名），一旦这个范围被显式打开
-（`--only not-merged`），命中的卡会被**整卡拦下**并写进报告，原因写明「缺 ①、做不了」——
-状态表里是 `blocked`，既不调模型也不写库。
+该范围下 ① 和 ② **都要求由模型产出**（原 AINote 无法可靠切分），
+响应里要额外给 `core1` / `grammar1` / `conjugation1` / `context1`；而
+`code/execution/core6000/core6000_example_prompt.md` 现在只要求模型输出 10 个键，**没有这四个键**。
+所以脚本在真正调模型之前先检测提示词（`capabilities()`：文件正文里是否出现这四个键名），
+一旦这个范围被显式打开（`--only not-merged`），命中的卡会被**整卡拦下**并写进报告，
+原因写明「缺 ①、做不了」——状态表里是 `blocked`，既不调模型也不写库。
 **绝不让模型在拿不到 ① 的情况下凭空编一份 ①**：那会把原卡已有的讲解丢掉，
 直接违反「原句信息一个字都不丢」的核心原则。
 
@@ -357,7 +351,7 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
   `blocked` 路径报给人，**不靠重渲染来假装修好**。
 * `n_sent > 2`（3 句以上）一个字段都不写（闸门 6 会拦；渲染只会截断）。
 * 由此派生：
-  * `apply` 演练只打印**要写字段**的前后对照，并列出「不写的字段（保持卡上现值，逐字不动）」；
+  * `apply` 只打印**要写字段**的前后对照，并列出「不写的字段（保持卡上现值，逐字不动）」；
   * `backup_<时间戳>.json` 只备份**要写且真的会变**的字段（revert 仍然只还原被备份的字段）；
   * 写库后的回读校验分两半：写过的字段必须等于目标值，**没写的字段必须仍等于写库前的现值**
     （后者不查，「其余字段逐字未变」就只是口头承诺）；
@@ -371,8 +365,8 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
    或 `Word` 的汉字/假名主干部（至少 1 个汉字字符序列）命中其一。
    纯假名词再加**活用形**（`kana_conjugations()`：五段行 + て/た 音便，
    `しゃがむ` → `しゃがんだ`/`しゃがんで`/`しゃがみます`…）：假名动词在真实语料里
-   几乎只以活用形出现，只比词典形会把 Jisho 的正确候选判成 no-target（2026-10-30 加）。
-   （闸门 1/2 只对**模型新造**的句子生效；已有两句话的卡见 §3.3）
+   几乎只以活用形出现，只比词典形会把 Jisho 的正确候选判成 no-target。
+   （闸门 1/2 只对**新补的第二句**生效；已有两句话的卡见 §3.3）
 2. `new_sentence` 长度 6–45 字符（去空白），且 **≠ 原句**。
 3. `new_sentence_ruby` 去 ruby 后与 `new_sentence` 一致（`<rt>` 内容整块删掉、剥标签后比较，
    空白归一化）。
@@ -392,12 +386,11 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 **闸门是字段级的**（§5.4）：闸门 6/9 只查 `write` 里的字段，闸门 7/8（AINote 的板块与
 原文保全）只在真的要写 `AINote` 时才跑 —— 它们保护的是「别把原卡的讲解写坏」，
 不写 `AINote` 的卡没有这个风险，也不该被卡上**旧** AINote 的形状拦下。
-闸门 5b 与写不写无关，**永远照查**（严格程度未变）。
+闸门 5b 与写不写无关，**永远照查**。
 
 `gen` 阶段只跑闸门 1–5（含 5b；能提前发现就带提示重问一次，`--retries N`，默认 1 次），
-`apply` 阶段跑 6–9 + 5b 的复核（渲染后才能判 6–9）。`gen` 另有两条**警告**
-（`target_reading_mismatch` / `target_gloss_missing`，见 §3.3 第 5 条）：只记进产出的
-`gate.warnings`、`meta` 与报告，**不拦卡**。
+`apply` 阶段跑 6–9 + 5b 的复核（渲染后才能判 6–9）。`gen` 另有四条**警告**
+（见 §3.3 第 4 条）：只记进产出的 `gate.warnings`、`meta` 与报告，**不拦卡**。
 
 ---
 
@@ -410,15 +403,14 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
   默认跳过已存在且 >1KB 的文件；`--force` 重做。
 * `storeMediaFile` 统一放在 `apply --commit` 里（写字段之前），用 `getMediaFilesNames`
   回读确认；缺文件就拒绝写这张卡的 `Sentence Audio`。
-  演练（不加 `--commit`）时只报告「将上传 N 个媒体文件」。
-* 音频长度不做机械校验（无法离线判对错），但要在报告里列出字节数与时长估算，
-  2026-10-06 起不再要求听音频确认：演练输出没问题就直接 `--commit`，事后发现读错用 `revert` 回退。
+* 音频长度不做机械校验（无法离线判对错），但要在报告里列出字节数与时长估算。
+  直接 `apply --commit`，事后发现读错用 `revert` 回退。
 
 ---
 
 ## 八、安全与回退
 
-* `apply` 默认演练；`--commit` 前把每条卡**要写且真的会变**的旧字段值写进
+* `apply --commit` 前把每条卡**要写且真的会变**的旧字段值写进
   `data/core6000/backup_<时间戳>.json`（含 noteId + 字段旧值）。
 * `revert --commit --backup <文件>` 逐条还原；媒体文件**不删**。
 * 全程**只碰上述 5 个字段，而且只写其中「真的坏了」的那几个**（§5.4），
@@ -432,12 +424,14 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 
 * Python：`python`
 * **只用标准库**（+ 复用工作区既有模块），不要 `pip install`（沙箱会拒）。
-* 复用而不是重写：
-  * `code/common/paths.py`（`ROOT` / `OUTPUT` / `DATA`）—— 先读它确认常量名
-  * `code/execution/today_new.py` 的 `anki()` / `_split_ruby` / `to_ruby` /
-    `strip_ruby_base` / `strip_tags` / `sentence_html_line` / LLM 客户端 / `extract_json`
-    —— **直接 import 或按同口径复制**，不要另写一套
-  * `code/tools/edge_tts_min.py::synth`
-  * `code/execution/mine_audio.py` 的「合成 → storeMediaFile → 写 `[sound:]` → 回读校验」流程
+* 复用而不是重写（现行 import）：
+  * `code/common/paths.py` —— 路径唯一来源（`WSP.DATA_CORE6000` / `WSP.OUT_AUDIO_CORE6000` /
+    `WSP.EXEC_CORE6000`），不写死绝对路径
+  * `code/common/anki_api.py`（Anki 唯一通道）、`textio`、`audio_names`、`htmltext`、
+    `jp_text`、`ruby_text`、`llm_client`（含 `extract_json`）
+  * `code/common/card_prompt.py` —— 把提示词外壳的 `{{RULES}}` 展开成规则正本
+    `code/execution/card_rules.md`（讲解/振假名规则只维护那一处）
+  * 同目录系列模块：`core6000_text.py` / `core6000_text2.py` / `core6000_jisho.py` /
+    `core6000_gates.py` / `core6000_render.py`
+  * `code/tools/edge_tts_min.py::synth`、`code/tools/jisho_example.py`（真实例句源）
 * AnkiConnect 必须开着（`127.0.0.1:8765`）。本地模型端点默认 `http://127.0.0.1:8080/v1`（NInfer；Responses API：脚本打 `/v1/responses`）。
-* 路径常量写死工作区绝对路径（同既有脚本风格）。

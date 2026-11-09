@@ -1,6 +1,6 @@
 # 专有名词收集：`0-词汇::3-专有词汇`
 
-> 状态：active ｜ 最后核实：2026-10-22
+> 状态：active ｜ 最后核实：2026-11-09
 >
 > 一句话：**从字幕里收专有名词**（人名/地名/组织/概念/技能/种族/称号/作品名），
 > 建成「看词形 → 回忆读音与意思」的卡片。只收集，**不进学习队列**。
@@ -53,6 +53,9 @@ Get-Content temp\cue.txt | & $PY code\tools\proper_extract.py --stdin --backgrou
 
 # 只看脚本预扫（不连本地模型，离线回归用）
 & $PY code\tools\proper_extract.py --text "…" --no-model
+
+# 批量：多段文字一次请求（scan 用的就是这条路径，--per-request 默认 8）
+& $PY code\tools\proper_extract.py --file temp\scene.txt --background "…" --json --per-request 8
 ```
 
 输出：
@@ -74,42 +77,47 @@ Get-Content temp\cue.txt | & $PY code\tools\proper_extract.py --stdin --backgrou
 
 ## 4. 每集收集
 
+入口是 `cli.py proper`（映射见 `cli.py list`）：
+
 ```powershell
-$EXE = "code\execution"
-
 & $PY code\cli.py doctor                       # 强制门禁
-& $PY $EXE\proper.py model --check              # 笔记类型就绪？
-& $PY $EXE\proper.py model --commit             # 缺了就建（幂等；已存在只校验不覆盖）
+& $PY code\cli.py proper model --check          # 笔记类型就绪？
+& $PY code\cli.py proper model --commit         # 缺了就建（幂等；已存在只校验不覆盖）
 
-& $PY $EXE\proper.py scan "subtitles\ARIA The ANIMATION\Aria The Animation 04.jp.srt" `
+& $PY code\cli.py proper scan "subtitles\ARIA The ANIMATION\Aria The Animation 04.jp.srt" `
      --work 水星领航员
-& $PY $EXE\proper.py split --batches 4
-& $PY $EXE\proper.py gen
-& $PY $EXE\proper.py verify
-& $PY $EXE\proper.py write                      # 演练
-& $PY $EXE\proper.py write --commit
-& $PY $EXE\proper.py audio --commit             # 读法音频（单独一步）
+& $PY code\cli.py proper split --batches 4
+& $PY code\cli.py proper gen
+& $PY code\cli.py proper verify
+& $PY code\cli.py proper write                  # 演练
+& $PY code\cli.py proper write --commit
+& $PY code\cli.py proper audio --commit         # 读法音频（单独一步）
 ```
 
 常用参数：
 
 | 参数 | 作用 |
 |---|---|
-| `--work <作品>` | 出处（必填）。要与库里 `动画::<作品>` 的作品段一致；对不上时 report 会列出现有标签 |
-| `--window N` | 一次送模型几条台词（默认 6；集数多时 8 更快） |
-| `--per-request N` | 一次请求几段文字（默认 8；本地模型慢就调小） |
-| `--limit N` | 每集只处理前 N 条台词（冒烟用） |
-| `--include-known` | 已在 `core6000`/`考级词汇`/**`素材生词`** 里的也收（`シングル`/`プリマ` 这类称号常需要它） |
-| `--run <目录名>` | 操作某一次历史 run（默认最新） |
+| `--work <作品>` | 出处（scan 必填）。要与库里 `动画::<作品>` 的作品段一致；对不上时 report 会列出现有标签 |
+| `--episode <集>` | scan：覆盖从文件名猜的集数（`S01E05` / `03.jp` / `第03集` 都能自动认） |
+| `--window N` | scan：一次送模型几条台词（默认 6） |
+| `--per-request N` | 一次请求几段文字 / 几条候选（scan 默认 8；gen 默认 4；本地模型慢就调小） |
+| `--limit N` | scan：每集只处理前 N 条台词（冒烟用） |
+| `--include-known` | 已在 `core6000`/`考级词汇`/**`素材生词`** 里的也收（`シングル`/`プリマ` 这类称号常需要它；scan / verify / write 都有） |
+| `--run <目录名>` | split / gen / verify / write：操作某一次历史 run（默认 latest.json 指的最新一次） |
+| `gen --force` | 已存在且与输入同源的批次也重做 |
+| `gen --fix-failed` | 只重跑 `failed.json` 里没判出来的条目 |
+| `audio --force` / `--tag <标签>` | 已有音频的也重配 / 限定范围（默认整个专有牌组） |
+| `model --force-templates` | 模板/CSS 与代码不一致时按代码覆盖（字段改动不支持自动做） |
 
-产物目录：`data/vocab/proper/<作品>_<集>/`
+产物目录：`data/vocab/proper/<作品>_<集>/`（`latest.json` 指向最新一次 run）
 
 ```
 candidates.json     候选（词形/类别提示/次数/首例句）
 report.md           人看：按类别分布、明细、被词表拦下的「可强收」清单、问题
 gen/input_NN.json   切批后的输入
 gen/output_NN.json  本地模型写的卡片内容
-gen/failed.json     没判出来的（gen --fix-failed 重跑）
+gen/failed.json     没判出来的（gen --fix-failed 重跑，或 merge-fix --file fix_output.json 并回）
 gen/verified.json   唯一校验后的待写载荷
 ```
 
@@ -118,7 +126,7 @@ gen/verified.json   唯一校验后的待写载荷
 不在当前字幕里的专名（例：亚瑟王传说中的 `メリオダス`）：
 
 ```powershell
-& $PY $EXE\proper.py add --word メリオダス --reading めりおだす `
+& $PY code\cli.py proper add --word メリオダス --reading めりおだす `
     --source 亚瑟王传说 --text "アーサー王伝説の騎士メリオダス。" --commit
 ```
 
@@ -201,8 +209,8 @@ gen/verified.json   唯一校验后的待写载荷
 | 某一部作品 | 浏览器搜 `deck:"0-日本语学习::0-词汇::3-专有词汇" tag:"动画::<作品>"` → 全选删除 |
 | 某一批（同一天跑的） | 同一次查询后，按浏览器 `Added` 列排序圈出那天的卡 |
 | 整个牌组 | 浏览器搜 `deck:"0-日本语学习::0-词汇::3-专有词汇"` → 全选删除 |
-| 笔记类型 | `proper.py model --delete`（0 张卡引用时才允许） |
-| 代码 | 删 `proper_extract.py` / `proper.py` / `check_proper.py` 与 `DECK_PROPER` 常量 |
+| 笔记类型 | `cli.py proper model --delete`（0 张卡引用时才允许） |
+| 代码 | 删 `proper_extract.py` / `proper.py` / `check_proper.py`、`jp_decks.py` 的 `DECK_PROPER` 常量与 `cli.py` 的 `proper` 映射 |
 
 没有批次标签（这是刻意的，见 §6）：要「按批」就用 `Added` 列，要「按作品」就用出处标签。
 

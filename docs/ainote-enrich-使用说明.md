@@ -1,6 +1,6 @@
 # ainote_enrich 使用说明：加强某张卡的 AINote 讲解（含「语感」）
 
-> 状态：active ｜ 最后核实：2026-10-19
+> 状态：active ｜ 最后核实：2026-11-09
 > 脚本：`code/execution/ainote_enrich.py`（统一入口 `python code/cli.py ainote …`）
 > 适用：Anki 模型 `Japanese Vocabulary` 的词汇卡（core6000、素材生词都可以）
 
@@ -21,18 +21,18 @@
 ```powershell
 $WS = "<工作区根>"
 $PY = "python"
-$AE = "$WS\code\execution\ainote_enrich.py"
 
-& $PY $AE show   --id 1792084330990          # 只看卡上现值（只读）
-& $PY $AE gen    --id 1792084330990          # 生成 5 节 → data\ainote\gen\<noteId>_out.json
-& $PY $AE apply  --id 1792084330990          # 演练：旧/新 AINote 全文对照
-& $PY $AE apply  --id 1792084330990 --commit # 真写（写前备份旧 AINote）
-& $PY $AE enrich --word 分際 --commit        # gen（缺产出才跑）+ apply 一条命令
-& $PY $AE revert --commit                    # 按最近一份备份还原
-& $PY $AE revert --commit --backup <路径>    # 指定备份
+& $PY "$WS\code\cli.py" ainote show   --id 1792084330990          # 只看卡上现值（只读）
+& $PY "$WS\code\cli.py" ainote gen    --id 1792084330990          # 生成 5 节 → data\ainote\gen\<noteId>_out.json
+& $PY "$WS\code\cli.py" ainote apply  --id 1792084330990          # 演练：旧/新 AINote 全文对照
+& $PY "$WS\code\cli.py" ainote apply  --id 1792084330990 --commit # 真写（写前备份旧 AINote）
+& $PY "$WS\code\cli.py" ainote enrich --word 分際 --commit        # gen（缺产出或卡变了才跑）+ apply 一条命令
+& $PY "$WS\code\cli.py" ainote revert --commit                    # 按最近一份备份还原
+& $PY "$WS\code\cli.py" ainote revert --commit --backup <路径>    # 指定备份
 ```
 
-也可以走统一入口：`& $PY "$WS\code\cli.py" ainote enrich --word 分際 --commit`。
+`gen` / `enrich` 另有 `--restart`（忽略已有产出强制重生成）和 `--model`（覆盖本地模型名；
+**一般别给**——默认沿用端点当前在服务的模型）。
 
 ### 选卡（至少给一个）
 
@@ -40,7 +40,7 @@ $AE = "$WS\code\execution\ainote_enrich.py"
 |---|---|
 | `--id 1792084330990` | noteId；可逗号分隔或重复 |
 | `--index 6827` | 卡上的 `Index` 字段（精确） |
-| `--word 分際` | `Word` 字段**精确**匹配（Anki 的 `Word:` 会带回近似词，脚本会再过滤） |
+| `--word 分際` | `Word` 字段**精确**匹配（Anki 的 `Word:` 会带回近似词与非词汇卡，脚本都会再过滤） |
 | `--query 'tag:素材生词'` | Anki 搜索语法；自动限定 `Japanese Vocabulary` 模型 |
 
 ## 三、写进 AINote 的 6 节
@@ -63,10 +63,12 @@ $AE = "$WS\code\execution\ainote_enrich.py"
 
 ## 四、机械闸门（写库前）
 
-1. 5 节都非空且达到最小长度（核心词汇 40 字、语法 30、语境 30、语感 60）。
+1. 5 节都非空且达到最小长度（核心词汇 40 字、语法 30、变形 15、语境 30、语感 60）。
 2. 「核心词汇」里必须出现目标词（或卡上的读音）。
-3. 「语感」至少命中 2 个语感关键词（语域/轻蔑/口语/正式/对比/上司…），防止模型写空话。
-4. HTML 标签白名单：`br b strong ruby rt ul li`；`<ruby>` 必须配对。
+3. 「语感」至少命中 2 个语感关键词（语域/轻蔑/口语/正式/换成/上司…），防止模型写空话。
+4. HTML 标签白名单：`p b strong br ruby rt i em ul li div`；`<ruby>` 必须配对；
+   危险标签（script/style/iframe…）、事件属性、`javascript:` 会被直接清掉，
+   模型夹带的 `<p>` / `<div>` 外壳由 sanitize 剥除。
 5. 不允许占位符（TODO、待补、XXX…）。
 6. 写库后回读：AINote 必须与写入值逐字一致。
 
@@ -86,15 +88,15 @@ $AE = "$WS\code\execution\ainote_enrich.py"
 | 活用判断错 | 把「向かって」说成「不是动词活用」 | 改成「向かう 的て形」 |
 | 块级元素塞进 `<p>` | `<p><ul>…</ul></p>` | 渲染器已按块级片段处理；手改时可以留 `<ul>` |
 
-生成后如果卡上的 Word / Sentence / 译文 / AINote 又改过，`apply` 会拒绝
-（`input_hash` 对不上），重跑 `gen` 即可；`--force` 可强行套用（一般别用）。
+生成后如果卡上的 Word / 读音 / 词性 / 释义 / 例句 / 译文又改过，`apply` 会拒绝
+（`input_hash` 对不上；AINote 本身不算指纹），重跑 `gen` 即可；`--force` 可强行套用（一般别用）。
 
 ## 六、落盘与回退
 
 | 路径 | 用途 |
 |---|---|
 | `data\ainote\gen\<noteId>_out.json` | 模型产出（**断点续跑的最小单位**；可手改） |
-| `data\ainote\gen\<noteId>_rejected.json` | 两次没过闸门的产出（含原因，只供排查） |
+| `data\ainote\gen\<noteId>_rejected.json` | 两次没过闸门的产出（含原因；**不写库**，可手改后另存为 `_out.json` 再 apply） |
 | `data\ainote\backup_<时间戳>.json` | **revert 的唯一依据**，别删 |
 
 `revert` 默认用最近一份备份；演练不加 `--commit`。

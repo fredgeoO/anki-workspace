@@ -1,6 +1,11 @@
 # ADR：`JitenAnimeRank` 只作注解，队列顺序一律看 `cards.due`
 
-> 状态：active ｜ 最后核实：2026-10-10 ｜ 日期：2026-10
+> 状态：active ｜ 最后核实：2026-11-09 ｜ 日期：2026-10
+
+> **注意**：本文 §决定 第 2 条（`activate.py apply --global` / `vocab reorder-jiten` 那条路径）
+> 已被后续做法取代——改 `due` 现走插件 `jiten_reorder`，脚本直写 due 已归档；
+> 详见文末「更新（2026-10-16）」与 [docs/deprecated.md §6 / §13](../deprecated.md)。
+> **结论不变：队列顺序只看 `cards.due`，字段始终只是注解。**
 
 ## 背景
 

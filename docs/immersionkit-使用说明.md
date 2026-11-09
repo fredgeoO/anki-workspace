@@ -1,13 +1,13 @@
 # ImmersionKit 抓例句卡 / 素材生词卡 使用说明
 
-> 状态：active ｜ 最后核实：2026-10-30（`gen` 增加本地模型并发 `--workers`，
-> 分批驱动 `--gen-workers 2`；标签/`--no-order` 口径不变）
+> 状态：active ｜ 最后核实：2026-11-09（对照 `code/execution/immersionkit.py` 与产物目录复核；
+> 补记词表索引现行口径，删去历史 run 记录）
 
 > 一句话：给一个日语词表，自动从 [ImmersionKit](https://www.immersionkit.com/dictionary)
 > 抓「对白例句 + 剧照 + 原声 + 振假名」，用本地模型补讲解，写成 Anki 里的
 > **例句卡**（`Basic` / `2-例句`）与**素材生词卡**（`Japanese Vocabulary` / `0-素材生词`）。
 >
-> 入口：`python code\cli.py immersion fetch | gen | merge | write | verify`
+> 入口：`python code\cli.py immersion fetch | gen | merge | prewarm | write | verify`
 > 实现：`code/execution/immersionkit.py`（流程）+ `code/common/immersion_api.py`（接口与纯函数）
 
 ---
@@ -29,7 +29,7 @@ ImmersionKit 免费提供了同两样东西——**原声**与**剧照**——�
 
 ---
 
-## 2. 四个子命令（默认全程演练，`--commit` 才写库）
+## 2. 子命令（默认全程演练，`--commit` 才写库）
 
 ```powershell
 $PY = "python"
@@ -56,8 +56,8 @@ $WS = "<工作区根>"
 | `--min-len` / `--max-len` | 句长上下限（默认 3–40 字） |
 | `--speaker-max 0.6` | 括号内（`(メリル)` 这类说话人标记）占比上限 |
 | `--delay 0.5` / `--refresh` | 真上网的间隔 / 忽略缓存重抓 |
-| `--workers 4` | **`fetch` 并发线程数**（默认 4；`1` = 老串行行为）。实测 8 个词：串行 45.4 s → 4 线程 7.1 s；缓存命中的词不占线程 |
-| `gen --workers 2` | **`gen` 本地模型并发请求数**（默认取全局配置 `concurrency`，本机 2；`1` = 严格串行）。服务端 `serve.ps1` 要用 `--max-concurrency 2` 开够槽；两路都不可流式打印（自动 quiet），结果按批次顺序回收 |
+| `--workers 4` | **`fetch` 并发线程数**（默认 4；`1` = 串行）。缓存命中的词不占线程 |
+| `gen --workers 2` | **`gen` 本地模型并发请求数**（默认取全局配置 `concurrency`，本机 2；`1` = 严格串行）。服务端 `serve.ps1` 要用 `--max-concurrency 2` 开够槽；多路时强制 quiet，结果按批次顺序回收 |
 | `--limit N` | 只处理前 N 个词（试跑；`fetch`/`gen` 都有） |
 | `fetch --keep-known` | **反过来的选词口径**：只抓 core6000/考级里**已有**的词（给例句牌组补对白例句用）。配 `write --to example` 只出例句卡，不建素材生词卡 |
 | `write --to example` | 只写例句卡；`--to mined` 只写素材卡；默认 `both` |
@@ -65,14 +65,14 @@ $WS = "<工作区根>"
 | `write --keep-media` | 媒体先下载到 `data\immersion\media\` 再上传（便于复查） |
 | `--no-ainote` | 不调本地模型（`gen` 或 `write`）：`AINote` 与 `Sentence HTML` **一起留空** |
 
-### 用云端模型生成（2026-10-23 起）
+### 用云端模型生成
 
 `immersion gen` 直连本地模型；要把「卡片内容」交给**非本地模型**（子代理 / 别的 API），走这条：
 
 ```powershell
-& $PY "$WS\code\cli.py" immersion fetch --words-file data\immersion\words_20k30k.txt
+& $PY "$WS\code\cli.py" immersion fetch --words-file data\immersion\words.txt
 #   → 子代理按 docs/mine-agent-instruction.md 的字段规范写 {entries:[…]}
-& $PY "$WS\code\cli.py" immersion merge --file data\immersion\gen_20k30k\out.json
+& $PY "$WS\code\cli.py" immersion merge --file <产出文件路径>
 & $PY "$WS\code\cli.py" immersion write --to mined --commit
 ```
 
@@ -95,7 +95,9 @@ $WS = "<工作区根>"
 选词口径（`fetch` 阶段自动执行，报告里逐条给出理由）：
 
 1. 剔掉**已在 core6000 / 考级词汇**里的词 —— 判据是 `pipeline.rebuild_known_index()`
-   （与 `mine.py` 同一套归一化，11,728 词形 / 229,007 写法），**不另立口径**；
+   （与 `mine.py` 同一套归一化），**不另立口径**。它每次经 AnkiConnect **现读 live 收藏**
+   建索引（`find_notes` + `notes_info`），不复制 `collection.anki2`、不依赖快照
+   （口径同 `docs/implementation.md`「词表索引不再复制收藏库」，2026-11-07）——所以 **Anki 必须开着**；
 2. 剔掉两个目标牌组里**已有 `Word`** 的词；
 3. 其余的按 **`JitenAnimeRank` 升序**抓（词表里没有的词写 `999999`，排最后）。
 
@@ -122,7 +124,7 @@ $WS = "<工作区根>"
 * 句长 `--min-len ~ --max-len`；括号内内容占比 ≤ `--speaker-max`；
 * 同一个 `example.id` 跨词只用一个（不会两个词各写一张同句卡）。
 
-在此之上还有三条**挑优**规则（`immersionkit.choose_picks`，2026-10-15 实测加的）：
+在此之上还有三条**挑优**规则（`immersionkit.choose_picks`）：
 
 * **振假名优先**：一次多取 8 条候选，优先挑 `furigana_to_html` 对得上的 ——
   注音串把 `我々[われわれ]` 整词标成一格时转换会失败，原来那条卡就只剩原句；
@@ -166,14 +168,14 @@ $WS = "<工作区根>"
 | | 例句卡 | 素材生词卡 |
 | --- | --- | --- |
 | 牌组 | `0-日本语学习::2-例句` | `0-日本语学习::0-词汇::0-素材生词` |
-| 模型 | `Basic`（该牌组现有 467 张全是它） | `Japanese Vocabulary`（与 core6000 同模板） |
+| 模型 | `Basic`（该牌组现行卡片全是它，带 `Image` 字段） | `Japanese Vocabulary`（与 core6000 同模板） |
 | 字段 | Sentence / Word / Sentence HTML / AINote / **Image** / **Sentence Audio** / Source / URL | Index / JitenAnimeRank / Word / Sentence / Sentence HTML / Transliteration / Meaning / Part of Speech / AINote / Sentence Translation / Sentence Audio / Word Audio / Pitch Accent URL / Pitch Accent |
 
 * `Image`：`<img src="ik_<example id>.jpg" width="700">`（站上的剧照）；
 * `Sentence Audio`：`[sound:ik_<example id>.mp3]`（**原声**，不是 TTS）；
 * 素材卡的 `Meaning` 末尾也带一次配图（现有素材卡就有这个先例）；
 * `Source` = `ImmersionKit · <作品 slug> · <类别> · <example id>`；`URL` = 该词的词典页；
-* 标签（**2026-10-17 口径**，见 [evidence](evidence/immersion-tag-retag-2026-10-17.md)）：
+* 标签口径（见 [evidence](evidence/immersion-tag-retag-2026-10-17.md)）：
   例句卡 `动画::<中文名>`（drama → `日剧::<中文名>`，整部一个标签，不带季/集）；
   素材卡只挂裸 `素材生词`。
   中文名查 `data/evidence/immersion_retag/slug_map.yaml`；表里没有的作品先落
@@ -192,9 +194,8 @@ $WS = "<工作区根>"
 * 默认走 AnkiConnect 的 `url=` 直传（实测可用）；`--keep-media` 则由本脚本带浏览器 UA
   下载到 `data\immersion\media\` 再上传（CDN 拒绝默认 UA 时用这条）；
 * 媒体落地失败的那些卡**整张不写**（宁可没有卡，也不要无声无图的卡）；
-* **单个文件失败不再拖垮整批**（2026-10-15 改）：站上的 URL 有脏数据（尾部多一个 `%3E`）
-  或 CDN 上文件已不在（403），以前 `ensure_media` 直接抛错 → 整块几百条笔记全丢。
-  现在单文件失败只记为 `failed`，**只跳过引用它的那张卡**（连同该词的素材卡），
+* **单个文件失败不拖垮整批**：站上的 URL 有脏数据（尾部多一个 `%3E`）或 CDN 上文件已不在（403）。
+  `ensure_media` 把单文件失败只记为 `failed`，**只跳过引用它的那张卡**（连同该词的素材卡），
   失败原因打在日志里；其余卡照写。
 
 ---
@@ -209,7 +210,6 @@ $WS = "<工作区根>"
   已有的直接跳过（打印「牌组里已有同词同句，跳过 N 条」）。
 
 复跑同一份计划应当 **0 新增**；`--commit` 后脚本会**逐字段回读**核对，不一致会报出来。
-（2026-10-15 开发时实测过这个坑：复跑让 3 张素材卡带着新 Index 又写了一遍，已加闸门并清理。）
 
 ---
 
@@ -232,7 +232,7 @@ $WS = "<工作区根>"
 & $PY "$WS\code\oneshot\immersion_fix_ainote.py" --deck example            # 演练（默认不写库）
 & $PY "$WS\code\oneshot\immersion_fix_ainote.py" --deck mined --commit
 # 只修某一批：吃「model<TAB>noteId<TAB>问题」清单，避免被同牌组里修不了的旧账拦住
-& $PY "$WS\code\oneshot\immersion_fix_ainote.py" --deck mined --nids data\immersion\qc_hard_nids.txt --commit --allow-partial
+& $PY "$WS\code\oneshot\immersion_fix_ainote.py" --deck mined --nids <清单文件> --commit --allow-partial
 ```
 
 默认策略是**原子**的：同一个牌组里只要有一张修不了，就一张都不写（避免半修）。跑大批时用 `--nids`
@@ -240,7 +240,7 @@ $WS = "<工作区根>"
 
 ---
 
-## 10. ImmersionKit 接口备忘（实测，2026-10）
+## 10. ImmersionKit 接口备忘（实测）
 
 * 数据 API：`https://apiv2.immersionkit.com`（FastAPI，`/openapi.json` 可读）
 * `GET /search?q=<词>` —— **无需登录**即 200。默认 UA（`Python-urllib/3.x`）会被挡成 **403**，
@@ -301,9 +301,9 @@ $WS = "<工作区根>"
 & $PY code\oneshot\immersion_batch.py                                    # 默认 words.txt，写两个牌组
 & $PY code\oneshot\immersion_batch.py --words-file data\immersion\words_known.txt `
       --keep-known --to example --progress data\immersion\batch_progress_known.json
-# 生产跑法：--pipeline（第 N+1 块 fetch 与第 N 块 gen/write 并行，实测约 7–15 分钟/块）
-& $PY code\oneshot\immersion_batch.py --words-file data\immersion\words_10k20k.txt `
-      --pipeline --gen-workers 2 --progress data\immersion\batch_progress_10k20k.json
+# 生产跑法：--pipeline（第 N+1 块 fetch 与第 N 块 gen/write 并行）
+& $PY code\oneshot\immersion_batch.py --words-file <词表> `
+      --pipeline --gen-workers 2 --progress data\immersion\batch_progress_<名>.json
 ```
 
 * 中途干净停：建一个 `data\immersion\STOP` 文件，驱动会在块之间停下（删掉即续跑）。
@@ -321,7 +321,7 @@ $WS = "<工作区根>"
 
 | 开关 | 作用 |
 | --- | --- |
-| `--anki-wait-minutes 120` | 每块开跑前先 `AK.health()`；Anki 没开就轮询等待，**超时才干净停下**（exit 3），不会把 300 条笔记全判成失败 |
+| `--anki-wait-minutes 120` | 每块开跑前先 `AK.health()`；Anki 没开就轮询等待，**超时才干净停下**（exit 3），不会把整块笔记全判成失败 |
 | `--pause-window HH:MM-HH:MM` | 暂停窗口，可重复：落在窗口里只睡 60 秒轮询、**完全不碰 Anki**；距窗口开始不足「一块的估值时长」就**不开新块**（所以不会跨进学习时段） |
 | `--min-headroom-minutes 0` | 在历史估值之外再要求的余量（0＝只用估值） |
 | `--stop-file data\immersion\STOP` | 建这个空文件 → 块与块之间干净停下（exit 5）；删掉重跑即续 |
@@ -331,28 +331,22 @@ $WS = "<工作区根>"
 
 #### `--pipeline`：下载与生成并行
 
-用户 2026-10-16 的要求：「下载音频/anki 卡牌的任务可以和卡片生成任务并列运行，
-卡牌的下载提前一个块运行，AI 生成注解可以处理之前下载的组块」。实现成两端：
-
 ```
 生产端（一个线程）    fetch(N+1) ──────────────► fetch(N+2) ──► …
 消费端（主线程）              prewarm(N) ∥ gen(N) → write(N) → verify(N)
 ```
 
 * **块间**：`fetch` 是网络 + 缓存（不占 GPU），`gen` 吃本地模型（占 GPU）→ 两者重叠；
-* **块内**：`prewarm`（CDN 下 300 个图/音，实测 ~8 分钟）与 `gen`（本地模型，~6–11 分钟）
-  同时跑 → 这一段从「两段相加」变成「取较大者」；随后 `write` 里媒体全部命中 `cached`，
-  只剩 `addNotes`（~1 分钟）；
+* **块内**：`prewarm`（CDN 下图/音）与 `gen`（本地模型）同时跑 → 这一段从「两段相加」变成
+  「取较大者」；随后 `write` 里媒体全部命中 `cached`，只剩 `addNotes`；
 * **不与 `latest.json` 抢道**：消费端一律 `--in <明确路径>`；`fetch_*.json` 只有生产端写，
-  `plan_*.json` / `written_*.json` 只有消费端写，所以 `newest()` 探到的必是自己那一份；
-* 实测（B 阶段 150 词/块）：串行块 14–25 分钟 → 流水线约 **9–11 分钟/块**。
+  `plan_*.json` / `written_*.json` 只有消费端写，所以 `newest()` 探到的必是自己那一份。
 
 > 日志想实时看就设 `$env:PYTHONUNBUFFERED='1'`：python 的 stdout 接到管道是块缓冲，
-> 不设的话日志会比真实进度**慢好几千字节**（本次就因此误判过「卡住了」）。
+> 不设的话日志会比真实进度慢很多，容易误判「卡住了」。
 
-一块要多久由历史记录估（`est_chunk_minutes` = `sum(t_total)/sum(words)`；B 阶段实测
-**22.7 分钟/块（150 词）**）。**`t_total` 的单位是秒** —— 曾把它当分钟，估出 1,359 分钟/块，
-于是「余量永远不够」一块都不开（2026-10-16 修）。块「瞬时失败」（<30 秒）且是首次尝试时，
+一块要多久由历史记录估（`est_chunk_minutes` = `sum(t_total)/sum(words)`）。**`t_total` 的单位是秒**
+—— 当成分钟会估出天文数字，于是「余量永远不够」一块都不开。块「瞬时失败」（<30 秒）且是首次尝试时，
 不占用后面的块，等 Anki 回来重试本块一次。
 
 > **卡顿的根因不是制卡**：Anki 背后用 3D 渲染，与本地模型抢 GPU，复习时才卡。
@@ -370,7 +364,7 @@ $WS = "<工作区根>"
 | 「牌组里已有同词同句，跳过 N 条」 | 正常幂等提示，不是错误 |
 | 媒体 `missing` | 用 `--keep-media` 重试（CDN 拒绝默认 UA 时走本地下载再上传） |
 | 媒体 `failed`（`… download failed with return code 403`） | 站上 URL 脏（尾部 `%3E`）或 CDN 文件已不在 —— 只跳过那几张卡，不需要处理 |
-| `Index` 撞车风险 | 已按「模型内最大序号 + 1」分配（见 `mine.py:1350` 的说明），不要改回 `count()+1` |
+| `Index` 撞车风险 | 已按「模型内最大序号 + 1」分配（见 `mine.py` 的说明），不要改回 `count()+1` |
 | Anki 复习时卡顿 | Anki 的 3D 渲染与本地模型抢 GPU —— 调成 **software 渲染模式**，不是制卡引起的；要避让用 `--pause-window` |
 | 分批跑一块都不开、日志写「余量不足」 | `est_chunk_minutes` 的估值口径（历史 `t_total` 是**秒**）；确认暂停窗口没有短过一块时长 |
 | 分批跑卡住不动 | 看日志最后一行是不是「AnkiConnect 不可用…等 30 秒」—— Anki 被关了；`--anki-wait-minutes` 到点会自己停 |

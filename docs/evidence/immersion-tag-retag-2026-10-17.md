@@ -1,6 +1,10 @@
 # 沉浸式::anime/drama 标签 → 中文名标签
 
-> 状态：active ｜ 最后核实：2026-10-17 ｜ 日期：2026-10-17
+> 状态：active ｜ 最后核实：2026-11-09 ｜ 日期：2026-10-17
+
+> **2026-11-09 死链校正**：下文引用的 `code/oneshot/retag_immersion.py`、
+> `code/oneshot/flatten_pool_tag.py` 已随一次性脚本归档，现位于
+> `archive/experiments/20261020-oneshot/`（回退命令的路径同理）。其余路径均已核实存在。
 
 **日期**：2026-10-17
 **执行**：`code/oneshot/retag_immersion.py --commit`

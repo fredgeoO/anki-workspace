@@ -1,6 +1,10 @@
 # ImmersionKit 10k–20k 批次：两个口径缺口（rank 字段借用 & 假名同音词）
 
-> 状态：active ｜ 最后核实：2026-10-17 ｜ 日期：2026-10-17
+> 状态：active ｜ 最后核实：2026-11-09 ｜ 日期：2026-10-17
+
+> **2026-11-09 死链核查**：全文件未发现死链——`code/oneshot/immersion_jiten_wordlist.py`、
+> `code/execution/immersionkit.py`、`data/immersion/candidates_10k20k.tsv`、
+> `data/immersion/redundant_kana_words.txt` 均在盘上，内容原样保留。
 
 ## 结论
 

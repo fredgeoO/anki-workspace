@@ -1,6 +1,6 @@
 # 每日讲义 · 生成规范（说明与投放位置）
 
-> 状态：active ｜ 最后核实：2026-11-03
+> 状态：active ｜ 最后核实：2026-11-09
 
 > **这是一份说明文档，不是提示词。** 真正发给模型的规范在
 > [`code/execution/lesson/lesson_local_prompt.md`](../code/execution/lesson/lesson_local_prompt.md)，
@@ -47,7 +47,7 @@ POST http://127.0.0.1:8080/v1/responses                ← OpenAI Responses API�
 4. **`examples` 必须自己造、且必须用上目标词**——
    抄卡片自带例句等于让他白读讲义；而不含目标词的例句是**实测最常见的模型错误**
    （本地 27B 会给「〜あまり」造出「節約しすぎて…」）。后者已经做成**机械可查**
-   （`check_examples` + `gen` 的自动返工），不再只靠规范约束。
+   （`lesson_check.example_uses_target`，随 `teach_issues` 在 `gen` 里触发自动返工），不再只靠规范约束。
 5. **`usage` / `uses` 每条都要带接续或搭配**——光说意思没用，语法卡尤其。
 6. **语法卡的 `uses` 必须有一条反面**（什么时候不能用）——语法点的价值一半在反面。
 7. **`structure` 要把脏接续表整理干净**——Anki 原始字段里有
@@ -61,8 +61,9 @@ POST http://127.0.0.1:8080/v1/responses                ← OpenAI Responses API�
 
 ## 三、改这份规范时的注意事项
 
-- **改的是教学口径，不是格式。** 格式（字段名、JSON 结构）一改，就必须同步改
-  `today_new.py` 里的 `render_teach` / `normalize_teach` / `check_examples`；
+- **改的是教学口径，不是格式。** 格式（字段名、JSON 结构）一改，就必须同步改渲染与校验层：
+  teach 整形与 Markdown 渲染在 `code/execution/lesson/lesson_text.py`（`render_teach` / `normalize_teach`），
+  机械判定在 `code/execution/lesson/lesson_check.py`（`teach_issues` / `example_uses_target`）；
   只加字段的话，渲染器会自动忽略，不会报错。
 - **规范变长 = 每个请求都变贵。** 它按请求重复发送（默认每请求 1 张卡），
   加 100 字的说明 = 10 张卡多花 10 次。
@@ -79,12 +80,12 @@ POST http://127.0.0.1:8080/v1/responses                ← OpenAI Responses API�
 
 | 检查 | 在哪里 | 拦不拦 |
 |---|---|---|
-| 逐张覆盖（一张不漏、不多） | `check_coverage`（`merge`） | **拦**，不通过不写讲义 |
+| 逐张覆盖（一张不漏、不多） | `check_coverage`（`lesson/lesson_check.py`，`merge` 调用） | **拦**，不通过不写讲义 |
 | `teach` 非空 | `check_coverage` | **拦** |
-| 讲义无残留 `{{占位符}}`、词形都出现 | `check_render` | **拦** |
-| JSON 合法（含剥围栏/剥前后话的抢救） | `extract_json` | 失败则带提示重问 |
-| 例句用上目标词 | `check_examples` + `gen` 返工 | 先自动**重问**，最终仍不合格只**报告** |
-| 截断 / 漏卡 | `gen_one_request` | 按卡降级重问 |
+| 讲义无残留 `{{占位符}}`、词形都出现 | `check_render`（同上） | **拦** |
+| JSON 合法（含剥围栏/剥前后话的抢救） | `extract_json`（`common/llm_client.py`） | 失败则带提示重问 |
+| 例句用上目标词等内容问题 | `teach_issues` / `example_uses_target`（`lesson/lesson_check.py`）+ `gen` 返工 | 先自动**重问**，最终仍不合格只**报告** |
+| 截断 / 漏卡 | `gen_one_request`（`today_new.py`） | 按卡降级重问 |
 
 > 口径沿用全工作区的原则：**同一件事只查一次，且查在"改库前"**。
 > 讲义这条链路从不写 Anki，所以"改库前"就是"写讲义前"。

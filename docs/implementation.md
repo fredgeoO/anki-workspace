@@ -1,6 +1,6 @@
 # 实现与内部机制（implementation）
 
-> 状态：active ｜ 最后核实：2026-11-03
+> 状态：active ｜ 最后核实：2026-11-09
 
 **这是什么**：从根 [README](../README.md) 迁出的实现细节——数据流、流水线各阶段、选词打分、
 覆盖率口径、测试矩阵、仓库边界。README 只留使用者要的「怎么用」，想知道「它到底怎么算、产物落在哪、
@@ -145,8 +145,7 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 
 ## 5. 测试矩阵
 
-19 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回；
-2026-11-01 复核全部通过。跑法：
+`code/tests/` 现 27 个回归测试都是**独立脚本、纯离线**（不连网、不碰 Anki 写接口），秒级返回。跑法：
 
 ```powershell
 & $PY "$WS\code\tests\test_llm_out.py"     # 换一个文件名就是另一组
@@ -156,6 +155,7 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 |---|---|
 | `test_llm_out.py` | 本地模型产出吸收层：畸形 JSON、字段类型错、整组超预算、漏卡重问 |
 | `test_mine_patch.py` | 阶段四 `merge-fix` 的前缀回退（2026-10-12 事故） |
+| `test_mine_audio_need.py` | 阶段五配音「只补空字段」判据（`mine_audio.plan_needs`）：字段为空才生成，已有原声/TTS 一律保留，`--force` 才重算（挡 2026-11-01 那次把演员原声降级成 TTS 的静默改数据） |
 | `test_immersionkit.py` | ImmersionKit 抓句链路纯函数：振假名对齐、标签、字段一致性、gen 并回与并发顺序 |
 | `test_jisho_example.py` | Jisho 例句解析、token 边界匹配（体中/ヤニ）、注音对不齐兜底 |
 | `test_core6000_jisho.py` | core6000 补例句的「新句来自 Jisho」：书写骨架偏好、四道候选闸门、模型改写被覆盖 |
@@ -163,6 +163,9 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 | `test_proper_extract.py` / `test_proper_patch.py` | 专名抽取的确定性部分、专名卡字段规则 |
 | `test_subtitle_tag.py` | 字幕打标的纯逻辑：跳过已复习词、只写 tags |
 | `test_today_new_words.py` | 每日生词挑选：打分公式、只挡无 JAR 排名（有排名 >30000 照收）、读音闸、名额、标签差集 |
+| `test_rank_gate.py` | LLM 精排（`rank_gate`）+ 按序取词接口：模型输出解析、一集一次口径、缓存指纹、跨集合并、无名单时退回公式 |
+| `test_sense_repair.py` | 义项核验被剔词的「修原卡回插」纯逻辑：sanitize、新句闸门、多句字段追加、`AINote` ② 块幂等、词性只改确定冲突、重判放行口径 |
+| `test_vocab_screen.py` | 卡组外新词筛选（`vocab_cover/screen.py` + `is_content_token(drop_aux=)`）：默认仍放行動詞-非自立可能（today-new 行为不变）、按词典形/归一形/表记三键查重、专名单独成组、切分碎片被内容词闸挡掉 |
 | `test_lesson_render.py` | 每日讲义口径：词形/读音、词性校正、同词合并、接续脏数据、计数自洽、讲解机械错 |
 | `test_lesson_dict.py` | 每日讲义的 JMdict 纠错：读音不在词典读音表、词性冲突、他动/自动、词典不可用降级、渲染校正 |
 | `test_writeback.py` | 写库事务：演练不写、提交备份、回读失败上报、分块/quiet、调度接口不出现 |

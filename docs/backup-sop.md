@@ -1,15 +1,15 @@
 # 备份 SOP：anki-workspace + Anki 学习资料
 
-> 状态：active ｜ 最后核实：2026-10-28
+> 状态：active ｜ 最后核实：2026-11-09
 
 **这是什么**：备份与恢复的唯一权威流程（工作区 + Anki 收藏库/媒体/插件 → G: 盘）。
 **为什么存在**：备份做错比不做更糟（收藏库带 -wal 时副本不一致、旧备份先删就没了），
 所以步骤、校验判据、恢复路径都写死在这里。
 **什么时候读**：要备份/恢复时；换机器或大改库之前。
 
-- 最近一次执行：**2026-10-09 08:2x**，目标 `<备份盘>:\anki-backup-2026-10-09`（见 §8 台账）
-- 上一份备份 `<备份盘>:\anki-backup-2026-10-04` 已在本次备份校验通过后删除（保留策略见 §4.1）
 - 备份介质：**G: 盘**（非系统盘，与工作区/Anki 数据不在同一物理盘）
+- 一份备份约 **2.6 GB / 5 万文件**（workspace + 收藏库 + 媒体 + 滚动备份 + 插件），耗时 1–3 分钟
+- 每次执行的权威数字在**那份备份自己的** `_verify\manifest.json` 里；历史台账已退场（见 §8）
 
 ---
 
@@ -18,8 +18,10 @@
 ```powershell
 # 0) 先完全退出 Anki（含托盘图标）——这是唯一必须人工做的一步
 # 1) 一条命令做完：建目录 + robocopy 六棵树 + 校验 + 写 manifest
-& $PY code\tools\backup_anki.py --dest <备份盘>:\anki-backup-<当天日期>
+& $PY "$WS\code\cli.py" backup --dest <备份盘>:\anki-backup-<当天日期>
 ```
+
+`cli.py backup` 是映射（`GROUPS['backup']` → `code/tools/backup_anki.py`），也可直接跑该脚本。
 
 跑完看它最后打印的 **VERIFY** 段：每棵树「源↔备份 文件数/字节数一致」
 + 收藏库 **SHA256 与源库逐字节相同** + notes/cards/revlog 计数与源一致，就算成功。
@@ -44,7 +46,7 @@ Anki 自己 `backups/` 里的 colpkg 只是滚动备份（默认最多保留若�
 
 ---
 
-## 2. 要备份什么（四类、六棵树）
+## 2. 要备份什么（六棵树）
 
 | # | 备份目录 | 是什么 | 源路径 | 丢失后果 |
 |---|---|---|---|---|
@@ -55,34 +57,18 @@ Anki 自己 `backups/` 里的 colpkg 只是滚动备份（默认最多保留若�
 | 5 | `anki-addons\addons21\` | 插件与插件配置（含 AnkiConnect） | `%APPDATA%\Anki2\addons21` | 重装插件、丢 AnkiConnect 配置 |
 
 外加写入目标根目录的 `README-备份说明.md`，和 `_verify\`（manifest + robocopy 原始日志）。
+> 脚本内部把收藏库拆成 `anki-collection` / `anki-prefs` 两条 robocopy（同落一个目录），共六次复制。
 
 **明确不备份**（有意排除，写在命令里）：
 
 | 排除项 | 原因 |
 |---|---|
-| 工作区 `**\__pycache__\` | Python 字节码缓存，自动重建 |
-| 工作区 `temp\` | 一次性文件区（临时脚本/dump/日志），随时会被 `cli.py temp clean` 清掉，无需进备份（2026-10-20 起） |
-| `%APPDATA%\Anki2\账户 1\media.trash\` | Anki 的「已删媒体」回收站（本次约 926 MB），**作为可选恢复源**，默认不备份（见 §5.2 ③） |
+| 工作区 `__pycache__\`、`temp\` | Python 字节码缓存 + 一次性文件区（随时被 `cli.py temp clean` 清掉），由 `WS_EXCLUDE_DIRS` 登记 |
+| `%APPDATA%\Anki2\账户 1\media.trash\` | Anki 的「已删媒体」回收站，**作为可选恢复源**，默认不备份（见 §5.2 ③） |
 | 系统临时/回收站 | — |
 
-**体积参考**（2026-10-09 实测，用于估算空间）：
-
-| 项 | 文件数 | 大小 |
-|---|---|---|
-| workspace | 3600 | 996.8 MB |
-| anki-collection（含 prefs21.db） | 4 | 49.3 MB |
-| anki-media | 44832 | 1.15 GB |
-| anki-backups | 51 | 401.5 MB |
-| anki-addons | 940 | 51.0 MB |
-| **内容合计** | **49427** | **约 2.6 GB** |
-| 加上 `_verify\`（manifest + 6 份日志）与 `README-备份说明.md` | 49435 | — |
-
-> G: 盘至少要留 **5 GB** 空闲（复制过程需要同时容纳新旧两份时才需要更多；
-> 按 §4.1 先删旧备份再把新备份做在同一盘，最省空间）。
-
-**关于 `data\pylibs`（约 320 MB）**：它**在备份范围内**，但不值得为它担心 ——
-丢了可以用 `python code/oneshot/install_workspace_wheels.py` 重装
-（sudachipy + sudachidict_core + matplotlib）。
+> **空间预算**：一份内容合计约 2.6 GB；G: 盘至少留 **5 GB** 空闲。
+> `data\pylibs`（约 320 MB）在备份范围内，但丢了可用 `python code/oneshot/install_workspace_wheels.py` 重装，不必为它担心。
 
 ---
 
@@ -120,7 +106,7 @@ Anki 自己 `backups/` 里的 colpkg 只是滚动备份（默认最多保留若�
 ### 4.1 目标目录命名与保留策略
 
 ```
-<备份盘>:\anki-backup-YYYY-MM-DD\          例：<备份盘>:\anki-backup-2026-10-09
+<备份盘>:\anki-backup-YYYY-MM-DD\          例：<备份盘>:\anki-backup-2026-11-09
 ├─ workspace\
 ├─ anki-collection\
 ├─ anki-media\collection.media\
@@ -132,11 +118,11 @@ Anki 自己 `backups/` 里的 colpkg 只是滚动备份（默认最多保留若�
 
 - **日期取执行当天** `yyyy-MM-dd`。
 - **保留策略：只留最新一份**。做法是**先把新备份做完并校验通过，再删旧的**
-  （顺序不能反）：
+  （顺序不能反；脚本不代删旧备份）：
 
   ```powershell
   # 校验通过之后才执行；确认路径无误再回车
-  Remove-Item -Recurse -Force '<备份盘>:\anki-backup-2026-10-04'
+  Remove-Item -Recurse -Force '<备份盘>:\anki-backup-<上一份日期>'
   ```
 
   想留历史点也行，但 G: 盘每份约 2.6 GB，自己算空间。
@@ -145,12 +131,13 @@ Anki 自己 `backups/` 里的 colpkg 只是滚动备份（默认最多保留若�
 
 ```powershell
 $WS = '<工作区根>'
-& python "$WS\code\tools\backup_anki.py" --dest <备份盘>:\anki-backup-2026-10-09
+& $PY "$WS\code\cli.py" backup --dest <备份盘>:\anki-backup-<当天日期>
 ```
 
-`code\tools\backup_anki.py` 依次做：建目录 → robocopy 六棵树（各自写日志到 `_verify\`）
+脚本依次做：源检查 + Anki 状态检查 → robocopy 六棵树（各自写日志到 `_verify\`）
 → 离线校验收藏库副本 → 写 `_verify\manifest.json` 与 `README-备份说明.md`。
-`--dry-run` 只打印计划不落盘。
+常用开关：`--dry-run` 只打印计划不落盘；`--overwrite` 目标非空也续写（robocopy 增量）；
+`--force` Anki 在运行时也只备份 workspace 一棵树（救急，收藏库不备）。
 
 ### 4.3 手工命令（脚本跑不了 / 只想备份某一棵树时）
 
@@ -160,11 +147,11 @@ $WS = '<工作区根>'
 ```powershell
 $WS  = '<工作区根>'
 $ANK = "$env:APPDATA\Anki2"
-$DST = '<备份盘>:\anki-backup-2026-10-09'
+$DST = '<备份盘>:\anki-backup-<当天日期>'
 
-# 1) 工作区（约 1 GB）——跳过 __pycache__ 与两个沙箱拒绝的空目录
+# 1) 工作区（约 1 GB）——跳过 __pycache__ 与 temp（= WS_EXCLUDE_DIRS）
 robocopy $WS "$DST\workspace" /E /COPY:DAT /DCOPY:DAT /XJ /MT:16 /R:2 /W:1 `
-  /XD __pycache__ live-cfemqh6w probe-mk-c3ozfqej `
+  /XD __pycache__ temp `
   /NP /NDL /NFL /LOG:"$DST\_verify\robocopy-workspace.log"
 
 # 2) 收藏库本体（先关 Anki！）——只挑这几个文件，所以不加 /E；/IF 让其缺失也不报错
@@ -194,13 +181,13 @@ robocopy "$ANK\addons21" "$DST\anki-addons\addons21" /E /COPY:DAT /DCOPY:DAT `
 
 | 参数 | 作用 |
 |---|---|
-| `/E` | 含空目录（工作区有空的占位目录，不加会漏） |
+| `/E` | 含空目录（工作区有空的占位目录，不加会漏）；收藏库/prefs 那两条只拷指定文件，故意不加 |
 | `/COPY:DAT` / `/DCOPY:DAT` | 拷数据+属性+时间戳（保住 mtime，便于比对） |
 | `/XJ` | 不跟随 junction/符号链接（避免被引到别处去，或形成环） |
 | `/MT:16`（媒体 `/MT:24`） | 多线程，媒体库提速明显 |
 | `/R:2 /W:1` | 失败重试 2 次、间隔 1 秒；默认 100 万次会让它卡死一小时 |
 | `/NP /NDL /NFL` | 日志里不刷进度与文件名（日志小、可读） |
-| 两个 `/XD` 排除 | `__pycache__` 与 `temp\`（一次性文件区，已由 `WS_EXCLUDE_DIRS` 登记） |
+| workspace 的 `/XD __pycache__ temp` | 缓存 + 一次性文件区，由 `WS_EXCLUDE_DIRS` 登记 |
 
 ---
 
@@ -214,7 +201,7 @@ robocopy "$ANK\addons21" "$DST\anki-addons\addons21" /E /COPY:DAT /DCOPY:DAT `
 
 ```powershell
 # ① 恢复工作区（把 $DST 换成实际备份目录）
-robocopy '<备份盘>:\anki-backup-2026-10-09\workspace' `
+robocopy '<备份盘>:\anki-backup-<日期>\workspace' `
          '<工作区根>' `
          /E /COPY:DAT /DCOPY:DAT /XJ
 
@@ -224,19 +211,19 @@ Move-Item "$ANK\账户 1" "$ANK\账户 1.before-restore"
 New-Item -ItemType Directory "$ANK\账户 1" | Out-Null
 
 # ③ 收藏库文件（连 -wal 一起；`prefs21.db` 要放到上一层的 Anki2 根目录）
-Copy-Item '<备份盘>:\anki-backup-2026-10-09\anki-collection\collection.anki2*' "$ANK\账户 1"
-Copy-Item '<备份盘>:\anki-backup-2026-10-09\anki-collection\collection.media.db2' "$ANK\账户 1"
-Copy-Item '<备份盘>:\anki-backup-2026-10-09\anki-collection\deleted.txt' "$ANK\账户 1"
-Copy-Item '<备份盘>:\anki-backup-2026-10-09\anki-collection\prefs21.db' $ANK
+Copy-Item '<备份盘>:\anki-backup-<日期>\anki-collection\collection.anki2*' "$ANK\账户 1"
+Copy-Item '<备份盘>:\anki-backup-<日期>\anki-collection\collection.media.db2' "$ANK\账户 1"
+Copy-Item '<备份盘>:\anki-backup-<日期>\anki-collection\deleted.txt' "$ANK\账户 1"
+Copy-Item '<备份盘>:\anki-backup-<日期>\anki-collection\prefs21.db' $ANK
 
 # ④ 媒体库（1 GB+ / 4.5 万文件，耐心等）
-robocopy '<备份盘>:\anki-backup-2026-10-09\anki-media\collection.media' `
+robocopy '<备份盘>:\anki-backup-<日期>\anki-media\collection.media' `
          "$ANK\账户 1\collection.media" /E /COPY:DAT /DCOPY:DAT /XJ /MT:24
 
 # ⑤ 插件与滚动备份
-robocopy '<备份盘>:\anki-backup-2026-10-09\anki-addons\addons21' `
+robocopy '<备份盘>:\anki-backup-<日期>\anki-addons\addons21' `
          "$ANK\addons21" /E /COPY:DAT /DCOPY:DAT /XJ /MT:8
-robocopy '<备份盘>:\anki-backup-2026-10-09\anki-backups' `
+robocopy '<备份盘>:\anki-backup-<日期>\anki-backups' `
          "$ANK\账户 1\backups" /E /COPY:DAT /DCOPY:DAT /XJ /MT:8
 
 # ⑥ 打开 Anki 检查：牌组/卡数/复习记录/音频都在 → 满意后再删
@@ -269,7 +256,7 @@ Remove-Item -Recurse -Force "$ANK\账户 1.before-restore"
 
 | 校验项 | 方法 | 通过标准 |
 |---|---|---|
-| 文件数 / 字节数 | 源与备份各自 `Get-ChildItem -Recurse -File \| Measure-Object Length -Sum` | 六棵树逐项一致 |
+| 文件数 / 字节数 | 源与备份各自 `Get-ChildItem -Recurse -File \| Measure-Object Length -Sum` | 六棵树逐项一致（脚本已自动比对） |
 | robocopy 结果 | 看 `_verify\robocopy-*.log` 的 `Files :` 行 | `FAILED : 0`（退出码 ≤7） |
 | **收藏库指纹** | 备份副本 vs 源库的 **SHA256** | **完全一致（逐字节相同）—— 这是最硬的判据** |
 | 学习进度没缩水 | 备份副本 vs 源：notes / cards / revlog 计数 | 完全一致 |
@@ -277,21 +264,17 @@ Remove-Item -Recurse -Force "$ANK\账户 1.before-restore"
 | 收藏库完整性 | `PRAGMA integrity_check` | `ok` —— **仅供参考，不稳定，见下方说明** |
 
 **收藏库校验要点（重要）**：校验读的是**备份出来的副本**，不是源库 ——
-这样既不占用/污染源库，也不需要 Anki 配合。
+这样既不占用/污染源库，也不需要 Anki 配合。脚本已把这套校验内置（对副本 + 对源库临时副本各跑一次）。
 
-> **`unicase` 坑（2026-10-09 实测）**：新版 Anki 的 schema 带自定义排序规则
-> `unicase`，**系统 Python 自带的 sqlite3 不认识它**。表现为：
-> 只拷 `collection.anki2` 时 `PRAGMA integrity_check` 报
-> `no such collation sequence: unicase`；用替身规则冒充则进一步报
-> `row 1 missing from index idx_notetypes_name`（索引是按真 `unicase` 建的，
-> 替身排不出同样顺序）。**这都不代表库坏了** —— Anki 自带的 SQLite 有该规则，能正常打开
-> （本次已实际读过备份副本：23 个牌组、4 个笔记类型、17633 notes / 20161 cards / 45577 revlog，
-> 最新复习 2026-10-09 07:50:05）。
-> **所以判据是 SHA256 逐字节一致 + 计数一致**，`integrity_check` 只当参考；
-> 想要权威检查就用 Anki 打开备份副本验一次。
+> **`unicase` 坑（结论）**：新版 Anki 的 schema 带自定义排序规则 `unicase`，系统 Python 自带的
+> sqlite3 不认识它，`PRAGMA integrity_check` 会报 `no such collation sequence: unicase` 或
+> `row 1 missing from index idx_notetypes_name`。**这都不代表库坏了**——Anki 自带的 SQLite 有该规则。
+> **判据是 SHA256 逐字节一致 + 计数一致**，`integrity_check` 只当参考；要权威检查就用 Anki 打开备份副本验一次。
+
+手工复核收藏库（脚本已自动做，这里备查）：
 
 ```powershell
-$c = '<备份盘>:\anki-backup-2026-10-09\anki-collection\collection.anki2'
+$c = '<备份盘>:\anki-backup-<日期>\anki-collection\collection.anki2'
 python -X utf8 -c @"
 import sqlite3, hashlib
 db = sqlite3.connect(r'$c')          # 副本可直接读写；不要用 mode=ro（WAL 下会 database is locked）
@@ -325,27 +308,19 @@ python -X utf8 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb'
 | `New-Item : 对路径 ... 的访问被拒绝` | 目标在 DSH 会话工作区之外（G: 盘），属正常沙箱限制 | 批准一次「更宽的文件权限」，或从自己的 PowerShell 窗口跑 |
 | `Test-Path` 找不到 `账户 1` | 路径没加引号（带空格）/资料夹名不是这个 | 用 `"$env:APPDATA\Anki2\账户 1"` |
 | robocopy 卡很久不动 | 默认会重试 100 万次 | 一定带 `/R:2 /W:1` |
-| 日志里一堆 `ERROR 5 (0x00000005)` | 遇到沙箱拒绝的残留目录 | 用 `/XD` 排除后重跑，其余文件不受影响 |
 | 文件名太长报错 | 媒体库存在超长文件名 | 优先用 robocopy（支持长路径）；仍有问题就单独排除该文件并记录 |
 | 恢复后音频全丢 | 只导入了 colpkg（不含媒体） | 再按 §5.1 ④ 拷 `collection.media` |
 | 脚本报「目标目录已存在且非空」 | 上一次中断/重跑 | 确认是同一份备份就加 `--overwrite`（增量续写） |
 
 ---
 
-## 8. 执行台账（每次做完补一行）
+## 8. 执行台账
 
-| 日期 | 目标目录 | 结果 | 备注 |
-|---|---|---|---|
-| 2026-10-04 | `<备份盘>:\anki-backup-2026-10-04` | 成功（83167 文件 / 2.63 GB，integrity ok） | 手工执行；当时含 media.trash 等更多文件；已按保留策略删除 |
-| 2026-10-09 | `<备份盘>:\anki-backup-2026-10-09` | 成功：49435 文件 / 2.6 GB；六棵树源↔备份一致；收藏库 SHA256 `0BB87F4B…D8B4AE` 与源**逐字节相同**；notes 17633 / cards 20161 / revlog 45577（最新复习 2026-10-09 07:50:05）；备份副本已实际打开复验：23 牌组 / 4 笔记类型 | 首次按本 SOP 执行；脚本 `code\tools\backup_anki.py` 落地 |
+每次备份的权威数据在**那份备份自己的** `_verify\manifest.json` 里（文件数、字节数、
+SHA256、收藏库计数、最新复习时间），本文件不再维护历史台账。
+脚本跑完会在末尾提示：核对 manifest → 删旧备份 → 需要留索引就自己在本节补一行。
 
-> 每次备份的权威数据在**那份备份自己的** `_verify\manifest.json` 里（文件数、字节数、
-> SHA256、收藏库计数、最新复习时间），台账这行只是索引。
->
-> 2026-10-09 这次是**边定稿本 SOP 边备份**：收藏库/媒体/插件在 08:23:53 那一轮复制，
-> 之后改动的 `docs\backup-sop.md`、`README.md`、`code\tools\backup_anki.py` 单独同步进备份，
-> `manifest.json` 里 workspace 的字节数按同步后的实际值重算（文件数不变，仍 3600）。
-> 下次按 §0 一条命令走完，就不存在这种收尾补同步。
+> 历史执行记录（2026-10-04 / 2026-10-09 等）已归档，不在活跃文档里；现行入口与判据以 §0–§7 为准。
 
 ---
 
