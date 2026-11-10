@@ -160,7 +160,7 @@
 - `code/oneshot/`（11 个，908 行）：`anki_again_count.py` `gen_single_note.py` `inspect_db.py`
   `inspect_notes.py` `show_note_field.py` `probe_deck_cost.py` `probe_deck_coverage.py`
   `probe_deckconfig2.py` `probe_example_deck.py` `probe_intro_cost.py` `probe_pos_dist.py`
-  —— 2026-10 探查收藏结构用的一次性探针，结论早已写进 AGENTS.md §7 的库结构表。
+  —— 2026-10 探查收藏结构用的一次性探针，结论早已写进 [anki-library.md](anki-library.md) 的库结构表。
   按 [§4](#4-一次性临时探针) 的规矩它们本该进 `temp/` 或 `archive/experiments/`，是没搬走的存量。
 - `code/tools/vocab_curve.py`(111) / `code/tools/cross_show_curve.py`(212)：「同作品挖 12 集 vs
   不同作品各挖前 3 集」的一次性对比。`vocab_curve.py` 读的 `data/evidence/<集>/prefilter.csv`
@@ -216,7 +216,7 @@ due 受 protected 约束（同 §6、§13），词表索引现经 AnkiConnect �
 ## 15. core6000 补例句的「先演练再 commit」习惯（2026-11-09 起作废）
 
 旧文档要求 `core6000_example.py apply` 先不带 `--commit` 演练、人工看过输出再真写。
-用户 2026-11-09 定新规矩：**apply 直接带 `--commit` 真写，不再演练**（AGENTS.md §3 铁律 4）。
+用户 2026-11-09 定新规矩：**apply 直接带 `--commit` 真写，不再演练**（AGENTS.md 写库规则第 2 条）。
 闸门 1–4（含与第一句的换皮相似度）在 gen 阶段判掉；写前自动落 `backup_<时间戳>.json`、写后回读，退路是 `revert --commit`。
 不带 `--commit` 的演练路径只留作排错。
 

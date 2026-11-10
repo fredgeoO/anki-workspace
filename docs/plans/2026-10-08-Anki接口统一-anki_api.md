@@ -23,6 +23,6 @@ AnkiConnect 传输层与 `findNotes → notesInfo` 分块循环在全仓被抄�
 
 ## 指针
 
-- 机制与用法：[docs/architecture.md](../architecture.md)、AGENTS.md §5 / §8。
+- 机制与用法：[docs/architecture.md](../architecture.md)、[code/README.md](../../code/README.md)。
 - 防回退口径：`& $PY code\common\anki_api.py audit`（0 = 干净），已收进 `doctor`。
 - 迁移前的手工客户端写法属历史，只记 [docs/deprecated.md](../deprecated.md)。

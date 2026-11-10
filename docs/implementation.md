@@ -189,8 +189,9 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
 
 - git 只跟踪「源码 / 文档 / 技能 / 模板 / 字幕」；`data/`、`output/`、`docs/reports/`（`sample/` 除外）
   都不入库——**卡片资料没有 git 可退，唯一退路是备份**。清单见 [data/README.md](../data/README.md)。
-- 写库脚本一律「默认演练、`--commit` 才真写」；改动前打印数量与清单，写后回读
-  `AK.verify_note_fields`。工程约定见 [AGENTS.md §8](../AGENTS.md)。
+- 写库脚本一般「默认演练、`--commit` 才真写」（`core6000_example.py apply` 与 `today-new` 打标按技能文档
+  默认真写）；改动前打印数量与清单，写后回读 `AK.verify_note_fields`。工程约定见
+  [code/README.md](../code/README.md)。
 - 备份收藏库前**完全退出 Anki**；新备份校验通过后才删旧的。唯一权威流程见
   [backup-sop.md](backup-sop.md)。
 - 分析只走 live（AnkiConnect）：「离线快照数据源」（`--source snapshot`、`_anki_snap/`）

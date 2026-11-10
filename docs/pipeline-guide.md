@@ -197,7 +197,7 @@ PS 侧只能这样加载：本 shell 是受限令牌，`.ps1` 文件跑不了（
 `Unrestricted` 报 `AuthorizationManager check failed`，只有 `Bypass` 行），`$PROFILE` 也不被加载
 （profile 已装好，只对你自己的 PowerShell 窗口生效）。也可以
 `Set-ExecutionPolicy -Scope Process Bypass -Force` 之后再 dot-source。
-铁律全文见 [AGENTS.md](../AGENTS.md) §1 第 3 条与 §3 第 2 条；档案见
+铁律全文见 [AGENTS.md](../AGENTS.md) §0（不用 PowerShell 解析日文）与 §3 第 1 条（textio 唯一入口）；档案见
 [plans/2026-10-08-编码统一-textio.md](plans/2026-10-08-编码统一-textio.md)。
 
 ---

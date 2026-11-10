@@ -100,7 +100,8 @@
 | 想在 Harness 面板里点着用 | §6 DSH 插件 |
 | 想看输出长什么样 | [docs/reports/sample/](docs/reports/sample/README.md)（作者的真实报告样板） |
 | 改脚本 / 核对某个数字怎么算 | [docs/implementation.md](docs/implementation.md) |
-| 让 AI 代理替你操作 | [AGENTS.md](AGENTS.md)（行为契约） |
+| 查牌组、字段名、标签写法 | [docs/anki-library.md](docs/anki-library.md) |
+| 让 AI 代理替你操作 | [AGENTS.md](AGENTS.md)（行为契约与工作区地图） |
 
 本文件面向**使用者**：是什么、怎么装、每天怎么用、出问题去哪看。实现方式与内部细节在
 [docs/implementation.md](docs/implementation.md) 与各专项手册；Agent 的行为契约在
@@ -174,7 +175,8 @@ $PY = "python"          # 换成你的 Python 3
 | 周末 | 出库层面分析 | `cli.py r report`（只读，需本机装 R 与 ankiR） |
 
 - **选词**：扫整部作品打分，挑 30 个**已有卡、还没学**的词打上 tag `今天学习生词`；每次运行
-  全量替换旧标签，只写标签不碰调度列。默认演练，`--commit` 才真写，`--revert --commit` 撤销。
+  全量替换旧标签，只写标签不碰调度列。默认直接 `--commit` 真写（2026-11-10 起；点名「先演练」
+  才不加），`--revert --commit` 撤销。
   打分公式与闸门见 [implementation §3](docs/implementation.md)。
 - **义项修复**：选词时义项核验对不上的词默认先修原卡再回插（补真实例句 + 按字幕义项重写
   `Meaning`，重判通过才算修好；写卡只走 writeback，同样受 `--commit` 管）。事后补跑
@@ -294,7 +296,8 @@ $PY = "python"          # 换成你的 Python 3
 | 按 Jiten 名次重排新卡顺序 | Anki 插件 `jiten_reorder`，见 [docs](docs/jiten-reorder-使用说明.md)（只改新卡 `due`） |
 | 备份 / 清临时文件 | `cli.py backup --dest <路径>`（先退出 Anki）· `cli.py temp list` → `temp clean` |
 
-写库类命令一律默认演练，`--commit` 才真写；参数用 `cli.py <组> --help` 现查。未纳入统一入口的脚本
+写库类命令一般默认演练、`--commit` 才真写；例外（`core6000_example.py apply`、`today-new` 打标）按
+[技能文档](.dsh/skills/README.md)默认真写。参数用 `cli.py <组> --help` 现查。未纳入统一入口的脚本
 （如 `vocab_cover/` 里的数据链零件）直接调用，见 [architecture §2](docs/architecture.md)。
 
 ---
@@ -304,7 +307,7 @@ $PY = "python"          # 换成你的 Python 3
 ```
 anki-workspace/
 ├─ README.md                本文件：给使用者的说明书
-├─ AGENTS.md                ★ Agent 行为契约（边界 / 禁令 / 验证 / 求助）
+├─ AGENTS.md                ★ Agent 工作区地图与行为契约（去哪里找 / 什么不能碰）
 ├─ code/                    可复用代码：cli.py（统一入口）+ common / execution / tools / analysis / tests
 │                             （plugins/ 是 DSH 插件；execution 下两个系列各自一个文件夹：core6000/、lesson/）
 ├─ docs/                    手册与档案（implementation / architecture / pipeline-guide / decisions …）
@@ -312,10 +315,10 @@ anki-workspace/
 ├─ output/                  生成物（daily 讲义、audio）
 ├─ subtitles/               原始字幕素材
 ├─ temp/                    ★ 唯一的一次性文件区
-└─ .dsh/skills/             技能（任务 → 技能路由表在 AGENTS.md §4）
+└─ .dsh/skills/             技能（任务 → 技能路由表在 .dsh/skills/README.md）
 ```
 
-每个脚本的职责见 [AGENTS.md §5](AGENTS.md) 和 [architecture §1](docs/architecture.md)。
+代码结构与每个脚本的职责见 [code/README.md](code/README.md)，模块细节见 [architecture §1](docs/architecture.md)。
 
 ---
 
@@ -353,7 +356,7 @@ anki-workspace/
 
 更多排障见 [docs/troubleshooting/](docs/troubleshooting/README.md) 与
 [docs/architecture.md §6](docs/architecture.md)。专项手册与各文档索引在
-[docs/implementation.md](docs/implementation.md) 与 [AGENTS.md](AGENTS.md) 里按主题定位。
+[docs/README.md](docs/README.md) 里按主题定位。
 
 ---
 
@@ -390,8 +393,11 @@ Release 单个附件上限 2 GiB，所以按三个子牌组拆包。
 
 ## 14. 与 Agent 的边界
 
-[AGENTS.md](AGENTS.md) 是**代理的行为契约**（角色边界、禁令、验证命令、失败处理与求助条件），
+[AGENTS.md](AGENTS.md) 是**代理的工作区地图与行为契约**（角色边界、禁令、验证命令、失败处理与求助条件），
 本文件是**人的项目说明书**（是什么、怎么跑、怎么测）。两者互相引用、**不互相复制**：
 项目事实以本文件为准，行为约束以 AGENTS.md 为准。**若两者冲突**（例如本文件描述某操作可行、
 AGENTS.md 列为禁止），以 AGENTS.md 为准，代理应**停下询问用户**，不要在文档之间自行仲裁。
-技能路由表在 AGENTS.md §4，技能本体在 `.dsh/skills/`。
+技能路由表在 [.dsh/skills/README.md](.dsh/skills/README.md)，技能本体在 `.dsh/skills/`。
+
+代理收工汇报固定四样：**跑了什么**（命令 + `--commit`）、**改了什么**（牌组/字段/张数 + 文件）、
+**怎么验证的**（`doctor` / 回读 / 测试退出码）、**怎么退回去**（备份或 `revert` 命令；写入库必须有）。

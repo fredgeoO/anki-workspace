@@ -2,7 +2,7 @@
 """回归测试：pipeline.py write 的写库路径（走 writeback，全量回读）。
 
 2026-11-03 issue #10 B2：`cmd_write` 原来是逐张 `AK.update_note_fields` + 「抽查前 3 张」
-兜底——**第 4 张之后的静默失败没人接**（AGENTS.md §3 铁律 7「写后回读」在这条最常跑的
+兜底——**第 4 张之后的静默失败没人接**（AGENTS.md §3 第 3 条「写后回读」在这条最常跑的
 写库路径上只覆盖 ids[:3]）。现在收进 `common/writeback.py`：备份旧值 → 写 → 全量回读。
 
 本文件钉四件事：

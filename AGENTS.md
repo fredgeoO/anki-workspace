@@ -1,254 +1,87 @@
-# AGENTS.md —— anki-workspace 代理入口
+# AGENTS.md —— anki-workspace 地图
 
-> 状态：active ｜ 最后核实：2026-11-09
+> 状态：active ｜ 最后核实：2026-11-10
 
-**读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
-`docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
-90% 的日常需要；剩下的按需单点打开，读完就走。
+**这是工作区地图，不是手册。** 只写：这是什么、去哪找、什么不能碰。细节都在链接的文件里，
+按需单点打开；不要为了「了解工作区」通读 README 或 architecture。
 
-本文只写**行为约束**（怎么干、什么不许干、怎么验、什么时候停）。
-**项目事实**——是什么、入口命令、目录结构、测试怎么跑——以 [README.md](README.md) 为准。
+## 0. 这是什么（与硬约束）
 
-## 0. 角色与边界
+真实在用的日语学习工作区：一集字幕 → 例句卡 → 讲解 + 振假名 → 素材生词 → 配音；另有每日讲义、
+弱项分析与词汇覆盖率。统一入口 `code/cli.py`（薄分发器，不含业务逻辑）。
 
-**角色**：这个日语学习工作区的维护/操作代理——跑既有链路、按需改脚本、写被点名的字段。
-**不替用户做学习决策**：学哪些词、什么时候停学、讲解「够不够好」都是用户的判断，不是你的。
+- **写的是真 Anki 收藏**（约 4 万张卡），没有测试库。卡片数据没有 git 可退，唯一退路是备份
+  （`cli.py backup` 与写库脚本的 `backup_*.json`）；代码和文档有 `git diff`。
+- **Anki 必须开着**（AnkiConnect `127.0.0.1:8765`）；唯一例外：备份前要**完全退出** Anki。
+- **不替用户做学习决策**（学哪些词、何时停学、讲解够不够好）；**不碰调度列**
+  `due / ivl / factor / type / queue / reps / lapses`。唯一例外是 `jp-anki-activate`，且只写新卡 `due`。
+- **不用 PowerShell 解析日文**（PS 5.1 默认 GBK：乱码、属性 `$null`、判断恒真）；编码与判断
+  一律 Python + `textio`。
+- 只写本工作区；不 `pip install`、不找系统 Python、不改系统配置。
 
-- **写权限只在本工作区**。工作区外的路径一律不动（见 §9）。
-- **唯一的 Anki 收藏就是用户真实在用的库**，没有测试库可练手。写库只写被要求的字段；
-  不批量重写既有讲解，不动笔记模板、牌组选项、学习调度（§3.5）。
-- **冲突处理**：项目事实（入口、命令、目录、字段）以 README 为准，行为约束以本文为准。
-  两者冲突时——比如 README 说某操作可行、本文列为禁止——**以本文为准，并停下来问用户**，
-  不要在文档之间自行仲裁，也不要「先做一版看看」。
-- **目标不明确先问**。含糊的请求（「把这几天的卡整理一下」）先确认范围与可写字段，再动手。
-
-## 1. 这是什么
-
-真实在用的日语学习工作区——**一个真 Anki 收藏**（39,820 张卡 / 26 个牌组）的自动化脚本集。
-把「一集字幕 → 例句卡 → 讲解 + 振假名 → 素材生词 → 配音」串成可重跑流水线，另有每日讲义、
-弱项分析、词汇覆盖率分析。所有入口在 `code/cli.py`（薄分发器，**不含业务逻辑**）。
-
-三条硬事实，后面每条铁律都从这儿来：
-
-1. **写的是真数据，不是测试库。** 工作区**现在是 git 仓库**，但只跟踪源码 / 文档 / 技能 / 模板 / 字幕
-   ——`data/`、`output/`、`docs/reports/`（`sample/` 除外）与卡片资料全被 `.gitignore` 排除。
-   所以代码和文档有 `git diff` 可退，**卡片数据仍然没有**：唯一退路是快照/备份
-   （`cli.py backup`、`data/plans/_prev/`、`data/*/backup_*.json`）。
-2. **Anki 必须开着**（AnkiConnect `127.0.0.1:8765`）。唯一例外：备份前必须**完全退出** Anki。
-3. **不要用 PowerShell 解析日文数据**（PS 5.1 默认 GBK：解成乱码、属性全 `$null`、判断恒真，
-   历史上因此误删过产出）。编码与判断一律在 Python 里做，走 `textio`。
-
-## 2. 开工三件套
+## 1. 开工
 
 ```powershell
-$WS = "<工作区根>"
-$PY = "python"
-
-& $PY "$WS\code\cli.py" doctor        # ★ 强制门禁（只读，几秒）：0=全绿 2=只有提示 1=阻塞，先修再做
-& $PY "$WS\code\cli.py" list          # 组 → 真实脚本路径（永远比文档新）
-& $PY "$WS\code\cli.py" <组> --help   # 具体参数
+$WS = "<工作区根>"; $PY = "python"
+& $PY "$WS\code\cli.py" doctor        # 0=全绿 2=提示 1=阻塞；先修再做
+& $PY "$WS\code\cli.py" list          # 组 → 真实脚本（永远比文档新）
+& $PY "$WS\code\cli.py" <组> --help   # 参数现查
+& $PY "$WS\code\tests\test_llm_out.py"    # 回归：单文件直跑，全离线，几秒
 ```
 
-**用法靠 `list` + `--help` 现查**（两次调用、永不过期），不要通读 `code/` 来学用法。
-`doctor --skip-anki` 离线跑；`doctor --tag "动画::<作品>::<季>::第NN集"` 额外跑该集 preflight。
+用法永远用 `list` + `--help` 现查，不要通读 `code/` 学用法。改过代码就把 `code\tests\*.py`
+全跑一遍。`doctor --skip-anki` 可离线；`doctor --tag "动画::<作品>::<季>::第NN集"` 加跑该集 preflight。
 
-改过代码还要跑回归测试（`code/tests/` 现 27 个独立脚本，纯离线，全部几秒；以目录实际数量为准）：
+## 2. 地图
 
-```powershell
-& $PY code\tests\test_llm_out.py     # 换文件名就是另一组；全跑一遍也不到 10 秒
-```
-
-README §7 有常用命令速查、`docs/implementation.md` §5 有每个测试挡什么——这两段**只在需要时**去翻，
-上面的命令已够日常使用。
-
-## 3. 铁律（违反会坏数据）
-
-1. **Anki 只有一个入口**：`code/common/anki_api.py`。不许另写 `def anki()`、不许
-   `sqlite3.connect` 真收藏。`& $PY "$WS\code\common\anki_api.py" audit` 必须 0 阻塞。
-   例外（历史遗留，不要照抄）：`code/analysis/anki_analyze/`、`code/oneshot/`、`code/tools/backup_anki.py`。
-2. **文本 I/O 只有一个入口**：`import textio`（UTF-8 stdio + 容错解码）。不手写 `sys.stdout.reconfigure`。
-3. **临时文件只有一个家**：`temp/`。根目录、`data/`、`output/`、`code/` 都不许留一次性文件；
-   收摊 `cli.py temp clean`（先 `temp list`）。`doctor` 第 9 项查根目录白名单。
-4. **`--commit` 是唯一的真写开关**，不是「额外检查步骤」。
-   `core6000_example.py apply` 直接带 `--commit` 真写（用户 2026-11-09 定的规矩：不再演练）。
-   例句来源仍由脚本保证——新句一律取自 Jisho 真实语料，闸门 1–4（含与第一句的换皮相似度）
-   在 gen 阶段就判掉；写前自动落 `backup_<时间戳>.json`、写后回读，退路是 `revert --commit`。
-5. **调度列不许碰**：`due / ivl / factor / type / queue / reps / lapses`。只有 `jp-anki-activate`
-   能写，且**只写新卡（type==0）的 `due`**；其余脚本一律不排期、不打准入标签。
-6. **机械判断交给代码，模型只做语义**：结构、逐字一致、ruby 覆盖、读音冲突、查重、字段回读
-   → `check_cards.py` / `check_mine.py` / `check_ruby.py` / `ruby_engine.py`；
-   词形/读音/词性对词典 → `jmdict_check.py`；
-   模型只做翻译、讲解、释义、词性、读音盲区裁决，且一批一次，不逐卡 ping-pong。
-7. **写库前留退路，写后回读**：优先用 `code/common/writeback.py`（演练 / 备份 / 写 / 回读一次到位）；
-   手写路径也必须 `AK.verify_note_fields({nid: {...}})` 收尾。
-8. **删除/覆盖前先打印「将删/将改 N 项」和清单**，数字不对就停。
-9. **不可逆操作先问人**：批量删卡/删字段、改笔记模板、`revert`、覆盖已有讲解。
-10. **环境别自己造**：不 `pip install`、不找系统 Python；TTS 用 `code/tools/edge_tts_min.py`（纯标准库）。
-
-## 4. 任务 → 技能（先加载技能，别自创流程）
-
-| 想做的事 | 技能 |
+| 要找什么 | 去哪 |
 |---|---|
-| 清理一集的卡 / 入库前先筛字幕 | `jp-anki-triage` |
-| 给一张或几张卡生成讲解 + 振假名 | `jp-anki-generate` |
-| 处理 `tag:leech` 的难卡（诊断 + 改写卡背 + 记忆钩子 + 干扰组建议） | `jp-anki-leech` |
-| 把生词排到新卡队列前面（只改新卡 `due`） | `jp-anki-activate` |
-| 从例句挖素材生词 → `0-素材生词` | `jp-anki-mine` |
-| 给生词卡配音 / 修读错的 mp3 | `jp-anki-audio` |
-| 校验振假名读音（对字幕自带注音） | `jp-anki-check-ruby` |
-| 按 `需更新JAR` 回填 `JitenAnimeRank`；全量补 `JitenGlobalRank` | `jp-anki-jiten-rank` |
-| 每日讲义（把 tag `今天学习生词` 里的词讲一遍；没有 tag 就不生成） | `jp-anki-daily-lesson` |
-| 弱项分析 / 复习负载报告 | `jp-anki-daily-weak` |
-| 库层面的学习分析报告（留存 / 健康分 / 负荷预测 / 图表，R 包 ankiR） | `jp-anki-r-analysis` |
-| 点名 core6000 词补第二条例句 | `jp-anki-core6000-example` |
-| 给一个词找**真实**例句（jisho，不造句） | `jisho-example` |
-| 专有名词收集 → `3-专有词汇`（不进队列） | `jp-anki-proper-noun` |
-| 字幕/文字里没学过的词打 `复习::<名称>` | `jp-anki-subtitle-tag` |
-| 每天从文字/字幕挑 N 个今天要学的生词（`今天学习生词`；Sudachi 抽候选 + 本地模型按「动漫对白实用度」精排，公式兜底） | `jp-anki-today-new` |
-| 把短上下文脏活外包给本机模型（省 token） | `local-llm` |
-| **主对话上下文吃紧 / 长流程只做调度与验收** | `context-offload` |
-| **词义/读音/词性/近义拿不准，要先澄清语义** | `jmdict-lookup` |
-| 整集一条命令跑完阶段 2–5 | 不用技能：`cli.py episode --tag … --input-tag 待标记` |
+| 命令、组、脚本的真实落点 | `code/cli.py`（`cli.py list`） |
+| 代码结构、共享库、加新脚本的规矩 | [code/README.md](code/README.md) |
+| Anki 库结构 / 笔记类型 / 字段名 / 标签口径 | [docs/anki-library.md](docs/anki-library.md) |
+| 该读哪份文档、阅读预算、禁读清单 | [docs/README.md](docs/README.md) |
+| 每集流水线的判据与命令 | [docs/pipeline-guide.md](docs/pipeline-guide.md) |
+| 数据流 / 选词打分 / 覆盖率口径 / 测试矩阵 | [docs/implementation.md](docs/implementation.md) |
+| 架构约定 / doctor 口径 / 环境坑 | [docs/architecture.md](docs/architecture.md) |
+| 排障顺序与踩坑复盘 | [docs/troubleshooting/README.md](docs/troubleshooting/README.md) |
+| 备份与恢复（唯一权威） | [docs/backup-sop.md](docs/backup-sop.md) |
+| 任务 → 技能路由 | [.dsh/skills/README.md](.dsh/skills/README.md) |
+| 字幕素材规范 | [subtitles/README.md](subtitles/README.md) |
+| DSH 插件（面板与 Agent 工具） | [code/plugins/anki-workspace/README.md](code/plugins/anki-workspace/README.md) |
+| 已退场的旧入口 | [docs/deprecated.md](docs/deprecated.md) |
+| 改提示词 | `code/execution/card_rules.md`；其余见 [docs/README.md](docs/README.md) |
 
-> **拿不准就先查词典，别凭记忆猜。** 对一个词的语义边界有疑惑（一词多义取哪条、读音歧义、
-> 词性、近义辨析、方言/古语/拟声、专有名 vs 普通词）→ 先 `jmdict-lookup` 查 JMdict，
-> 再下结论；查不到就**明说不确定**，不要补一个像样的意思上去。
-> 查一次几行输出，猜错是一张写错讲解的卡（没有 `git diff` 可退）。
+具体任务先加载匹配的技能（路由表见 [.dsh/skills/README.md](.dsh/skills/README.md)）；长流程、
+上下文吃紧用 `context-offload`，语义拿不准用 `jmdict-lookup`。
 
-## 5. 代码地图
+**禁读**（烧 token 或不是文本）：`data/pylibs/**`、`data/snapshots/**/*.anki2`、
+`core6000-analysis/cards_info.json`、`data/vocab_cover/study_plan_jiten_anime.json`、
+`data/evidence/subtitle_index.json`、`data/freq/jiten_freq_Anime.csv`、`output/*_newwords.md`、
+`temp/*.log`、`code/analysis/vocab_cover/`（只读 `cover_cli.py`）。完整清单见
+[docs/README.md](docs/README.md)。
 
-| 路径 | 作用 |
-|---|---|
-| `code/cli.py` | 组 → 脚本映射（`GROUPS` / `VOCAB` / `WEAK`）。加功能只加映射，别在这里写逻辑 |
-| `code/common/paths.py` | 路径唯一来源（`WSP.DATA_PIPELINE`、`WSP.TEMP` …） |
-| `code/common/anki_api.py` | **Anki 唯一通道**：`find_notes` / `notes_info` / `update_note_fields` / `verify_note_fields` / `Snapshot.open(live_copy=True)` / 命令行 `check`、`audit`、`count`、`find`、`notes`、`revlog` |
-| `code/common/writeback.py` | **写库事务**：演练 / 备份 / 写 / 回读；只暴露字段与标签，结构上不碰调度列 |
-| `code/common/batchjob.py` | **批处理清单层 + 收尾层**：split / manifest / 断点续跑 / failed.json / 「解析 → 校验 → 并回」（mine、pipeline、proper 共用；匹配键 `key_of`、校验器 `validate`、落盘 `dump=` 参数化。生成循环与 `fix_failed` 仍在各自脚本） |
-| `code/common/textio.py` | UTF-8 stdio 与容错解码；`read_text` / `dump_json` / `run` / `audit --strict` |
-| `code/common/jp_decks.py` | 牌组名、考级级别标签解析（`level_from_tags`）。**别拼子 deck 路径** |
-| `code/common/ruby_engine.py` | 拿原句当骨架**确定性**渲染/修复 `Sentence HTML` |
-| `code/common/ruby_text.py` | `漢字[かんじ]` ↔ `<ruby>` 的解析与纯文本提取；标签构造走 `ruby_engine.wrap` |
-| `code/common/htmltext.py` | 去 HTML 标签 / `<br>` 转换行（`ruby_text` 与讲义共用） |
-| `code/common/jp_text.py` | 日语文本清洗与字符判定：`norm` / `strip_html` / `hira2kata` / `vocab_guard` / `dupkey` / 假名·汉字正则 / 词汇来源常量 / 「已有词汇」写法变体正本（`vocab_shape_variants`，mine 与 VocabIndex 共用）。**两套汉字口径**：这里的 `KANJI` 含 CJK 扩展 A，`ruby_text.KANJI` 不含 |
-| `code/common/audio_names.py` | `[sound:…]` 解析（`sounds_of`）与媒体文件命名规则（`safe_token` / `media_name`） |
-| `code/common/llm_client.py` | 本地模型客户端（OpenAI Responses API）：`llm_chat` / `load_llm_config` / `usage_row` / `extract_json`。讲义与 core6000 共用 |
-| `code/common/jmdict_check.py` | JMdict 核验：词形/读音/词性对词典（每日讲义纠错；只读词典，不写 Anki） |
-| `code/common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
-| `code/common/local_llm.py` | 本地模型客户端（**转发层**，实现唯一正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py`） |
-| `code/execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py`；**系列子夹见下两行**（issue #12） |
-| `code/execution/core6000/` | core6000 系列：`core6000_example.py`（入口，`cli.py core6000`）`core6000_meaning.py`（入口，`cli.py meaning`）+ 抽出的 `core6000_text.py` `core6000_text2.py` `core6000_jisho.py` `core6000_gates.py` `core6000_render.py` + `core6000_example_prompt.md` |
-| `code/execution/lesson/` | 每日讲义系列（从 `today_new.py` 抽出，入口仍是 `today_new.py`）：`lesson_text.py`（teach 整形 / 接续清洗 / Markdown 渲染）`lesson_check.py`（机械判定：词形/读音/词性、内容问题、渲染后闸门）`lesson_paths.py`（落盘路径与原子写，`today_new` 与 `lesson_render` **共用**的下沉层）`lesson_render.py`（manifest + 模型产出 → Markdown，只吃数据不碰 Anki / LLM）+ `lesson_local_prompt.md` |
-| `code/tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `rank_gate.py`（选词精排）`unranked.py`（待建卡清单）`proper_extract.py` `jisho_example.py` |
-| `code/analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
-| `code/oneshot/` | 一次性探针/迁移：不维护，**不要照抄** |
-| `code/tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
-| `code/plugins/anki-workspace/` | DSH 插件（desktop profile）：六个 Agent 工具 + 每轮 `<anki-workspace>` 上下文 + Web 面板；不直接读写 Anki，动作落回 `cli.py` / `anki_api.py` |
+## 3. 写库与写码规则（违反会坏数据）
 
-## 6. 阅读预算（这条最省 token）
+1. **唯一入口**：Anki 只经 `code/common/anki_api.py`；文本 I/O 只经 `textio`；一次性文件只进
+   `temp/`。不另写 `def anki()`、不 `sqlite3.connect` 真收藏。
+2. **`--commit` 是唯一真写开关**。默认演练；`core6000_example.py apply` 与 `today_new_words.py`
+   打标按各自技能文档**默认真写**，用户点名「先演练」才演练。其余写库技能看各自技能文档。
+3. **写前留退路，写后回读**：优先 `code/common/writeback.py`；手写路径必须
+   `AK.verify_note_fields(...)` 收尾。删除/覆盖前先打印「将删/将改 N 项」和清单。
+4. **机械判断交给代码，模型只做语义**：结构/逐字/ruby/查重/字段回读走 `check_*`、`ruby_engine`；
+   词形/读音/词性对词典走 `jmdict_check.py`；模型只做翻译、讲解、释义与读音盲区裁决。
+5. **不可逆动作先问**：批量删卡/删字段/删文件、改模板或牌组选项、`revert`、覆盖已有讲解。
+   目标有歧义、范围不清，或 `doctor` 阻塞而原因不在工作区——先问，不要「先做一版看看」。
+6. **拿不准语义先查词典**（`jmdict-lookup`），查不到就明说不确定，不要补一个像样的意思。
 
-按需**单点**打开，先 `grep` 定位再 `read` 带 `offset/limit` 读那一节——别整篇吞。
+## 4. 收工
 
-| 想知道什么 | 读哪里 | 成本 |
-|---|---|---|
-| 全貌与规矩 | 本文件 | 小 |
-| 数据流 / 流水线阶段 / 选词打分 / 覆盖率口径 / 测试矩阵 | `docs/implementation.md` | 6 KB |
-| 六条约定、doctor 口径、环境坑 | `docs/architecture.md` §1–3、§6 | 37 KB，按节 |
-| 每集流水线的判据与命令 | `docs/pipeline-guide.md` §0.4、§2 | 60 KB，按节 |
-| 踩过的坑 / 事故复盘 | `docs/troubleshooting/pipeline-pitfalls.md`、`bug-notes.md` | 各约 10 KB |
-| 某功能怎么用 | `docs/<功能>-使用说明.md` | 5–24 KB |
-| 已退场的旧入口 | `docs/deprecated.md` | 10 KB（**历史只记这里**） |
-| 为什么这么设计 | `docs/decisions/` | 按主题 |
-| 改提示词 | `code/execution/card_rules.md`（讲解/振假名规则正本）、`docs/jp-card-agent-instruction.md`、`mine-agent-instruction.md`、`japanese-word-example-teaching.md` | 大，只在改提示词时读 |
-
-**禁读**（烧 token，或根本不是文本）：
-
-- `data/pylibs/**` —— 316 MB 工作区本地第三方库（含 192 MB Sudachi 词典）
-- `data/snapshots/**/*.anki2` —— 40–66 MB sqlite；要查库用 `anki_api.Snapshot`
-- `core6000-analysis/cards_info.json`（54 MB）、`data/vocab_cover/study_plan_jiten_anime.json`（17 MB）、
-  `data/evidence/subtitle_index.json`（7 MB）、`data/freq/jiten_freq_Anime.csv`（7 MB）
-- `temp/*.log`、`temp/*_utf8.txt` —— 旧任务日志，单份 30–100 KB
-- `output/*_newwords.md` —— 40–68 KB 长报告
-- `code/analysis/vocab_cover/` 的 20+ 分析脚本 —— 真要跑覆盖率时只读 `cover_cli.py`
-
-## 7. 库结构（写库前看这段，省一轮探查）
-
-```
-0-日本语学习                        39,820 张   （2026-10-26 实测，卡数含子牌组）
-├─ 0-词汇                           25,921
-│  ├─ 0-素材生词                     9,212   model Japanese Vocabulary（挖出来的词）
-│  ├─ 1-高频日语单词 6000            6,000   core6000
-│  ├─ 2-考级词汇                    10,650   model eggrolls-JLPT10k-v3.5（N5–N1，级别在标签里）
-│  ├─ 3-专有词汇                        59   model Japanese Proper Noun（只收集，不进队列）
-│  ├─ 4-复习                            30
-│  └─ 5-最佳停止词汇 / 6-最佳上限词汇（动画）  各 30   学习计划的临时牌组（自定学习，卡借自别处）
-├─ 1-语法                            3,160   N5–N1，每级 1-解释 + 2-例句
-└─ 2-例句                           10,739   ★ model Basic：流水线的主战场
-```
-
-关键字段（**名字带空格，拼错就是静默写空**）：
-
-- `2-例句`（Basic）：`Sentence` `Word` `Sentence HTML` `AINote` `Image` `Sentence Audio` `Source` `URL`
-- 词汇（Japanese Vocabulary）：`Word` `Sentence` `Sentence HTML` `Transliteration` `Meaning`
-  `Part of Speech` `AINote` `JitenAnimeRank` `JitenGlobalRank` `Word Audio` `Sentence Audio` `Index`
-- 考级（eggrolls）：词形是 `VocabKanji`，读音 `VocabFurigana`，级别由标签还原；
-  同样带 `JitenAnimeRank` / `JitenGlobalRank`（注解，不参与排序）
-
-标签口径（**别猜，先查现有标签**）：
-
-- 例句卡集标签写作 `动画::<作品>::<季>::第NN集`，但历史导入还有 `动画::平家物语::第01集`（无季）、
-  整部一个 `动画::<作品>` 等写法 → 拼查询串前用 `AK.tags()` 或库里现有标签确认。
-- `待标记` 是导入时挂的，流水线末尾换成正式集标签。
-- `复习::<名称>` 由 `jp-anki-subtitle-tag` 打；`需更新JAR` 是 `jp-anki-jiten-rank` 的待办。
-
-## 8. 写新代码
-
-1. 放进四区之一：`execution`（多步流程）、`tools`（可复用能力）、`analysis`（诊断/报告）；
-   一次性的直接写进 `temp/`，别进 `code/`。core6000 / 每日讲义这两个系列的脚本进各自子夹
-   `execution/core6000/`、`execution/lesson/`（issue #12）——模块名仍是扁平的，调用方把
-   系列目录一起挂进 `sys.path`（路径常量在 `paths.py`：`WSP.EXEC_CORE6000` / `WSP.EXEC_LESSON`）。
-2. 路径一律 `import paths as WSP`，不写死绝对路径。
-3. 文本 I/O 一律 `import textio`。
-4. 碰 Anki 一律 `import anki_api as AK`。
-5. 新入口加进 `cli.py` 的 `GROUPS` 映射（只加映射）。
-6. 改完保持两个自审为 0：`anki_api.py audit`、`textio.py audit --strict`。
-7. 改完跑测试：动过 `common/` 或 `execution/` 就把 `code\tests\*.py` 全跑一遍（几秒，全离线），
-   全都 0 才算完（缺第三方依赖的测试按 ImportError 判定，不算回归）；只改文档就不用。
-
-`docs/*.md` 头部必须有「状态：active ｜ 最后核实：YYYY-MM-DD」，`doctor` 第 6 项会查。
-
-## 9. 失败处理与求助
-
-排障顺序（先定位属于哪一类，再翻对应文档）：
-
-- `doctor` 退出 1 → 修完再动手，不要绕。
-- 产出怪、字段没写进去 → `docs/troubleshooting/pipeline-pitfalls.md`。
-- 「库里和脚本说的不一致」→ 以 **live 收藏**为准，`data/snapshots/` 会过期。
-- 空产出 / 乱码 → 编码没走 `textio`，或日文参数被 shell 编码吃掉。
-- 本地模型 401/403 → key 查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`（全局正本；工作区 `.dsh/local-llm.json` 可选覆盖）。
-  **不要把 key 写进代码或文档。**
-- 收摊：`cli.py temp clean`，再跑一次 `doctor`。
-
-**必须停下来问用户**（不要自己拍板、不要"先做了再说"）：
-
-- 目标有多种合理解释，或范围不清（改哪些卡、哪些集、哪些字段）。
-- 要做不可逆动作：批量删卡 / 删字段 / 删文件、改笔记模板或牌组选项、`revert`、覆盖既有讲解。
-- 要写工作区外的路径、装依赖、改系统配置。
-- `doctor` 阻塞但成因不在本工作区（例如 Anki 没开、端点挂掉、权限问题）。
-- 用户的指令与本文铁律冲突（尤其调度列、Anki 访问通道、一次性文件位置）。
-
-## 10. 汇报格式
-
-一次任务结束后，回复里给出这四样，不要只写「已完成」：
-
-1. **跑了什么**：命令 + 关键参数（有没有 `--commit`）。
-2. **改了什么**：牌组 / 字段 / 影响张数；动过的文件路径。
-3. **怎么验证的**：`doctor` 结论、`verify_note_fields` 回读结果、`check_*` 退出码。
-4. **怎么退回去**：回退命令或备份文件路径——**只要写了库就必须给**。
-
-结论写在前面，日志只贴需要人看的那几行；失败就直说失败在哪一步、卡在哪个判定上。
+- 收摊：`cli.py temp clean`（先 `temp list`），再跑一次 `doctor`。
+- 汇报四样：**跑了什么**（命令 + `--commit`）、**改了什么**（牌组/字段/张数 + 文件）、
+  **怎么验证的**（doctor / 回读 / 测试退出码）、**怎么退回去**（备份或 `revert` 命令；写入库必须有）。
+  结论在前，日志只贴要人看的那几行；失败说清卡在哪一步。
 
 ---
 
-本文件是活文档：入口、目录、铁律、库结构一变就同步这里，并更新上面的状态行日期。
-根目录只允许白名单条目（`doctor` 第 9 项），`AGENTS.md` 已在 `ROOT_ALLOWED` 里；
-根目录的 `_tmp_*.py` 是历史遗留，别当模板照抄，新的一次性文件进 `temp/`。
+本文件只当地图：入口、目录、铁律一变就同步这里，并更新日期。根目录只允许白名单条目
+（`doctor` 会查）；一次性文件放 `temp/`，`_tmp_*.py` 是历史遗留，别照抄。
