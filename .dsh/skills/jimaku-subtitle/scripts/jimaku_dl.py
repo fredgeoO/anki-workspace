@@ -17,9 +17,11 @@ API key 查找顺序：--api-key → $env:DSH_JIMAKU_API_KEY。不要把 key 写
 鉴权是裸 key：Authorization: <key>（加 "Bearer " 前缀会 401）。
 """
 import argparse
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import unicodedata
 import urllib.parse
@@ -38,6 +40,26 @@ UA = 'anki-workspace-jimaku-fetch/1.0'
 
 def log(msg):
     print(msg, file=sys.stderr)
+
+
+def resolve_key():
+    """读 $env:DSH_JIMAKU_API_KEY。
+
+    本进程没继承到（用户级变量已设但 harness 进程是旧的）时，回查一次 Windows
+    User scope——只取环境变量，不读任何文件、不落盘 key。
+    """
+    v = os.environ.get('DSH_JIMAKU_API_KEY')
+    if v:
+        return v.strip() or None
+    try:
+        r = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             '[Environment]::GetEnvironmentVariable("DSH_JIMAKU_API_KEY","User")'],
+            capture_output=True, text=True, timeout=30)
+        v = (r.stdout or '').strip()
+    except Exception:
+        return None
+    return v or None
 
 
 def api_get(url, key, binary=False):
@@ -86,6 +108,18 @@ NETFLIX = re.compile(r'netflix', re.I)
 JAPANESE = re.compile(r'\u3040-\u309f\u30a0-\u30ff')
 
 
+def _md5_bytes(data):
+    return hashlib.md5(data).hexdigest()
+
+
+def _md5(path):
+    h = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def classify(files, episode):
     """返回 (netflix_hits, others)。episode=None 时不过滤集数。"""
     ep_pat = None
@@ -120,9 +154,9 @@ def main():
     ap.add_argument('--api-key', help='jimaku API key（默认读 $env:DSH_JIMAKU_API_KEY）')
     args = ap.parse_args()
 
-    key = args.api_key or os.environ.get('DSH_JIMAKU_API_KEY')
+    key = args.api_key or resolve_key()
     if not key:
-        log('缺少 API key：设 DSH_JIMAKU_API_KEY 环境变量或 --api-key')
+        log('缺少 API key：设 $env:DSH_JIMAKU_API_KEY（用户级）或 --api-key')
         return 1
     if not args.query and not args.entry:
         log('需要 --query 或 --entry')
@@ -187,7 +221,14 @@ def main():
             return 3
         picked = others
 
-    saved, skipped = 0, 0
+    saved, skipped, dedup = 0, 0, 0
+    seen = {}          # (size, md5) -> 已保存的文件名
+    for p in dest.glob('*'):
+        if p.is_file() and p.suffix.lower() in ('.srt', '.ass', '.vtt'):
+            try:
+                seen[(p.stat().st_size, _md5(p))] = p.name
+            except OSError:
+                pass
     for f in picked:
         out = dest / f['name']
         if out.exists() and out.stat().st_size == f['size']:
@@ -195,11 +236,18 @@ def main():
             skipped += 1
             continue
         data = api_get(f['url'], key, binary=True)
+        sig = (len(data), _md5_bytes(data))
+        twin = seen.get(sig)
+        if twin and twin != out.name:
+            log(f'dedup（内容与已有文件相同，跳过）: {out.name} ≡ {twin}')
+            dedup += 1
+            continue
         out.write_bytes(data)
+        seen[sig] = out.name
         ok = 'OK' if len(data) == f['size'] else f"大小不符（{len(data)} != {f['size']}）"
         log(f'saved: {out.name}  {len(data)} bytes  {ok}')
         saved += 1
-    print(json.dumps({'entry': eid, 'saved': saved, 'skipped': skipped,
+    print(json.dumps({'entry': eid, 'saved': saved, 'skipped': skipped, 'dedup': dedup,
                       'source': 'netflix' if netflix else 'fallback'}, ensure_ascii=False))
     return 0
 
