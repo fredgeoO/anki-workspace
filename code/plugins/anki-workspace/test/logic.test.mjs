@@ -77,15 +77,16 @@ test('core6000 chain is gen -> tts -> apply and commits unless explicitly told n
   assert.equal(commit[1].argv.includes('--commit'), false)
 })
 
-test('today-new is dry by default, asks for JSON and only writes with commit', () => {
-  const dry = buildTodayNewArgs({ input: 'a.srt', n: 12, season: true })
-  assert.deepEqual(dry.argv, ['code/cli.py', 'today-new', 'a.srt', '--json', '--n', '12', '--season'])
-  assert.equal(dry.commit, false)
+test('today-new commits by default and only dry-runs when explicitly told not to', () => {
+  // 默认真写（用户 2026-11-10 定的规矩）：省略 / true 都带 --commit，只有显式 false 才演练。
+  const def = buildTodayNewArgs({ input: 'a.srt', n: 12, season: true })
+  assert.deepEqual(def.argv, ['code/cli.py', 'today-new', 'a.srt', '--json', '--n', '12', '--season', '--commit'])
+  assert.equal(def.commit, true)
 
-  const commit = buildTodayNewArgs({ input: 'a.srt', commit: true })
-  assert.equal(commit.argv.includes('--commit'), true)
-  assert.equal(commit.argv.includes('--json'), true)
-  assert.equal(commit.commit, true)
+  const dry = buildTodayNewArgs({ input: 'a.srt', commit: false })
+  assert.equal(dry.argv.includes('--commit'), false)
+  assert.equal(dry.argv.includes('--json'), true)
+  assert.equal(dry.commit, false)
   const fast = buildTodayNewArgs({ input: 'a.srt', noSenseCheck: true, noSenseRepair: true })
   assert.equal(fast.argv.includes('--no-sense-check'), true)
   assert.equal(fast.argv.includes('--no-sense-repair'), true)

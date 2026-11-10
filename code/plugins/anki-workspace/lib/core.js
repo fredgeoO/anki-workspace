@@ -287,8 +287,11 @@ export function buildTodayNewArgs(args) {
   if (args.noLlmRank === true) argv.push('--no-llm-rank')
   if (args.noSenseCheck === true) argv.push('--no-sense-check')
   if (args.noSenseRepair === true) argv.push('--no-sense-repair')
-  if (args.commit === true) argv.push('--commit')
-  return { argv, commit: args.commit === true }
+  // 默认真写（commit !== false）：用户 2026-11-10 定的规矩「默认直接 commit，点名演练才演练」。
+  // 只有显式 commit === false 才退回演练（不加 --commit）。
+  const write = args?.commit !== false
+  if (write) argv.push('--commit')
+  return { argv, commit: write }
 }
 
 export function buildCoverArgs(root, args) {
@@ -745,7 +748,7 @@ export function createRuntime(ctx, config = {}) {
       `doctor：${doctorLine}`,
       `检测时间：${cache.refreshedAt ?? '?'}`,
       '工具：anki_status、anki_doctor、anki_add_example、anki_today_new、anki_vocab_cover、anki_study_report。',
-      '约定：写库动作默认演练（显式 commit=true 才真写），唯一例外 anki_add_example——默认真写，只有显式 commit=false 才演练；不替用户做学习决策。',
+      '约定：写库动作默认直接真写（commit 省略=true），只有显式 commit=false 才演练；不替用户做学习决策。',
       '</anki-workspace>',
     ]
     return lines.join('\n')
@@ -815,7 +818,7 @@ export function createRuntime(ctx, config = {}) {
       output: tail(parsed === null
         ? combineOutput(r.stdout, r.stderr)
         : r.stderr, 12_000),
-      note: built.commit ? 'commit=true：已真写「今天学习生词」标签。' : '演练：未加 --commit，没有改标签。',
+      note: built.commit ? '默认真写（commit 省略=true）：已真写「今天学习生词」标签。' : '演练（commit=false）：未加 --commit，没有改标签。',
     }
   }
 

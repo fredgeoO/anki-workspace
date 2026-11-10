@@ -51,7 +51,7 @@ function renderDoctor(value) {
 
 function renderSteps(value) {
   const lines = [
-    `core6000 补例句：${value?.ok === true ? '成功' : '未完成'}（${value?.commit === true ? '真写模式 commit=true' : '演练模式，未写库'}）`,
+    `core6000 补例句：${value?.ok === true ? '成功' : '未完成'}（${value?.commit === false ? '演练模式，未写库' : '默认真写'}）`,
   ]
   if (value?.root) lines.push(`工作区：${value.root}`)
   for (const step of value?.steps ?? []) {
@@ -68,7 +68,7 @@ function renderSteps(value) {
 
 function renderTodayNew(value) {
   const lines = [
-    `today-new：${value?.ok === true ? '成功' : '失败'}（${value?.commit === true ? 'commit=true 真写' : '演练，未改标签'}）`,
+    `today-new：${value?.ok === true ? '成功' : '失败'}（${value?.commit === false ? '演练，未改标签' : '默认真写'}）`,
   ]
   if (value?.root) lines.push(`工作区：${value.root}`)
   if (value?.timedOut === true) lines.push('状态：超时')
@@ -221,7 +221,7 @@ function makeTools(runtime) {
     },
     {
       name: 'anki_today_new',
-      description: '从一集字幕 / 作品目录挑今天的 N 个生词（today-new）。默认只筛指定的一集；默认演练、不改标签；commit=true 才用 --commit 真写「今天学习生词」。输入是字幕/目录路径。',
+      description: '从一集字幕 / 作品目录挑今天的 N 个生词（today-new）。默认只筛指定的一集；默认真写（--commit，全量替换「今天学习生词」标签、写后回读）；只有显式 commit=false 才演练不改标签。输入是字幕/目录路径。',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -233,7 +233,7 @@ function makeTools(runtime) {
           noLlmRank: { type: 'boolean', description: '关掉 LLM 精排，退回公式排序' },
           noSenseCheck: { type: 'boolean', description: '跳过义项核验（离线快跑）' },
           noSenseRepair: { type: 'boolean', description: '义项核验被剔的词不自动修卡（通常与 noSenseCheck 一起用）' },
-          commit: { type: 'boolean', description: '默认 false=演练；true 才 --commit 真写标签' },
+          commit: { type: 'boolean', description: '默认真写（省略=true）；显式 false 才演练不改标签' },
         },
       },
       output: { schema: OUT_SCHEMA, render: (_a, v) => renderTodayNew(v) },

@@ -14,7 +14,7 @@
 | `anki_status` | `python code/common/anki_api.py check` | 只读 |
 | `anki_doctor` | `python code/cli.py doctor [--tag …]` | 只读 |
 | `anki_add_example` | `core6000 gen` → `tts` → `apply` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
-| `anki_today_new` | `python code/cli.py today-new <input> --json` | 默认演练；`commit=true` 才加 `--commit` |
+| `anki_today_new` | `python code/cli.py today-new <input> --json` | **默认真写**（`--commit`）；显式 `commit=false` 才演练 |
 | `anki_vocab_cover` | `python code/cli.py vocab cover … --json` | 只读 |
 | `anki_study_report` | `python code/cli.py r report --json --out …` | 只读 Anki；每月写一份报告文件 |
 
@@ -51,7 +51,7 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
     关闭面板或切到别的 sidebar 页再点回来，当前 tab 和上次生成的结果仍然在
     （结果缓存在 Client 模块内；生成过程中切走，完成后也会写进缓存；刷新整个
     页面才清空）。
-- 写库动作都有「真写」勾选框，默认演练。
+- 写库动作都有「真写」勾选框，默认真写（取消勾选才演练）。
 - 需要选文件 / 目录的输入（今日选词的「字幕文件或作品目录」、词汇覆盖率的
   文件列表）都是**只读显示 + 「浏览…」按钮**，点击弹出应用内选择对话框：
   面包屑导航、上一级、按名称过滤、目录优先排序；今日选词可挑一个文件或

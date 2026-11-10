@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 
     const EN = {
       'panel.title': 'Anki Workspace',
-      'panel.subtitle': 'Six workspace capabilities, live status and dry-run-by-default write actions.',
+      'panel.subtitle': 'Six workspace capabilities, live status and commit-by-default write actions.',
       'panel.loading': 'Loading status…',
       'panel.refresh': 'Refresh',
       'panel.lastUpdated': 'Updated',
@@ -53,7 +53,7 @@ window.__ModuleLoader__.load({
       'card.addExample.run': 'Run chain',
       'card.addExample.commit': 'Write to Anki (--commit, on by default)',
       'card.todayNew.title': "Today's new words",
-      'card.todayNew.desc': 'Pick N words from one subtitle / work directory. Dry run unless commit is checked.',
+      'card.todayNew.desc': 'Pick N words from one subtitle / work directory. Writes tags by default; uncheck to dry run.',
       'card.todayNew.input': 'Subtitle file or work directory',
       'card.todayNew.n': 'Count',
       'card.todayNew.season': 'Whole season',
@@ -129,7 +129,7 @@ window.__ModuleLoader__.load({
       'picker.truncated': 'Too many entries — showing the first',
       'common.working': 'Working…',
       'common.noResult': 'No result yet',
-      'common.dryRun': 'Write actions are dry runs by default; tick "write" to append --commit (exception: Add example writes unless you untick).',
+      'common.dryRun': 'Write actions commit by default (--commit); untick "write" to dry run.',
       'result.dryRun': 'Dry run — nothing written',
       'result.committed': 'Written to Anki',
       'result.failed': 'Failed',
@@ -210,7 +210,7 @@ window.__ModuleLoader__.load({
 
     const ZH = {
       'panel.title': 'Anki 工作区',
-      'panel.subtitle': '六项常用能力：实时状态 + 默认演练的写库动作。',
+      'panel.subtitle': '六项常用能力：实时状态 + 默认真写的写库动作。',
       'panel.loading': '正在加载状态…',
       'panel.refresh': '刷新',
       'panel.lastUpdated': '更新于',
@@ -249,7 +249,7 @@ window.__ModuleLoader__.load({
       'card.addExample.run': '跑三步',
       'card.addExample.commit': '真写库（--commit，默认勾选）',
       'card.todayNew.title': '今日选词',
-      'card.todayNew.desc': '从一集字幕 / 作品目录挑 N 个词。默认演练，勾选后才写标签。',
+      'card.todayNew.desc': '从一集字幕 / 作品目录挑 N 个词。默认真写标签，取消勾选才演练。',
       'card.todayNew.input': '字幕文件或作品目录',
       'card.todayNew.n': '数量',
       'card.todayNew.season': '扩到整季',
@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
       'picker.truncated': '目录条目过多，仅显示前',
       'common.working': '运行中…',
       'common.noResult': '还没有结果',
-      'common.dryRun': '写库动作默认演练，勾选「真写」才追加 --commit（例外：增加例句默认真写，取消勾选才演练）。',
+      'common.dryRun': '写库动作默认真写（--commit），取消勾选「真写」才演练。',
       'result.dryRun': '演练 — 未写库',
       'result.committed': '已写入 Anki',
       'result.failed': '失败',
@@ -1528,7 +1528,8 @@ window.__ModuleLoader__.load({
       const [season, setSeason] = React.useState(false)
       const [noLlmRank, setNoLlmRank] = React.useState(false)
       const [fast, setFast] = React.useState(false)
-      const [commit, setCommit] = React.useState(false)
+      // 默认真写（用户 2026-11-10 定的规矩）：取消勾选才演练。
+      const [commit, setCommit] = React.useState(true)
       const running = busy === 'today-new'
       const submit = () => call('today-new', 'today-new', {
         input,
@@ -1537,6 +1538,7 @@ window.__ModuleLoader__.load({
         noLlmRank,
         noSenseCheck: fast,
         noSenseRepair: fast,
+        // 默认真写：勾选=true，取消勾选才显式演练（false）。
         commit,
       })
       return h('section', { className: 'anki-card' },
