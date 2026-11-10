@@ -26,6 +26,7 @@ add_pylibs()
 
 import jp_tok  # noqa: E402
 from jp_tok import Coverage, coverage_to_comprehension  # noqa: E402
+from fmt import pct  # noqa: E402
 
 SENT_SPLIT = re.compile(r'(?<=[。．.!?！？…‥])')
 LINE_SPLIT = re.compile(r'[\r\n]+')
@@ -111,8 +112,6 @@ def analyze_text(vocab: 'jp_tok.Vocabulary', text: str, sentences=None,
 
 
 # ------------------------------------------------------------------ 文本渲染
-def pct(x, nd=1):
-    return f'{x*100:.{nd}f}%'
 
 
 def _w(text: str) -> int:

@@ -34,6 +34,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from _deps import DATA_DIR, STATE_JSON, WSP, add_pylibs, write_json  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+from fmt import pct  # noqa: E402
 
 METRICS = os.path.join(DATA_DIR, 'metrics.json')
 CORPUS = os.path.join(DATA_DIR, 'corpus_tokens.json')
@@ -43,10 +44,6 @@ PLAN_NEXT = os.path.join(DATA_DIR, 'study_plan_next200.json')
 MEMO = os.path.join(WSP.REPORTS, '学习策略建议.md')
 DECK_BUCKETS = {'core6000', 'jlpt', 'mined'}
 CORE, JLPT, MINED, OOV = 'core6000', 'jlpt', 'mined', 'oov'
-
-
-def pct(x, nd=1):
-    return f'{x*100:.{nd}f}%'
 
 
 # ------------------------------------------------------------------ 载入

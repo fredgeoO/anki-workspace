@@ -42,6 +42,7 @@ _deps.add_pylibs()
 import textio                                   # noqa: E402
 from _norm import norm_word                     # noqa: E402
 from _deps import DATA_DIR, STATE_JSON, CORPUS_JSON, write_json  # noqa: E402
+from fmt import pct                             # noqa: E402
 
 JITEN_JSON = os.path.join(DATA_DIR, 'study_plan_jiten_anime.json')
 FIT_JSON = os.path.join(DATA_DIR, 'jiten_fit.json')
@@ -327,8 +328,6 @@ def corpus_keys() -> set:
 
 
 # --------------------------------------------------------------------- 渲染
-def pct(x, digits=1):
-    return ('%.' + str(digits) + 'f%%') % (100.0 * x)
 
 
 def render_md(m: dict) -> str:

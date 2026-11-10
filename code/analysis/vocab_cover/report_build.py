@@ -46,6 +46,7 @@ sys.path.insert(0, _HERE)
 from _deps import (CORPUS_JSON, DATA_DIR, OUT_CHARTS, STATE_JSON, WSP,  # noqa: E402
                    add_pylibs, ensure_dirs)
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+from fmt import pct  # noqa: E402
 
 add_pylibs()
 
@@ -86,8 +87,6 @@ _STATE_CACHE = None      # 卡组快照的进程内缓存（刷新后由 refresh
 
 
 # ------------------------------------------------------------------ 小工具
-def pct(x, nd=1) -> str:
-    return f'{x * 100:.{nd}f}%'
 
 
 def deck_label(key: str) -> str:
