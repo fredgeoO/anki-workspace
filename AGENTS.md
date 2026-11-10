@@ -1,6 +1,6 @@
 # AGENTS.md —— anki-workspace 代理入口
 
-> 状态：active ｜ 最后核实：2026-11-07
+> 状态：active ｜ 最后核实：2026-11-09
 
 **读完这一页就能开工。** 不要为了「了解工作区」通读 `README.md` 或
 `docs/architecture.md`（37 KB）。§6 有「想知道什么 → 读哪一节」的定点表，本页覆盖
@@ -69,8 +69,10 @@ README §7 有常用命令速查、`docs/implementation.md` §5 有每个测试�
 2. **文本 I/O 只有一个入口**：`import textio`（UTF-8 stdio + 容错解码）。不手写 `sys.stdout.reconfigure`。
 3. **临时文件只有一个家**：`temp/`。根目录、`data/`、`output/`、`code/` 都不许留一次性文件；
    收摊 `cli.py temp clean`（先 `temp list`）。`doctor` 第 9 项查根目录白名单。
-4. **`--commit` 是唯一的真写开关**，不是「额外检查步骤」。唯一例外是
-   `core6000_example.py apply`：保留先演练看一眼（新句是否换皮没有机械闸门）。
+4. **`--commit` 是唯一的真写开关**，不是「额外检查步骤」。
+   `core6000_example.py apply` 直接带 `--commit` 真写（用户 2026-11-09 定的规矩：不再演练）。
+   例句来源仍由脚本保证——新句一律取自 Jisho 真实语料，闸门 1–4（含与第一句的换皮相似度）
+   在 gen 阶段就判掉；写前自动落 `backup_<时间戳>.json`、写后回读，退路是 `revert --commit`。
 5. **调度列不许碰**：`due / ivl / factor / type / queue / reps / lapses`。只有 `jp-anki-activate`
    能写，且**只写新卡（type==0）的 `due`**；其余脚本一律不排期、不打准入标签。
 6. **机械判断交给代码，模型只做语义**：结构、逐字一致、ruby 覆盖、读音冲突、查重、字段回读

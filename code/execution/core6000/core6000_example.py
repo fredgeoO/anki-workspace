@@ -50,10 +50,11 @@ Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回�
 --------------------------------------------------------------
     --note-ids 1621392074520,1621392074521   Anki 的 noteId
     --words "徹夜,あまり"                     比 Word 字段（退回 Transliteration），忽略大小写与空格
+                                              （在 core6000 ＋ 素材生词两个卡组里找：点名的词在哪边就命中哪边）
     --from-file PATH                         一行一个词或 noteId（# 注释与空行忽略）
     --from-weak [--days N] [--rating again|hard]   今天/近几天的弱项词（跑 today_weak.py 取词表）
-    --query "<任意 Anki 查询>"                如 'tag:待补例句'；默认只加 deck+模型过滤
-    --all                                    显式全库（≈6000 张，只读体检/批量补时才用）
+    --query "<任意 Anki 查询>"                如 'tag:待补例句'；缺 deck/note 过滤时补 core6000＋素材生词+模型
+    --all                                    显式全库（core6000 ＋ 素材生词，只读体检/批量补时才用）
     --only SCOPE, --limit N                  范围过滤 + 最多做几张（作用在「待做卡」上）
 
 范围 `--only`（默认**不含** not-merged，见契约 §5.3）
@@ -157,7 +158,8 @@ import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 import audio_names as AN      # noqa: E402  [sound:…] 解析（common）
 import htmltext as HT         # noqa: E402  HTML 去标签（common）
 import jp_text as JT          # noqa: E402  纯文本清洗与字符判定（common；issue #5）
-import llm_client as LC       # noqa: E402  本地模型客户端（common；issue #5）
+import jp_decks as JD          # noqa: E402  牌组名正本（common）：core6000 / 素材生词都从这里取
+import llm_client as LC       # noqa: E402  本地模型客户端（common；issue #5)
 import card_prompt as CP      # noqa: E402  讲解规则正本装载器（code/execution/card_rules.md）
 import ruby_text as RT        # noqa: E402  振假名解析与纯文本（common）
 import edge_tts_min as TTS    # noqa: E402
@@ -173,8 +175,11 @@ import core6000_render         # noqa: E402
 # ============================================================================
 # 常量：路径 / 字段名 / 范围
 # ============================================================================
-DECK = '0-日本语学习::0-词汇::1-高频日语单词 6000'
+DECK = JD.DECK_CORE6000
 NOTE_MODEL = 'Japanese Vocabulary'
+# 补例句的卡不只在 core6000：素材生词（0-素材生词）用的是同一个笔记类型、同一套字段，
+# 点名的词在哪边就找哪边（2026-11-09：アップ 只存在于素材生词卡组，core6000 里没有）。
+SEARCH_DECKS = (JD.DECK_CORE6000, JD.DECK_MINED)
 ANKI_URL = AK.CONFIG['url']
 
 DATA_DIR = getattr(WSP, 'DATA_CORE6000', os.path.join(WSP.DATA, 'core6000'))
@@ -496,8 +501,13 @@ def card_state(card, scopes, force=False):
 # ============================================================================
 # 目标选择（按需：用户点名的卡）
 # ============================================================================
+def deck_filter():
+    """跨搜索牌组的 OR 过滤器（core6000 + 素材生词，同模型）。"""
+    return '(' + ' OR '.join('deck:"%s"' % d for d in SEARCH_DECKS) + ')'
+
+
 def base_query():
-    return 'deck:"%s" note:"%s"' % (DECK, NOTE_MODEL)
+    return '%s note:"%s"' % (deck_filter(), NOTE_MODEL)
 
 
 def query_with_defaults(raw):
@@ -507,7 +517,7 @@ def query_with_defaults(raw):
         return base_query()
     low = q.lower()
     if 'deck:' not in low and 'deck :' not in low:
-        q = 'deck:"%s" %s' % (DECK, q)
+        q = '%s %s' % (deck_filter(), q)
     if 'note:' not in low:
         q = '%s note:"%s"' % (q, NOTE_MODEL)
     return q
@@ -579,7 +589,8 @@ def word_index(rebuild=False):
     ids = AK.find_notes(base_query())
     cache = read_json(WORD_INDEX) or {}
     if (not rebuild and cache.get('count') == len(ids)
-            and isinstance(cache.get('map'), dict) and cache['map']):
+            and isinstance(cache.get('map'), dict) and cache['map']
+            and set(cache.get('decks') or SEARCH_DECKS) == set(SEARCH_DECKS)):
         return cache['map']
     notes, _n = fetch_notes(base_query())
     idx = {}
@@ -593,7 +604,8 @@ def word_index(rebuild=False):
             if int(n['noteId']) not in idx[w]:
                 idx[w].append(int(n['noteId']))
     write_json(WORD_INDEX, {'built_at': dt.datetime.now().isoformat(timespec='seconds'),
-                            'count': len(ids), 'deck': DECK, 'map': idx})
+                            'count': len(ids), 'deck': DECK, 'decks': list(SEARCH_DECKS),
+                            'map': idx})
     print('已建词形索引 %d 条（%d 张卡）→ %s' % (len(idx), len(ids), WORD_INDEX), file=sys.stderr)
     return idx
 
@@ -910,7 +922,7 @@ def build_state(date, cards, states, sel):
         'version': 1,
         'date': date,
         'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
-        'deck': DECK, 'model_name': NOTE_MODEL,
+        'deck': DECK, 'decks': list(SEARCH_DECKS), 'model_name': NOTE_MODEL,
         'selection': {k: v for k, v in sel.items() if k not in ('ids',)},
         'scopes': list(sel.get('scopes') or []),
         'counts': {
@@ -937,6 +949,7 @@ def build_plan(date, sel, work, args, cfg):
         'date': date,
         'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
         'deck': DECK,
+        'decks': list(SEARCH_DECKS),
         'selection': {k: v for k, v in sel.items() if k not in ('ids',)},
         'scopes': list(sel.get('scopes') or []),
         'per_batch': getattr(args, 'per_batch', 1) or 1,
@@ -1015,7 +1028,7 @@ def cmd_scan(args):
     os.makedirs(AUDIO_DIR, exist_ok=True)
     write_json(STATE_FILE, build_state(date, cards, states, sel))
     write_json(plan_path(date), build_plan(date, sel, work, args, cfg))
-    print('扫描 %s' % DECK)
+    print('扫描 %s' % ' ｜ '.join(SEARCH_DECKS))
     print_pick(cards, work, already, blocked, sel)
     write_report(date, cards, work, already, blocked, sel, extra=scan_report_extra(work))
     print()
@@ -1090,8 +1103,9 @@ def scan_report_extra(work):
 def write_report(date, cards, work, already, blocked, sel, extra=()):
     by_scope = {s: sum(1 for c in cards if s in c['scopes']) for s in SCOPES}
     lines = ['# Core6000 按需补例句② · 报告 %s' % date, '',
-             '生成于 %s｜牌组 `%s`｜模型 `%s`'
-             % (dt.datetime.now().isoformat(timespec='seconds'), DECK, NOTE_MODEL), '',
+             '生成于 %s｜牌组 `%s`（搜索范围：%s）｜模型 `%s`'
+             % (dt.datetime.now().isoformat(timespec='seconds'), DECK,
+                ' ＋ '.join(SEARCH_DECKS), NOTE_MODEL), '',
              '## 本次选择', '',
              '`%s`' % sel_line(sel), '',
              '| 指标 | 数量 |', '|---|---|',
@@ -1582,7 +1596,7 @@ def write_metrics(date, cfg, rows, requested, done, failed, elapsed):
     path = metrics_path(date)
     metrics = read_json(path) or {}
     metrics.update({'date': date, 'model': cfg['model'], 'base_url': cfg['base_url'],
-                    'deck': DECK})
+                    'deck': DECK, 'decks': list(SEARCH_DECKS)})
     metrics.setdefault('requests', [])
     metrics.setdefault('runs', [])
     for r in rows:
@@ -2032,7 +2046,7 @@ def cmd_revert(args):
 # status
 # ============================================================================
 def cmd_status(args):
-    print('牌组：%s' % DECK)
+    print('牌组：%s ｜ 搜索范围：%s' % (DECK, ' ＋ '.join(SEARCH_DECKS)))
     print('模型：%s ｜ AnkiConnect %s' % (NOTE_MODEL, ANKI_URL))
     print('提示词文件：%s' % ('存在（%d 字节）' % os.path.getsize(PROMPT_FILE)
                             if os.path.exists(PROMPT_FILE) else '★ 还不存在'))

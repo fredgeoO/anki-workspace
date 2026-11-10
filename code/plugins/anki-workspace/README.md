@@ -13,7 +13,7 @@
 |---|---|---|
 | `anki_status` | `python code/common/anki_api.py check` | 只读 |
 | `anki_doctor` | `python code/cli.py doctor [--tag …]` | 只读 |
-| `anki_add_example` | `core6000 gen` → `tts` → `apply` | 默认演练；`commit=true` 才给 `apply` 加 `--commit` |
+| `anki_add_example` | `core6000 gen` → `tts` → `apply` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
 | `anki_today_new` | `python code/cli.py today-new <input> --json` | 默认演练；`commit=true` 才加 `--commit` |
 | `anki_vocab_cover` | `python code/cli.py vocab cover … --json` | 只读 |
 | `anki_study_report` | `python code/cli.py r report --json --out …` | 只读 Anki；每月写一份报告文件 |

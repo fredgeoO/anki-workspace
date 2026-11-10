@@ -61,10 +61,14 @@ test('monthly report key and path use the configured calendar month', () => {
   assert.equal(monthlyReportRelPath('2026-11'), 'output/reports/ankir/monthly-2026-11.json')
 })
 
-test('core6000 chain is gen -> tts -> apply and only commits when asked', () => {
+test('core6000 chain is gen -> tts -> apply and commits unless explicitly told not to', () => {
+  // 默认真写（用户 2026-11-09 定的规矩）：省略 / true 都带 --commit，只有显式 false 才演练。
+  const def = buildAddExampleCalls(['--words', '徹夜'])
+  assert.deepEqual(def.map((call) => call.name), ['gen', 'tts', 'apply'])
+  assert.equal(def[0].argv.join(' '), 'code/cli.py core6000 gen --words 徹夜')
+  assert.equal(def[2].argv.includes('--commit'), true)
+
   const dry = buildAddExampleCalls(['--words', '徹夜'], false)
-  assert.deepEqual(dry.map((call) => call.name), ['gen', 'tts', 'apply'])
-  assert.equal(dry[0].argv.join(' '), 'code/cli.py core6000 gen --words 徹夜')
   assert.equal(dry[2].argv.includes('--commit'), false)
 
   const commit = buildAddExampleCalls(['--note-ids', '123'], true)

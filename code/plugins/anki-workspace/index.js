@@ -202,7 +202,7 @@ function makeTools(runtime) {
     },
     {
       name: 'anki_add_example',
-      description: '给用户点名的 core6000 词补第二条例句：固定 gen → tts → apply。新例句来自 jisho 真实语料，模型只写翻译与讲解。默认演练（apply 不加 --commit，不写 Anki）；commit=true 才真写。至少给 words 或 noteIds。',
+      description: '给用户点名的词（core6000 ＋ 素材生词两个卡组自动查找）补第二条例句：固定 gen → tts → apply。新例句来自 jisho 真实语料，模型只写翻译与讲解。默认真写（apply 带 --commit，写前自动备份、写后回读）；只有显式 commit=false 才演练不写。至少给 words 或 noteIds。',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -210,7 +210,7 @@ function makeTools(runtime) {
           words: { type: 'string', description: '词形，逗号/空格分隔（如 "徹夜,適当"）' },
           noteIds: { type: 'string', description: '点名的 noteId，逗号分隔；与 words 二选一或并用' },
           limit: { type: 'integer', description: '最多处理几张卡' },
-          commit: { type: 'boolean', description: '默认 false=演练；true 才给 apply 追加 --commit 真写' },
+          commit: { type: 'boolean', description: '默认真写（省略=true）；显式 false 才演练不写库' },
         },
       },
       output: { schema: OUT_SCHEMA, render: (_a, v) => renderSteps(v) },

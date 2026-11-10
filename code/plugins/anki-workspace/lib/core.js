@@ -263,12 +263,15 @@ export async function listWorkspaceDirectory(root, arg) {
 export function buildAddExampleCalls(selector, commit) {
   const extra = Array.isArray(selector) ? selector.slice() : []
   const base = ['code/cli.py', 'core6000']
+  // 默认真写（commit !== false）：用户 2026-11-09 定的规矩「不再演练，直接写入」。
+  // 只有显式 commit === false 才退回演练（apply 不加 --commit）。
+  const write = commit !== false
   return [
     { name: 'gen', argv: [...base, 'gen', ...extra], timeoutMs: 30 * 60_000 },
     { name: 'tts', argv: [...base, 'tts', ...extra], timeoutMs: 15 * 60_000 },
     {
       name: 'apply',
-      argv: [...base, 'apply', ...extra, ...(commit === true ? ['--commit'] : [])],
+      argv: [...base, 'apply', ...extra, ...(write ? ['--commit'] : [])],
       timeoutMs: 15 * 60_000,
     },
   ]
@@ -742,7 +745,7 @@ export function createRuntime(ctx, config = {}) {
       `doctor：${doctorLine}`,
       `检测时间：${cache.refreshedAt ?? '?'}`,
       '工具：anki_status、anki_doctor、anki_add_example、anki_today_new、anki_vocab_cover、anki_study_report。',
-      '约定：会写库的工具默认演练，只有显式 commit=true 才真写；不替用户做学习决策。',
+      '约定：写库动作默认演练（显式 commit=true 才真写），唯一例外 anki_add_example——默认真写，只有显式 commit=false 才演练；不替用户做学习决策。',
       '</anki-workspace>',
     ]
     return lines.join('\n')
@@ -759,7 +762,8 @@ export function createRuntime(ctx, config = {}) {
     if (words !== '') selector.push('--words', words)
     if (noteIds !== '') selector.push('--note-ids', noteIds)
     if (Number.isInteger(args?.limit) && args.limit > 0) selector.push('--limit', String(args.limit))
-    const commit = args?.commit === true
+    // 默认真写；只有显式 commit === false 才演练（apply 不加 --commit）。
+    const commit = args?.commit !== false
     const calls = buildAddExampleCalls(selector, commit)
     const steps = []
     for (const call of calls) {
@@ -779,8 +783,8 @@ export function createRuntime(ctx, config = {}) {
       writtenAnki: commit && ok && applyStep !== undefined && applyStep.exitCode === 0,
       steps,
       note: commit
-        ? 'commit=true：apply 已追加 --commit 真写；结果里 writtenAnki 表示三步全部成功。'
-        : '演练：apply 未加 --commit，没有写 Anki。',
+        ? '默认真写：apply 已追加 --commit；结果里 writtenAnki 表示三步全部成功。'
+        : '演练（commit=false）：apply 未加 --commit，没有写 Anki。',
     }
   }
 

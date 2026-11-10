@@ -46,12 +46,12 @@ window.__ModuleLoader__.load({
       'tabs.cover': 'Vocabulary coverage',
       'tabs.report': 'Monthly report',
       'card.addExample.title': 'Add example sentence',
-      'card.addExample.desc': 'core6000 gen → tts → apply for words you name. New sentences come from jisho, not the model.',
+      'card.addExample.desc': 'gen → tts → apply for words you named (searched in core6000 + mined-vocab decks). New sentences come from jisho, not the model. Writes by default; uncheck to dry-run.',
       'card.addExample.words': 'Words (comma/space separated)',
       'card.addExample.noteIds': 'Note IDs (optional)',
       'card.addExample.limit': 'Limit',
       'card.addExample.run': 'Run chain',
-      'card.addExample.commit': 'Write to Anki (--commit)',
+      'card.addExample.commit': 'Write to Anki (--commit, on by default)',
       'card.todayNew.title': "Today's new words",
       'card.todayNew.desc': 'Pick N words from one subtitle / work directory. Dry run unless commit is checked.',
       'card.todayNew.input': 'Subtitle file or work directory',
@@ -129,7 +129,7 @@ window.__ModuleLoader__.load({
       'picker.truncated': 'Too many entries — showing the first',
       'common.working': 'Working…',
       'common.noResult': 'No result yet',
-      'common.dryRun': 'Dry run by default. Checking the write box appends --commit.',
+      'common.dryRun': 'Write actions are dry runs by default; tick "write" to append --commit (exception: Add example writes unless you untick).',
       'result.dryRun': 'Dry run — nothing written',
       'result.committed': 'Written to Anki',
       'result.failed': 'Failed',
@@ -242,12 +242,12 @@ window.__ModuleLoader__.load({
       'tabs.cover': '词汇覆盖率',
       'tabs.report': '每月报告',
       'card.addExample.title': '增加例句',
-      'card.addExample.desc': '点名的 core6000 词：gen → tts → apply。新例句取自 jisho 真实语料，不由模型造句。',
+      'card.addExample.desc': '点名的词（core6000 ＋ 素材生词两个卡组自动查找）：gen → tts → apply。新例句取自 jisho 真实语料，不由模型造句。默认真写库，取消勾选才演练。',
       'card.addExample.words': '词形（逗号/空格分隔）',
       'card.addExample.noteIds': 'noteId（可选）',
       'card.addExample.limit': '张数上限',
       'card.addExample.run': '跑三步',
-      'card.addExample.commit': '真写库（--commit）',
+      'card.addExample.commit': '真写库（--commit，默认勾选）',
       'card.todayNew.title': '今日选词',
       'card.todayNew.desc': '从一集字幕 / 作品目录挑 N 个词。默认演练，勾选后才写标签。',
       'card.todayNew.input': '字幕文件或作品目录',
@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
       'picker.truncated': '目录条目过多，仅显示前',
       'common.working': '运行中…',
       'common.noResult': '还没有结果',
-      'common.dryRun': '写库动作默认演练；勾选「真写」才会追加 --commit。',
+      'common.dryRun': '写库动作默认演练，勾选「真写」才追加 --commit（例外：增加例句默认真写，取消勾选才演练）。',
       'result.dryRun': '演练 — 未写库',
       'result.committed': '已写入 Anki',
       'result.failed': '失败',
@@ -1466,7 +1466,8 @@ window.__ModuleLoader__.load({
       const [words, setWords] = React.useState('')
       const [noteIds, setNoteIds] = React.useState('')
       const [limit, setLimit] = React.useState('')
-      const [commit, setCommit] = React.useState(false)
+      // 默认真写（用户 2026-11-09 定的规矩）：取消勾选才演练。
+      const [commit, setCommit] = React.useState(true)
       const running = busy === 'add-example'
       const submit = () => call('add-example', 'add-example', {
         words,

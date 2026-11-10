@@ -1,6 +1,6 @@
 ---
 name: jp-anki-core6000-example
-description: anki-workspace 的**日常任务 ③ · 按需补例句**：给用户点名的 core6000 词补第二条例句（新句 + 振假名 + 合并讲解 + edge-TTS 配音），固定 gen → tts → apply 流程。**新例句一律取自 jisho.org 的真实语料（Tatoeba / Jreibun），不是模型造的**；模型只写中文翻译与 ② 讲解。**这是「按需」能力，不是全量补全。** 用户对自己记不住的 core6000 词点名要一句不同语境的例句，脚本给这些卡补上第二条例句，并把它和已有讲解合成 ①②两段。当用户说「这几个词我记不住，给我加一句例句」「把今天答得不好的词挑几个补一句例句」「这个 core6000 词要补例句」「例句不要模型编、去 jisho 找真的」时加载本技能。**不含**每日讲义、弱项分析、每集素材流水线——那些在各自独立的技能里。仅适用于 anki-workspace。
+description: anki-workspace 的**日常任务 ③ · 按需补例句**：给用户点名的词（core6000 ＋ 素材生词两个卡组自动查找）补第二条例句（新句 + 振假名 + 合并讲解 + edge-TTS 配音），固定 gen → tts → apply 流程。**新例句一律取自 jisho.org 的真实语料（Tatoeba / Jreibun），不是模型造的**；模型只写中文翻译与 ② 讲解。**这是「按需」能力，不是全量补全。** 用户对自己记不住的词点名要一句不同语境的例句，脚本给这些卡补上第二条例句，并把它和已有讲解合成 ①②两段。当用户说「这几个词我记不住，给我加一句例句」「把今天答得不好的词挑几个补一句例句」「这个词要补例句」「例句不要模型编、去 jisho 找真的」时加载本技能。**不含**每日讲义、弱项分析、每集素材流水线——那些在各自独立的技能里。仅适用于 anki-workspace。
 ---
 
 # 日语 Anki 日常链路 ③ · 按需补例句（core6000 ②）
@@ -63,13 +63,13 @@ $EXE = "$WS\code\execution\core6000"
 # edge-TTS → output/audio/core6000/（不碰 Anki）
 & $PY "$EXE\core6000_example.py" tts   --words "徹夜,適当,残り"
 
-# 演练：打印 5 个字段前后对照
-& $PY "$EXE\core6000_example.py" apply --words "徹夜,適当,残り"
-#   ★ 唯一的人看闸门：演练输出的前后对照 + Sentence HTML（2026-10-06 起不再要求听音频确认）
-#   还要看一眼：新句是不是 Jisho 那句（对照 gen 输出的「Jisho 新句（来源）」行）
-
-# 真写（写前自动落 backup_<时间戳>.json）
+# 真写（直接带 --commit；写前自动落 backup_<时间戳>.json，写后自动回读校验）
 & $PY "$EXE\core6000_example.py" apply --words "徹夜,適当,残り" --commit
+#   ★ 2026-11-09 起不再先演练：用户定的规矩是「不用演练，直接写入」。
+#     例句来源与换皮判断已由 gen 阶段的闸门 1–4 兜住；apply 的 --commit 仍是唯一真写开关。
+#   ★ Agent 工具 anki_add_example 同口径：**默认真写**（apply 自动带 --commit），
+#     只有显式 commit=false 才演练。
+#   写完对一下输出里的「Jisho 新句（来源）」行与回读校验结论即可。
 
 # 反悔：按 backup 逐条还原那 5 个字段（媒体不删）
 & $PY "$EXE\core6000_example.py" revert --commit
@@ -96,12 +96,18 @@ $EXE = "$WS\code\execution\core6000"
 | 选择器 | 说明 |
 |---|---|
 | `--note-ids` | Anki 的 noteId |
-| `--words` | 比 Word 字段（退回 Transliteration），忽略大小写与空格 |
+| `--words` | 比 Word 字段（退回 Transliteration），忽略大小写与空格。**在 core6000 ＋ 素材生词两个卡组里找**（见下） |
 | `--from-file` | 一行一个词或 noteId（# 注释与空行忽略） |
 | `--from-weak` | 今天/近几天的弱项词（跑 today_weak.py 取词表） |
-| `--query` | 任意 Anki 查询，如 `tag:待补例句`；默认只加 deck+模型过滤 |
-| `--all` | 显式全库（≈6000 张，只读体检/批量补时才用） |
+| `--query` | 任意 Anki 查询，如 `tag:待补例句`；缺 deck/note 过滤时补「两牌组 OR + 模型」 |
+| `--all` | 显式全库（core6000 ＋ 素材生词 ≈1.6 万张，只读体检/批量补时才用） |
 | `--only` + `--limit` | 范围过滤 + 最多做几张 |
+
+> **点名的词不一定在 core6000**（2026-11-09 定的规矩）：素材生词卡组（`0-素材生词`）用的是
+> 同一个笔记类型、同一套字段，用户点名的词常常只存在于那边（例：アップ 只在 `0-素材生词`）。
+> 所以搜索范围是 **core6000 ＋ 素材生词** 两个卡组（牌组名正本在 `code/common/jp_decks.py`），
+> 点名的词在哪边就自动命中哪边——不要因为「这词不在 core6000」就说找不到卡。
+> 回归测试：`code/tests/test_core6000_deck_scope.py`。
 
 没有目标选择器时：`gen/tts/apply` 直接拒绝并打印选择器清单（不默认全量；要全量必须显式 `--all`，或用 `--only SCOPE --limit N` 限定规模）。只有 `scan`（体检）和 `status`（看进度）能不带选择器跑。
 
@@ -128,8 +134,7 @@ $EXE = "$WS\code\execution\core6000"
 ## 七、收工汇报
 
 - 点名的词 → 每张卡 `gen` 的 **Jisho 选句**（句子 + 语料来源 + Jisho 详情链接）与闸门结果 →
-  `apply` 演练看到了什么（尤其 `Sentence HTML` 与换皮判断）→ 是否 `--commit` →
-  `backup_<时间戳>.json` 路径。
+  `apply --commit` 写了哪几个字段、回读校验结论 → `backup_<时间戳>.json` 路径。
 - 有卡因为 **Jisho 零候选**而失败时，把句子空缺的原因和已尝试的查询条件写清楚，
   并问用户：是换个词，还是显式允许 `--allow-model-sentence`。**不要自己替他降级。**
 - 若这次补例句的词来自弱项，注明是 `--from-weak` 选出来的（弱项 → 补例句 的联动）。
