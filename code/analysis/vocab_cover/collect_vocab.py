@@ -44,7 +44,6 @@ import json
 import os
 import re
 import sys
-import urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -55,7 +54,6 @@ import anki_api as AK  # noqa: E402  Anki 唯一通道（分批切片 helper 的
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 OUT_JSON = STATE_JSON
-AC_URL = os.environ.get('ANKICONNECT_URL', 'http://127.0.0.1:8765')
 
 # 逻辑卡组 -> 卡组名（前缀匹配，含子卡组）
 DECK_SPECS = {
@@ -74,14 +72,7 @@ TAG_RE = re.compile(r'<[^>]+>')
 
 # ---------------------------------------------------------------- AnkiConnect
 def ac(action: str, **params):
-    payload = json.dumps({'action': action, 'version': 6, 'params': params}).encode('utf-8')
-    req = urllib.request.Request(AC_URL, data=payload,
-                                headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=300) as fh:
-        body = json.loads(fh.read().decode('utf-8'))
-    if body.get('error'):
-        raise RuntimeError(f'AnkiConnect {action}: {body["error"]}')
-    return body.get('result')
+    return AK.call(action, **params)
 
 
 def chunks(seq, n=BATCH):

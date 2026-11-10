@@ -36,7 +36,6 @@ import json
 import os
 import re
 import sys
-import urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -48,7 +47,6 @@ from _norm import norm_word, primary_form  # noqa: E402
 
 CRITICAL = os.path.join(DATA_DIR, 'study_plan_critical_path.json')
 PLAN_DIR = os.path.join(WSP.DATA, 'plans')
-AC_URL = os.environ.get('ANKICONNECT_URL', 'http://127.0.0.1:8765')
 TAG_PREFIX = '素材激活::'
 BATCH = 200
 
@@ -62,13 +60,10 @@ PREFER = {'core6000': 0, 'jlpt': 1, 'mined': 2}
 
 
 def ac(action: str, **params):
-    body = json.dumps({'action': action, 'version': 6, 'params': params},
-                      ensure_ascii=False).encode('utf-8')
-    req = urllib.request.Request(AC_URL, body, {'Content-Type': 'application/json'})
-    r = json.loads(urllib.request.urlopen(req, timeout=300).read().decode('utf-8'))
-    if r.get('error'):
-        raise SystemExit('AnkiConnect 错误 [%s]: %s' % (action, r['error']))
-    return r['result']
+    try:
+        return AK.call(action, **params)
+    except AK.AnkiError as e:
+        raise SystemExit('AnkiConnect 错误 [%s]: %s' % (action, e))
 
 
 def batched(seq, n=BATCH):

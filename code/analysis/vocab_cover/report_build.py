@@ -39,12 +39,12 @@ import math
 import os
 import statistics
 import sys
-import urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from _deps import (CORPUS_JSON, DATA_DIR, OUT_CHARTS, STATE_JSON, WSP,  # noqa: E402
                    add_pylibs, ensure_dirs)
+import anki_api as AK  # noqa: E402  Anki 唯一通道
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 from fmt import pct  # noqa: E402
 
@@ -191,15 +191,7 @@ def series_estimate(m: dict) -> list:
 
 # ------------------------------------------------------------------ 自动刷新
 def _anki_call(action: str, timeout: float = 4.0, **params):
-    url = os.environ.get('ANKICONNECT_URL', 'http://127.0.0.1:8765')
-    payload = json.dumps({'action': action, 'version': 6, 'params': params}).encode('utf-8')
-    req = urllib.request.Request(url, data=payload,
-                                 headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as fh:
-        body = json.loads(fh.read().decode('utf-8'))
-    if body.get('error'):
-        raise RuntimeError(f'AnkiConnect {action}: {body["error"]}')
-    return body.get('result')
+    return AK.call(action, timeout=timeout, **params)
 
 
 def anki_reachable(timeout: float = 4.0) -> bool:
