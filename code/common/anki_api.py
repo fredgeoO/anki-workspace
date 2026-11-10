@@ -23,16 +23,16 @@ r"""Anki 访问的唯一接口 —— AnkiConnect 传输 + 类型化读写 + 学
 1. **不要再写 `def anki()`**。要什么动作就用下面的类型化函数；
    没有对应函数的动作走 `AK.call('动作名', **参数)`。
    `python code/common/anki_api.py audit` 会扫出违反这条的文件。
-2. **不要再自己 `sqlite3.connect` 快照**。离线读用 `AK.Snapshot`（只读、`mode=ro`、
-   自带 `unicase` collation 与 `notetypes/fields` 解码）。
+2. **不要再自己 `sqlite3.connect` 快照**。读库副本用 `AK.Snapshot`（只读、`mode=ro`、
+   自带 `unicase` collation 与 `notetypes/fields` 解码）。默认取数一律走 live；「离线快照数据源」（`_anki_snap` / `anki_snapshot.db`）已退场，`Snapshot` 只用于 live 副本与显式 `path=` 的历史复现。
 3. **改库只走 AnkiConnect**。`Snapshot` 没有任何写方法 —— 直连 sqlite 写 live 收藏
    有锁库/写坏的风险，本模块不开这个口子。
 4. **模块 import 无副作用、无 I/O**：Anki 没开也能 `import anki_api`。
 
-三条数据通道
+两条数据通道
 ------------
-    AnkiConnect(127.0.0.1:8765)  ← 唯一写路径，也是在线读路径
-    Snapshot(path 或 live 副本)   ← 离线只读读路径（学习记录/卡片资料）
+    AnkiConnect(127.0.0.1:8765)  ← 唯一写路径，也是默认读路径（live，永远是实时数据）
+    Snapshot(live 副本或显式 path) ← 只读兜底：大查询取库副本；旧离线快照源已退场
 
 快速上手
 --------
@@ -49,7 +49,7 @@ r"""Anki 访问的唯一接口 —— AnkiConnect 传输 + 类型化读写 + 学
     # 读学习记录（近 3 天答得不好的）
     nids = AK.find_notes(AK.rated_query(3, 'again'))
     rows = AK.card_reviews(nids)                   # AnkiConnect cardReviews
-    snap = AK.Snapshot.open(live_copy=True)        # 或 open(path=...) 读固定快照
+    snap = AK.Snapshot.open(live_copy=True)        # 或 open(path=...) 显式读某个库副本
     for r in snap.reviewed_since(3, ease='again'):
         ...
 
@@ -77,7 +77,7 @@ r"""Anki 访问的唯一接口 —— AnkiConnect 传输 + 类型化读写 + 学
                                                          看笔记内容（字段/标签/牌组），只读
                                                          （查询串也可以写成 --query "<查询串>"）
     python code/common/anki_api.py tags                  列出所有标签
-    python code/common/anki_api.py revlog --days 3 [--ease again] [--source anki|snapshot] [--json]
+    python code/common/anki_api.py revlog --days 3 [--ease again] [--json]
     python code/common/anki_api.py exec <动作> [--params '{"query":"deck:*"}']   逃生口
     python code/common/anki_api.py audit [--strict] [--all]   扫全仓重复客户端（防回退）
 """
@@ -204,13 +204,9 @@ def dedupe_ids(ids):
 
 
 def friendly(exc):
-    """把异常翻成给用户看的中文（CLI 用）。
-
-    `AnkiUnavailable` 的 message 本身就是可读的一句（脚本常常直接 `print(e)`），
-    这里再补一行"离线段"的出路 —— 那是 CLI 才需要知道的。
-    """
+    """把异常翻成给用户看的中文（CLI 用）。"""
     if isinstance(exc, AnkiUnavailable):
-        return '%s\n或用离线快照（--source snapshot / anki_api.Snapshot.open）。' % exc
+        return str(exc)
     return str(exc)
 
 
@@ -773,14 +769,14 @@ def unique_dir(parent, prefix='tmp-', tries=100):
 
 
 class Snapshot(object):
-    """`collection.anki2` 的**只读**读取器（固定快照文件，或 live 收藏的临时副本）。
+    """`collection.anki2` 的**只读**读取器（live 收藏的临时副本，或显式指定的快照文件）。
 
-        snap = Snapshot.open()                     # paths.SNAP_ANKI_SNAP
-        snap = Snapshot.open(path='data/snapshots/.../c.anki2')
         snap = Snapshot.open(live_copy=True)       # 复制 live 收藏（含 -wal/-shm）到临时目录
+        snap = Snapshot.open(path='data/snapshots/.../c.anki2')   # 显式路径（复现历史用）
         with Snapshot.open(live_copy=True) as s:
             rows = s.reviewed_since(3, ease='again')
 
+    ★ 默认数据源一律 live：不再提供「离线快照数据源」默认路径（已退场）。
     ★ 没有任何写方法。改库只走 AnkiConnect（见模块头"约定"3）。
     """
 
@@ -807,9 +803,11 @@ class Snapshot(object):
                     shutil.copy2(s, os.path.join(tmpdir, 'c.anki2' + suf))
             path = os.path.join(tmpdir, 'c.anki2')
         else:
-            path = path or WSP.SNAP_ANKI_SNAP
-        if not os.path.exists(path):
-            raise SnapshotError('快照不存在：%s' % path)
+            if not path:
+                raise SnapshotError('Snapshot.open 需要 path=... 或 live_copy=True'
+                                    '（离线快照默认路径已退场，取数请走 live）')
+            if not os.path.exists(path):
+                raise SnapshotError('快照不存在：%s' % path)
         try:
             con = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
             con.create_collation('unicase', _unicase)
@@ -1325,26 +1323,21 @@ def cmd_tags(args):
 
 def cmd_revlog(args):
     ease = args.ease
-    if args.source == 'snapshot':
-        with Snapshot.open(path=args.snapshot, live_copy=args.live_copy) as snap:
-            rows = snap.revlog(since_ms=start_of_window_ms(args.days), ease=ease,
-                               card_ids=args.card_ids, limit=args.limit)
-    else:
-        rows = card_reviews(card_ids=args.card_ids, deck=args.deck, start_id=0)
-        if args.days or ease:
-            cut = start_of_window_ms(args.days or 1)
-            codes = _ease_codes(ease)
-            rows = [r for r in rows if r['revlogId'] >= cut
-                    and (not codes or r['ease'] in codes)]
-        if args.limit:
-            rows = rows[:args.limit]
+    rows = card_reviews(card_ids=args.card_ids, deck=args.deck, start_id=0)
+    if args.days or ease:
+        cut = start_of_window_ms(args.days or 1)
+        codes = _ease_codes(ease)
+        rows = [r for r in rows if r['revlogId'] >= cut
+                and (not codes or r['ease'] in codes)]
+    if args.limit:
+        rows = rows[:args.limit]
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=1))
     else:
         by_ease = {}
         for r in rows:
             by_ease[r['ease']] = by_ease.get(r['ease'], 0) + 1
-        print('来源 %s ｜ %d 条' % (args.source, len(rows)))
+        print('来源 anki ｜ %d 条' % len(rows))
         for code in sorted(by_ease):
             print('  %s(%d)  %d 条' % (EASE_CN.get(code, '?'), code, by_ease[code]))
         for r in rows[:20]:
@@ -1385,7 +1378,7 @@ def cmd_audit(args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='Anki 访问的唯一接口（AnkiConnect + 离线快照）')
+    ap = argparse.ArgumentParser(description='Anki 访问的唯一接口（AnkiConnect）')
     sub = ap.add_subparsers(dest='cmd', required=True)
 
     p = sub.add_parser('check', help='体检：AnkiConnect 是否通 + 版本/牌组/笔记类型/媒体数')
@@ -1418,14 +1411,11 @@ def main(argv=None):
     p.add_argument('--json', action='store_true')
     p.set_defaults(func=cmd_tags)
 
-    p = sub.add_parser('revlog', help='读学习记录（在线 cardReviews 或离线快照 revlog）')
+    p = sub.add_parser('revlog', help='读学习记录（在线 cardReviews）')
     p.add_argument('--days', type=int, default=1, help='近 N 天，默认 1')
     p.add_argument('--ease', help="again/hard/good/easy 或 1-4，可逗号分隔")
-    p.add_argument('--deck', help='在线模式：cardReviews 需要的牌组名')
+    p.add_argument('--deck', help='cardReviews 需要的牌组名')
     p.add_argument('--card-ids', help='只取这些卡（逗号/空格分隔）')
-    p.add_argument('--source', default='anki', choices=('anki', 'snapshot'))
-    p.add_argument('--snapshot', help='快照路径，默认 %s' % WSP.SNAP_ANKI_SNAP)
-    p.add_argument('--live-copy', action='store_true', help='用 live 收藏的临时副本（快照模式）')
     p.add_argument('--limit', type=int)
     p.add_argument('--json', action='store_true')
     p.set_defaults(func=cmd_revlog)

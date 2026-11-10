@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """列出「最近 N 天答得不好的卡」的名字 —— 只要单词名 / 语法名。
 
-数据默认来自 AnkiConnect（Anki 需开着，永远是实时数据）；加 ``--source snapshot``
-则直读收藏快照文件，不需要 Anki 在运行。
+数据只来自 AnkiConnect（Anki 需开着，永远是实时数据）。离线快照数据源已退场。
 
 用法::
 
@@ -29,7 +28,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))
-import anki_api as AK  # noqa: E402  唯一的 Anki 访问点（在线 AnkiConnect + 离线快照）
+import anki_api as AK  # noqa: E402  唯一的 Anki 访问点（AnkiConnect）
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
@@ -98,7 +97,7 @@ def _extras(model, fields):
 
 
 # ===========================================================================
-# 数据源 1：AnkiConnect（实时）
+# 数据源：AnkiConnect（实时）
 # ===========================================================================
 def bad_notes_live(days, ratings, deck=None, kind=None):
     """返回 (笔记列表, 今日作答卡片数)。"""
@@ -149,44 +148,6 @@ def _answered_cards(days, deck=None):
 
 
 # ===========================================================================
-# 数据源 2：收藏快照（离线）
-# ===========================================================================
-def bad_notes_snapshot(path, days, ratings, deck=None, kind=None):
-    if not os.path.exists(path):
-        raise SystemExit('快照不存在：%s' % path)
-
-    codes = [RATING_CODE[r] for r in ratings]
-    with AK.Snapshot.open(path=path) as snap:
-        mid2model = snap.notetype_map()
-        rows = snap.reviewed_rows(days=days, ease=codes)
-        total = snap.reviewed_card_count(days=days)
-
-    agg = {}
-    for r in rows:
-        a = agg.setdefault(r['nid'], {'again': 0, 'hard': 0, 'mid': r['mid'],
-                                      'flds': r['flds'], 'deck': r['deck']})
-        a['again' if r['ease'] == 1 else 'hard'] += 1
-
-    items = []
-    for nid, a in agg.items():
-        model, order = mid2model.get(a['mid'], ('?', []))
-        vals = (a['flds'] or '').split('\x1f')
-        flds = {order[i]: vals[i] for i in range(min(len(order), len(vals)))}
-        k = _note_kind(model, list(flds))
-        if kind and k != kind:
-            continue
-        dname = (a['deck'] or '').replace('\x1f', '::')
-        if deck and not dname.startswith(deck):
-            continue
-        items.append({
-            'noteId': nid, 'name': _pick_name(flds), 'kind': k, 'model': model,
-            'deck': dname, 'again': a['again'], 'hard': a['hard'],
-            'extras': _extras(model, flds),
-        })
-    return _sort(items), total
-
-
-# ===========================================================================
 # 输出
 # ===========================================================================
 def _sort(items):
@@ -226,11 +187,7 @@ def main(argv=None):
                    help='重来 / 困难 / 两者，默认 both')
     p.add_argument('--kind', default='both', choices=('word', 'grammar', 'both'),
                    help='只看单词或只看语法，默认 both')
-    p.add_argument('--deck', help='限定牌组（前缀匹配，快照模式）')
-    p.add_argument('--source', default='anki', choices=('anki', 'snapshot'),
-                   help='数据源：anki=AnkiConnect 实时（默认），snapshot=读快照')
-    p.add_argument('--snapshot', default=None,
-                   help='快照路径，默认 %s' % WSP.SNAP_ANKI_SNAP)
+    p.add_argument('--deck', help='限定牌组（前缀匹配）')
     p.add_argument('--plain', action='store_true',
                    help='纯名字输出，一行一个')
     p.add_argument('-v', '--verbose', action='store_true',
@@ -242,11 +199,7 @@ def main(argv=None):
     ratings = ('again', 'hard') if a.rating == 'both' else (a.rating,)
     kind = None if a.kind == 'both' else a.kind
 
-    if a.source == 'anki':
-        items, answered = bad_notes_live(a.days, ratings, a.deck, kind)
-    else:
-        items, answered = bad_notes_snapshot(
-            a.snapshot or WSP.SNAP_ANKI_SNAP, a.days, ratings, a.deck, kind)
+    items, answered = bad_notes_live(a.days, ratings, a.deck, kind)
 
     if a.json:
         print(json.dumps(items, ensure_ascii=False, indent=1))

@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 """Anki 自评按钮校准分析：基于 revlog 原始作答记录。
 
-取数走 `AK.Snapshot`（issue #10 B3：不再自己 sqlite3.connect）。默认读离线快照
-`data/snapshots/_anki_snap/collection.anki2`（introspect.py 可重建），位置参数可换路径。
+取数走 `AK.Snapshot`（issue #10 B3：不再自己 sqlite3.connect）。**默认读 live 收藏的
+只读副本**（`live_copy=True`）；位置参数给显式库路径时读该文件（复现历史用）。
+离线快照数据源（`_anki_snap`）已退场。
 """
 import os, sys
 import json, statistics, datetime as dt
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
-import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里只用离线 Snapshot）
+import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里用 Snapshot 的 live 只读副本）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → Snapshot.open 的默认快照
+DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → live 收藏的只读副本
 
 NAME = {1: "重来", 2: "困难", 3: "良好", 4: "简单"}
 TNAME = {0: "学习(新/学)", 1: "复习", 2: "重学", 3: "筛选/ cram", 4: "手动", 5: "重排"}
@@ -22,7 +23,8 @@ def pct(n, d):
 
 
 with AK.guard():
-    snap = AK.Snapshot.open(path=DB)
+    snap = (AK.Snapshot.open(path=DB) if DB
+            else AK.Snapshot.open(live_copy=True))   # 默认：live 副本，关时即删
 
     print("=" * 78)
     print("0. 环境检查")
@@ -220,3 +222,5 @@ print(f"同一张卡同一天被作答>1次的情况：{len(multi)} 次组合，
       f"占当天卡片总数 {pct(len(multi), len(byday))}")
 extra = sum(len(v) - 1 for v in multi.values())
 print(f"其中额外重复作答次数 = {extra}")
+
+snap.close()   # live-* 副本随关随删（data/snapshots/ 不留垃圾）

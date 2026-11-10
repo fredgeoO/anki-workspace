@@ -193,5 +193,5 @@ S = ln(1+次数) + 0.30·ln(1+集数) + 0.30·ln(30000/JAR)
   `AK.verify_note_fields`。工程约定见 [AGENTS.md §8](../AGENTS.md)。
 - 备份收藏库前**完全退出 Anki**；新备份校验通过后才删旧的。唯一权威流程见
   [backup-sop.md](backup-sop.md)。
-- 离线分析（`weak build-list`、`--source snapshot`）读 `data/snapshots/`，可能比 live 库
-  差几天；判断冲突时以 live 收藏为准。
+- 分析只走 live（AnkiConnect）：「离线快照数据源」（`--source snapshot`、`_anki_snap/`）
+  已于 2026-11-10 退场；判断冲突时以 live 收藏为准。

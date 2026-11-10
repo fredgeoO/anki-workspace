@@ -12,6 +12,7 @@ _CODE = os.path.dirname(_HERE)
 sys.path.insert(0, os.path.join(_CODE, 'execution', 'core6000'))
 sys.path.insert(0, os.path.join(_CODE, 'common'))
 
+import textio                  # noqa: E402,F401  stdio 统一走 textio（audit R2）
 import core6000_example as CE  # noqa: E402
 import jp_decks as JD          # noqa: E402
 

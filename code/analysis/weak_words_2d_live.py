@@ -2,24 +2,26 @@
 """近两天（昨天0点起）复习中答错/困难的卡片，输出单词 + 简单解释。
 
 取数走 `AK.Snapshot`（issue #10 B3：不再自己 sqlite3.connect）。窗口 = 昨天 0 点起
-（`reviewed_rows(days=2)`），与 today_weak 的「近 N 天」口径一致。默认读离线快照
-`data/snapshots/_anki_snap/collection.anki2`，位置参数可换别的快照路径（沿用旧契约）。
+（`reviewed_rows(days=2)`），与 today_weak 的「近 N 天」口径一致。**默认读 live 收藏的
+只读副本**（`live_copy=True`）；位置参数给显式库路径时读该文件（复现历史用）。
+离线快照数据源（`_anki_snap`）已退场。
 """
 import os, json, re, html, sys, datetime as dt
 from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
-import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里只用离线 Snapshot）
+import anki_api as AK  # noqa: E402  唯一 Anki 访问点（这里用 Snapshot 的 live 只读副本）
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → Snapshot.open 的默认快照
+DB = sys.argv[1] if len(sys.argv) > 1 else None   # None → live 收藏的只读副本
 
 now = dt.datetime.now()
 start = now.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=1)
 
 with AK.guard():
-    snap = AK.Snapshot.open(path=DB)   # DB=None → 默认离线快照
+    snap = (AK.Snapshot.open(path=DB) if DB
+            else AK.Snapshot.open(live_copy=True))   # 默认：live 副本，关时即删
 
     try:
         rows = snap.reviewed_rows(days=2, ease=(1, 2))   # 昨天0点起，重来+困难

@@ -20,7 +20,7 @@ r"""开工体检（doctor）—— 所有动手前的强制门禁。**只读，�
                                  （明确标注「已归档/已废弃」的指引行除外；
                                   docs/reports、docs/plans 是史料，不扫）
   5. 快照卫生（doctor 独有）    → data/snapshots 是否有 manifest、是否有 probe 临时目录、
-                                 离线快照是否比 live 收藏库旧太多
+                                 已退场的离线快照数据源文件是否还留着（提示可删）
   6. 文档状态行（doctor 独有）  → docs/**/*.md 头部必须有「状态：」行（reports 除外）
   7. 每集 preflight（并入）     → .dsh/skills/jp-anki-pipeline/scripts/preflight.py
 
@@ -230,11 +230,6 @@ def check_deprecated(report, show_all):
 
 
 # ── 5. 快照卫生 ───────────────────────────────────────────────────────────
-def _age_days(path):
-    try:
-        return (time.time() - os.path.getmtime(path)) / 86400.0
-    except OSError:
-        return None
 
 
 def check_snapshots(report, show_all):
@@ -274,22 +269,14 @@ def check_snapshots(report, show_all):
     if probe:
         report.warn('疑似临时探测目录 %d 个（确认后可删）' % len(probe), ['、'.join(probe)])
 
-    # 5c. 离线快照 vs live 收藏库
-    live = WSP.LIVE_COLLECTION
-    live_age = _age_days(live)
-    if live_age is None:
-        info.append('（找不到 live 收藏库 %s：跳过新鲜度对比）' % _rel(live))
-    else:
-        for label, snap in (('_anki_snap/collection.anki2', WSP.SNAP_ANKI_SNAP),
-                            ('anki_snapshot.db', WSP.SNAP_ANKI_SNAPSHOT_DB)):
-            age = _age_days(snap)
-            if age is None:
-                continue
-            if live_age < age - 1:
-                report.warn('离线快照 %s 比 live 收藏库旧 %.1f 天' % (label, age - live_age),
-                            ['离线分析（--source snapshot / weak build-list）会看到旧数据'])
-            else:
-                info.append('%s：与 live 差距 %.1f 天（可接受）' % (label, age - live_age))
+    # 5c. 已退场的离线快照数据源（只提示，不阻塞；删不删由用户拍板）
+    for label, snap in (('_anki_snap/collection.anki2',
+                         os.path.join(WSP.SNAPSHOTS, '_anki_snap', 'collection.anki2')),
+                        ('anki_snapshot.db',
+                         os.path.join(WSP.SNAPSHOTS, 'anki_snapshot.db'))):
+        if os.path.exists(snap):
+            report.warn('离线快照数据源已退场，%s 不再被任何工具读取' % label,
+                        ['确认无用后可删除（本工具不删文件）'])
 
     if show_all or (len(report.fails) + len(report.warns)) > n0:
         print('[5] 快照卫生（data/snapshots）')

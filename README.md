@@ -1,3 +1,5 @@
+状态：active ｜ 最后核实：2026-11-10
+
 <h1 align="center">anki-workspace</h1>
 
 <p align="center">

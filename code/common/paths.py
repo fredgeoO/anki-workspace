@@ -80,8 +80,7 @@ DOC_MINE_AGENT = os.path.join(DOCS, 'mine-agent-instruction.md')
 
 SNAP_ANKISNAP = os.path.join(SNAPSHOTS, 'ankisnap', 'c.anki2')
 SNAP_ANKISNAP2 = os.path.join(SNAPSHOTS, 'ankisnap2', 'c.anki2')
-SNAP_ANKI_SNAP = os.path.join(SNAPSHOTS, '_anki_snap', 'collection.anki2')
-SNAP_ANKI_SNAPSHOT_DB = os.path.join(SNAPSHOTS, 'anki_snapshot.db')
+# 离线快照数据源（_anki_snap/collection.anki2、anki_snapshot.db）已退场：取数一律走 live。
 EP04_BACKUP = os.path.join(EVIDENCE, 'ep04_backup')
 
 # 本地 Anki 资料夹（复制快照的来源）；可用环境变量 ANKI_PROFILE 覆盖

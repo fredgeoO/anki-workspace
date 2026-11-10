@@ -415,13 +415,12 @@ ad-hoc 的 python 一行加 `-X utf8`。
 每个快照在 `data/snapshots/README.json` 里登记用途、消费者、何时可删
 （`doctor` 第 5 项按它检查：没登记的会报，疑似 probe 目录会点名）。
 
-离线读快照的入口：`anki_api.Snapshot.open(...)`（`--source snapshot`）、
-`today_weak.py --source snapshot`、`weak_words_2d_live.py`（位置参数给快照路径）。
-issue #10 B3 起，`analyze_revlog.py` / `weak_words_2d_live.py`（固定快照）与
-`anki_revlog_analysis.py`（`live_copy=True`：复制 live 收藏 + wal/shm 到
-`data/snapshots/live-*`，跑完即删）都不再自己 `sqlite3.connect`。
-⚠ **快照会过期**：`doctor` 会对比快照与 live 收藏库的 mtime，差得太多就提醒 ——
-离线分析看到的可能是旧数据。
+「离线快照数据源」已退场（2026-11-10）：`today_weak.py --source snapshot`、
+`anki_api.py revlog --source snapshot` 与 `_anki_snap/`、`anki_snapshot.db` 一并移除，
+分析一律走 live（AnkiConnect）。保留的是写库基线与大查询副本通道：
+`anki_api.Snapshot.open(live_copy=True)` / 显式 `path=`（freq_external、ankir、
+`analyze_revlog.py` / `weak_words_2d_live.py` / `anki_revlog_analysis.py` 在用，
+复制 live 收藏 + wal/shm 到 `data/snapshots/live-*`，跑完即删），都不自己 `sqlite3.connect`。
 
 `data/snapshots/pre_jiten_field_<时间戳>/` 是 `freq_external.py field --all-notes --commit`
 的**写前基准**（diff 完不删，留档）；1 小时内的快照会被复用，不会每次落新副本。
