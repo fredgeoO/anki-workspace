@@ -14,7 +14,6 @@
 后比对」的口径不该有两份正则。板块解析（``parse_sections``）留在巨石里，它还要用
 ``RE_SHELL`` / ``RE_MARKER`` 这些，从本模块 import 即可。
 """
-import json
 import os
 import re
 import sys
@@ -28,6 +27,7 @@ if _COMMON not in sys.path:
 # 去注音、剥标签与 KANJI 都在 common（issue #5：strip_ruby_readings 正本收进 ruby_text）。
 from htmltext import strip_tags                    # noqa: F401
 from ruby_text import KANJI, strip_ruby_readings   # noqa: F401
+import textio                                       # noqa: E402  文本 I/O 唯一入口
 
 # ============================================================================
 # 正则（闸门与渲染共用；从 core6000_example.py 原样搬来，2026-11-02）
@@ -64,24 +64,19 @@ SCOPE_MERGE = 'not-merged'
 # 小工具：JSON / 文本（原 core6000_example.py 的「小工具」板块，2026-11-02 抽出）
 # ============================================================================
 def write_text(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    textio.write_text(path, text, atomic=True)
 
 
 def write_json(path, obj):
-    write_text(path, json.dumps(obj, ensure_ascii=False, indent=1))
+    textio.dump_json(obj, path, atomic=True)
 
 
 def read_json(path, default=None):
     if not path or not os.path.exists(path):
         return default
     try:
-        with open(path, encoding='utf-8') as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError) as e:
+        return textio.load_json(path)
+    except (OSError, ValueError) as e:
         print('警告：读不出 %s（%s）' % (path, e), file=sys.stderr)
         return default
 

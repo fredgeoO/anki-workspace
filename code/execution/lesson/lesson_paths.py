@@ -12,7 +12,6 @@
 
 口径一字未改：文件名、目录、原子写（先 ``.tmp`` 再 ``os.replace``）都是原来的。
 """
-import json
 import os
 import sys
 
@@ -23,6 +22,7 @@ if _COMMON not in sys.path:
     sys.path.insert(0, _COMMON)
 
 import paths as WSP
+import textio                 # noqa: E402  文本 I/O 唯一入口
 
 OUTDIR = os.path.join(WSP.OUTPUT, 'daily')
 LESSON_DIR = os.path.join(OUTDIR, 'lessons')
@@ -39,15 +39,11 @@ def dict_path(date):
 
 
 def write_text(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    textio.write_text(path, text, atomic=True)
 
 
 def write_json(path, obj):
-    write_text(path, json.dumps(obj, ensure_ascii=False, indent=1))
+    textio.dump_json(obj, path, atomic=True)
 
 
 def dated_paths(date):

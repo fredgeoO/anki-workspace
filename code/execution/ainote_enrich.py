@@ -83,20 +83,15 @@ GEN_SYSTEM = ('你是日语教学作者。你只输出严格 JSON，不要任何
 # 小工具
 # ============================================================================
 def write_text(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    textio.write_text(path, text, atomic=True)
 
 
 def write_json(path, obj):
-    write_text(path, json.dumps(obj, ensure_ascii=False, indent=1))
+    textio.dump_json(obj, path, atomic=True)
 
 
 def read_json(path):
-    with open(path, encoding='utf-8') as fh:
-        return json.load(fh)
+    return textio.load_json(path)
 
 
 def field(note, name, default=''):

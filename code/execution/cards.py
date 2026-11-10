@@ -49,7 +49,6 @@ JSON 形状（`gen --out` 与 `write --file` 同一份）::
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -84,19 +83,14 @@ def read_json(path):
         raise SystemExit('没有给 --file')
     if not os.path.exists(path):
         raise SystemExit('找不到文件：%s' % path)
-    with open(path, encoding='utf-8-sig') as fh:
-        try:
-            return json.load(fh)
-        except json.JSONDecodeError as e:
-            raise SystemExit('%s 不是合法 JSON：%s' % (path, e))
+    try:
+        return textio.load_json(path, encodings=('utf-8-sig',), warn=False)
+    except ValueError as e:
+        raise SystemExit('%s 不是合法 JSON：%s' % (path, e))
 
 
 def write_json(path, obj):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
-        json.dump(obj, fh, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    textio.dump_json(obj, path, atomic=True)
 
 
 def rows_of(doc):
