@@ -14,7 +14,6 @@
   python check_proper.py <file> --quiet          # 只打印汇总
 退出码：0 = 全部合格；1 = 有不合格。
 """
-import json
 import os
 import re
 import sys
@@ -23,6 +22,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 import check_cards as C  # noqa: E402  ruby / 标签白名单 / 非法字符的唯一实现
+import check_cli  # noqa: E402  check_* 共用的输出骨架（main）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口
 from llm_out import as_bool, as_text, is_boolish  # noqa: E402  模型产出吸收层
 
@@ -208,38 +208,10 @@ def check_card(card):
 
 
 def main(argv=None):
-    args = list(sys.argv[1:] if argv is None else argv)
-    quiet = '--quiet' in args
-    args = [a for a in args if a != '--quiet']
-    if not args:
-        print('用法：python check_proper.py <gen/output_NN.json> [--quiet]')
-        raise SystemExit(2)
-
-    cards, bad_total = [], 0
-    for p in args:
-        try:
-            cards.extend(json.load(open(p, encoding='utf-8')))
-        except Exception as exc:
-            print('读不了 %s：%s' % (p, exc))
-            raise SystemExit(2)
-
-    bad = []
-    for c in cards:
-        hard, soft = check(c)
-        if hard:
-            bad.append(((c or {}).get('word') if isinstance(c, dict) else c, hard, soft))
-    n_inc = sum(1 for c in cards if isinstance(c, dict) and as_bool(c.get('include')))
-    if not quiet:
-        for w, hard, soft in bad:
-            print('★ %s' % w)
-            for m in hard:
-                print('    [不合格] %s' % m)
-            for m in soft:
-                print('    [提醒]   %s' % m)
-    print('=' * 70)
-    print('总计 %d 条（收录 %d / 排除 %d）—— 合格 %d / 不合格 %d'
-          % (len(cards), n_inc, len(cards) - n_inc, len(cards) - len(bad), len(bad)))
-    raise SystemExit(1 if bad else 0)
+    check_cli.run_files(list(sys.argv[1:] if argv is None else argv),
+                        usage='用法：python check_proper.py <gen/output_NN.json> [--quiet]',
+                        check=check,
+                        label_of=lambda c: (c or {}).get('word') if isinstance(c, dict) else c)
 
 
 if __name__ == '__main__':
