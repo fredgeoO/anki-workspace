@@ -444,8 +444,8 @@ unidic-lite / ipadic 没有 wheel，故改用带 wheel 的 SudachiDict Core）�
 
 ### 6.5 两个自成一块的区域
 
-`subtitles/` 是原始字幕素材（3 部作品、36 集 + 2 个「制作卡牌用」裁剪版，裁剪版被
-`vocab_cover` 主动跳过），是 §4 分析区的输入；`core6000-analysis/` 是 core6000 听辨卡的
+`subtitles/` 是原始字幕素材（当前 31 部作品、469 个字幕文件，含少量「制作卡牌用」裁剪版，
+裁剪版被 `vocab_cover` 主动跳过），是 §4 分析区的输入；`core6000-analysis/` 是 core6000 听辨卡的
 专项分析子项目，自带 `analyze*.py` / `build_report.py` / 图表 / docx 报告，
 与 `code/` 各脚本互不依赖。两者都保持原地不动。
 

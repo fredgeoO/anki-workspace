@@ -792,6 +792,9 @@ $CE = "$WS\code\cli.py core6000"    # 入口；脚本在 code/execution/core6000
 
 ### 9.8 落盘
 
+> 完整落盘表以 [core6000-example-design.md](core6000-example-design.md) 的「落盘」一节为准；
+> 这里只列本集流程会碰到的项。
+
 | 路径 | 内容 |
 |---|---|
 | `data/core6000/state.json` | 本次选择范围内每张卡的状态（句块数 / 版式 / 缺什么 / 已合规）|
