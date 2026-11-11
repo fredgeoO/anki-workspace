@@ -15,6 +15,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点（传输/分块/字段拆包都在里面）
+import check_cli  # noqa: E402  共用输出骨架（★ 块 / [不合格] / [提醒]）
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 from llm_out import as_text  # noqa: E402  「模型产出吸收层」：非字符串字段一律当空串
 
@@ -199,21 +200,17 @@ def main():
 
     print('%s   共 %d 张' % (label, len(cards)))
     print('=' * 70)
-    bad = 0
+    bad = []
     for c in cards:
         hard, soft = check(c)
         if hard:
-            bad += 1
             ok_dict = isinstance(c, dict)
-            print('★ noteId %s  《%s》' % (c.get('noteId') if ok_dict else '?',
-                                          as_text(c.get('sentence') if ok_dict else '')[:34]))
-            for p in hard:
-                print('    [不合格] %s' % p)
-        for p in soft:
-            if hard:
-                print('    [提醒]   %s' % p)
+            label = 'noteId %s  《%s》' % (c.get('noteId') if ok_dict else '?',
+                                          as_text(c.get('sentence') if ok_dict else '')[:34])
+            bad.append((label, hard, soft))
+    check_cli.print_bad(bad)
     print('=' * 70)
-    print('合格 %d / 不合格 %d / 总计 %d' % (len(cards) - bad, bad, len(cards)))
+    print('合格 %d / 不合格 %d / 总计 %d' % (len(cards) - len(bad), len(bad), len(cards)))
 
 
 if __name__ == '__main__':
