@@ -44,6 +44,7 @@ import re
 import time
 
 import anki_api as AK
+import audio_names
 import paths as WSP
 import textio
 
@@ -53,8 +54,7 @@ DEFAULT_SETTLE = 0.5
 
 
 def _slug(label):
-    s = re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff]+', '_', label or 'writeback')
-    return s.strip('_')[:40] or 'writeback'
+    return audio_names.safe_token(label, fallback='writeback', limit=40)
 
 
 def _short(value, limit=PREVIEW_CHARS):

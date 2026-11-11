@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py 
 sys.path.insert(0, _HERE)                                           # pipeline.py
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'analysis', 'vocab_cover'))  # _norm.py
 import anki_api as AK      # noqa: E402  唯一的 Anki 访问点
+import audio_names         # noqa: E402  媒体文件名规则（safe_token）
 import batchjob as BJ      # noqa: E402  批处理清单层（split / 断点续跑 / failed.json）
 import paths as WSP        # noqa: E402  工作区路径的唯一来源
 import jp_text as JT        # noqa: E402  纯文本清洗与字符判定（common；issue #5）
@@ -1241,8 +1242,7 @@ def slug(s):
     """
     s = re.sub(r'\.(srt|ass|vtt|txt)$', '', (s or '').strip(), flags=re.I)
     s = re.split(r'[（(\[【「]| - | _哔哩哔哩_|｜|\|', s)[0]
-    s = re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff-]+', '_', s).strip('_')
-    return s[:24].strip('_')
+    return audio_names.safe_token(s, keep='-', limit=24, fallback='').rstrip('_')
 
 
 def existing_words(model=None):

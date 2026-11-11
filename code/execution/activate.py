@@ -38,7 +38,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import re
 import sys
 import time
 
@@ -46,6 +45,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))   # paths.py
 sys.path.insert(0, _HERE)                                           # pipeline.py
 import anki_api as AK  # noqa: E402  唯一的 Anki 访问点
+import audio_names  # noqa: E402  媒体文件名规则（safe_token）
 import jp_text as JT  # noqa: E402  纯文本清洗与字符判定（common；issue #5）
 import jp_decks as JD  # noqa: E402  牌组常量 + 标签→级别/频段（考级词汇已扁平化）
 import paths as WSP   # noqa: E402  工作区路径的唯一来源
@@ -65,7 +65,7 @@ COSMETIC_PREFIXES = ('动画::',)
 
 def _slug(s):
     """把标签变成安全的文件名片段。保留中日文/字母数字/连字符。"""
-    return re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff-]+', '_', s).strip('_') or 'plan'
+    return audio_names.safe_token(s, keep='-', fallback='plan')
 
 
 def _strip_cosmetic(tag):

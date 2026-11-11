@@ -146,6 +146,12 @@ def _cell(text: str, width: int) -> str:
 
 # ------------------------------------------------------------------ 输入收集
 def slugify(text: str) -> str:
+    """把作品名变成目录名片段。
+
+    **故意不走 `audio_names.safe_token`**：这里只替换 Windows/常见文件系统的非法字符
+    （`\\ / : * ? " < > |` 与空白），中文标点原样保留；`safe_token` 会把所有非
+    `\\w`+假名+汉字 的字符换成 `_`，已有报告目录名会跟着变。
+    """
     s = re.sub(r'[\\/:*?"<>|\s]+', '_', (text or '').strip())
     return re.sub(r'_+', '_', s).strip('_') or 'report'
 

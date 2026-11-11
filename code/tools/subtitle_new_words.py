@@ -57,6 +57,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'analysis', 'vocab_cover'))
 
 import anki_api as AK          # noqa: E402  Anki 访问的唯一入口
+import audio_names             # noqa: E402  文件名安全片段（safe_token）
 import jp_decks as JD          # noqa: E402  牌组常量
 import jp_text as JT           # noqa: E402  「已有词汇」写法变体的判定口径（issue #10 B1）
 import paths as WSP           # noqa: E402  工作区路径
@@ -156,8 +157,7 @@ def _fmt_ms(ms):
 
 def _slug(s, limit=60):
     s = re.sub(r'[\s\u3000]+', '_', s or '')
-    s = re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff.\-]+', '_', s, flags=re.UNICODE)
-    return (s.strip('_') or 'subtitle')[:limit]
+    return audio_names.safe_token(s, keep='.-', fallback='subtitle', limit=limit)
 
 
 def _deck_priority(deck):

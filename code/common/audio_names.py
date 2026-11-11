@@ -24,13 +24,21 @@ def sounds_of(field):
     return SOUND.findall(field or '')
 
 
-def safe_token(s):
-    """文件名里可用的片段：保留日文/字母数字，其余换下划线。
+def safe_token(s, keep='', fallback='x', limit=None):
+    """文件名里可用的片段：保留日文/字母数字（可再加 keep 指定的字符），其余换下划线。
 
     媒体名要能进 Anki 的 media 目录、还要出现在 `[sound:…]` 里，所以空格、标点、
-    斜杠一律换成 `_`；全空就用 `x` 兜底，避免拼出 `proper--abc.mp3` 这种没有词干的怪名。
+    斜杠一律换成 `_`；全空就用兜底值，避免拼出 `proper--abc.mp3` 这种没有词干的怪名。
+
+    keep：额外允许保留的字符，如 '-' 或 '.-'（按正则字符类处理）。
+    fallback：整段被清空时的兜底值（默认 'x'）。
+    limit：截断长度（先 strip 再截，默认不截）。
     """
-    return re.sub(r'[^\w\u3040-\u30ff\u4e00-\u9fff]+', '_', s or '').strip('_') or 'x'
+    chars = r'\w\u3040-\u30ff\u4e00-\u9fff' + re.escape(keep)
+    out = re.sub('[^' + chars + ']+', '_', s or '').strip('_')
+    if limit:
+        out = out[:limit]
+    return out or fallback
 
 
 def media_name(name):
