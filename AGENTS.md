@@ -14,7 +14,8 @@
   （`cli.py backup` 与写库脚本的 `backup_*.json`）；代码和文档有 `git diff`。
 - **Anki 必须开着**（AnkiConnect `127.0.0.1:8765`）；唯一例外：备份前要**完全退出** Anki。
 - **不替用户做学习决策**（学哪些词、何时停学、讲解够不够好）；**不碰调度列**
-  `due / ivl / factor / type / queue / reps / lapses`。唯一例外是 `jp-anki-activate`，且只写新卡 `due`。
+  `due / ivl / factor / type / queue / reps / lapses`。新卡 `due` 由 Anki 插件 `jiten_reorder`
+  负责（打开自动重排 / 工具菜单手动），脚本一律不写。
 - **不用 PowerShell 解析日文**（PS 5.1 默认 GBK：乱码、属性 `$null`、判断恒真）；编码与判断
   一律 Python + `textio`。
 - 只写本工作区；不 `pip install`、不找系统 Python、不改系统配置。

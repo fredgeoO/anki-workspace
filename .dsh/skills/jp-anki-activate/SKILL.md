@@ -1,9 +1,13 @@
 ---
 name: jp-anki-activate
-description: anki-workspace 的**阶段 3 · 激活**：把例句卡里遇到、但词汇卡组里**还没学过**的词，提前排进学习队列。只碰 type == 0（新卡），只写 cards.due（新卡的位置），绝不写 ivl / factor / type / queue / reps / lapses。apply 默认演练，必须显式 --commit 才真写。当用户说「把这集里的生词优先排到前面学」「新卡位置要重排」「这批词我要先学」时加载本技能。**不含**清理、生成、挖生词、配音——那些在各自独立的技能里。仅适用于 anki-workspace。
+description: anki-workspace 的**阶段 3 · 激活（2026-10-12 已退场）**：新卡 `due` 现由 Anki 插件 `jiten_reorder` 负责，本技能只留作历史参考与旧批次 `revert`，正常任务不要加载。原能力：把例句卡里遇到、但词汇卡组里**还没学过**的词，提前排进学习队列。只碰 type == 0（新卡），只写 cards.due（新卡的位置），绝不写 ivl / factor / type / queue / reps / lapses。apply 默认演练，必须显式 --commit 才真写。当用户说「把这集里的生词优先排到前面学」「新卡位置要重排」「这批词我要先学」时加载本技能。**不含**清理、生成、挖生词、配音——那些在各自独立的技能里。仅适用于 anki-workspace。
 ---
 
 # 日语 Anki 阶段 3 · 激活（素材驱动激活）
+
+> **已退场（2026-10-12）**：新卡 `due` 改由 Anki 插件 `jiten_reorder` 负责
+> （[jiten-reorder-使用说明](../../../docs/jiten-reorder-使用说明.md)）。本技能只留作历史参考
+> 与旧批次 `revert`，**正常任务不要执行 `plan` / `apply`**。
 
 本技能覆盖**一件事**：把例句卡里遇到、但词汇卡组里**还没学过**的词，提前排进学习队列。
 

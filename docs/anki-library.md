@@ -55,6 +55,7 @@
 ## 写库时的边界
 
 - 只写被点名的字段；不批量重写既有讲解，不动笔记模板、牌组选项、学习调度。
-- 调度列 `due / ivl / factor / type / queue / reps / lapses` 只有 `jp-anki-activate` 能写，
-  且只写新卡（`type == 0`）的 `due`。
+- 调度列 `due / ivl / factor / type / queue / reps / lapses` 脚本一律不写。新卡（`type == 0`）的
+  `due` 由 Anki 插件 `jiten_reorder` 负责（打开自动重排 / 工具菜单手动），见
+  [jiten-reorder-使用说明](jiten-reorder-使用说明.md)。
 - 写前备份、写后 `AK.verify_note_fields(...)` 回读；细节走 `code/common/writeback.py`。

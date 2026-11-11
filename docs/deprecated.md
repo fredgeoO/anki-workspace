@@ -111,8 +111,8 @@
 现在：不排位置、不打准入/激活标签。「先学哪个词」只看笔记字段 **`JitenAnimeRank`**
 （`%06d` 补零，`999999` = 词表里没有），由 `mine.py` 入库时与 `episode.py` 的 `rank` 阶段写。
 
-`activate.py` 只为两件事保留：① `vocab reorder-jiten` preset 的全链重排（全局词频序，
-见 [architecture §2.1](architecture.md)）；② `revert` 历史批次。
+`activate.py` 现在只保留 `revert` 历史批次；`vocab reorder-jiten` 的全链重排也已退场，
+新卡位置一律交给 Anki 插件 `jiten_reorder`（[使用说明](jiten-reorder-使用说明.md)）。
 回退依据：`data/plans/plan_activate_*.json`（每张卡的 `due_before`），**别删**。
 
 > 2026-11-09 注：写 due 的实现已两度变更——脚本直写（见 §13，AnkiConnect 现把 `due` 列为 protected）→ 插件 `jiten_reorder` → ImmersionKit `write` 落 due。本节的「激活」判定口径不变。
