@@ -23,15 +23,14 @@
 """
 import argparse
 import collections
+import os
 import re
 import sys
 
-sys.path.insert(0, r'<工作区根>\code\oneshot')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'common'))
 
-import fix_bad_arrow as FB  # noqa: E402
-import os
-_TEXTIO_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_TEXTIO_HERE, '..', 'common'))
+import anki_api as AK  # noqa: E402  Anki 读写唯一接口（原经 FB.invoke 转发，已改直连 AK）
+import fix_bad_arrow as FB  # noqa: E402  只复用常量 DEFAULT_DECK
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 CHECKS = {
@@ -60,13 +59,13 @@ def main():
         scope = 'deck:*'
     else:
         scope = 'deck:"%s"' % args.deck
-    ids = sorted(set(FB.invoke('findNotes', query=scope)))
+    ids = sorted(set(AK.find_notes(scope)))
     print('核验范围 %s，note %d 张' % (scope, len(ids)))
 
     counter = collections.Counter()
     samples = collections.defaultdict(list)
     for i in range(0, len(ids), 400):
-        for info in FB.invoke('notesInfo', notes=ids[i:i + 400]):
+        for info in AK.notes_info(ids[i:i + 400]):
             fields = info.get('fields', {})
             for name, fv in fields.items():
                 val = fv.get('value', '') or ''

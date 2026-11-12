@@ -30,7 +30,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
-import fix_bad_arrow as FB  # noqa: E402
+import anki_api as AK  # noqa: E402  Anki 读写唯一接口（原经 FB.invoke 转发，已改直连 AK）
+import fix_bad_arrow as FB  # noqa: E402  只复用常量/纯函数，Anki 调用一律走 AK
 
 
 ARROW = '\u2192'
@@ -225,12 +226,12 @@ def main():
         ids = sorted(set(args.only_note))
         scope = 'explicit noteIds'
     else:
-        ids = sorted(set(FB.invoke('findNotes', query=scope)))
+        ids = sorted(set(AK.find_notes(scope)))
     print('范围 %s，note %d 张' % (scope, len(ids)))
 
     planned, skipped, unknown = [], [], []
     for i in range(0, len(ids), 400):
-        for info in FB.invoke('notesInfo', notes=ids[i:i + 400]):
+        for info in AK.notes_info(ids[i:i + 400]):
             fields = info.get('fields', {})
             updates, metas = {}, {}
             for name, fv in fields.items():
@@ -288,7 +289,7 @@ def main():
     n = 0
     for p in planned:
         for name, new in p['after'].items():
-            FB.invoke('updateNoteFields', note={'id': p['noteId'], 'fields': {name: new}})
+            AK.update_note_fields(p['noteId'], {name: new})
             n += 1
     print('\n✅ 已写库：%d 张卡 / %d 个字段' % (len(planned), n))
     _report(args, planned, skipped, unknown, True)
@@ -296,7 +297,7 @@ def main():
     left = 0
     for i in range(0, len(planned), 400):
         batch = [p['noteId'] for p in planned[i:i + 400]]
-        for info in FB.invoke('notesInfo', notes=batch):
+        for info in AK.notes_info(batch):
             for fv in info.get('fields', {}).values():
                 for rx, table, inner in all_residues(fv.get('value', '') or ''):
                     if inner in table:

@@ -439,6 +439,16 @@ def model_templates(model):
     return call('modelTemplates', modelName=model) or {}
 
 
+def model_field_add(model, field_name):
+    """给笔记类型加字段（**写操作**）。
+
+    ⚠ Anki 会给该类型的**全部**笔记补一个空字段（flds/mod 大面积改动 →
+    下次同步一大批 delta），调用方自己负责确认与打印影响；写完用
+    `model_field_names(model)` 回读确认。freq_external.py field --add-field 在用。
+    """
+    return call('modelFieldAdd', modelName=model, fieldName=field_name)
+
+
 def media_names(pattern='*'):
     return call('getMediaFilesNames', pattern=pattern) or []
 
@@ -1034,6 +1044,18 @@ class Snapshot(object):
     def new_cards(self, deck=None, limit=None):
         """新卡（type=0），按队列位置 due 排序 —— 体检"激活的卡是不是排在最前"用。"""
         return self.cards(deck=deck, card_type=0, limit=limit)
+
+    # ---- 通用只读 SQL（逃生口） ------------------------------------------
+    def query(self, sql, args=()):
+        """自定义只读 SQL 的**逃生口**：上面几个方法覆盖不到的全表聚合/探针才用它。
+
+            for row in snap.query('SELECT id, did, ivl FROM cards WHERE ivl >= ?', (21,)):
+                ...
+
+        连接是 `mode=ro` 打开的，写不了库（见模块头"约定"3）；返回 sqlite3.Row 列表，
+        按列名或下标取值都行。常规取数优先用上面的 decks/revlog/reviewed_rows/notes/cards。
+        """
+        return list(self.con.execute(sql, args))
 
 
 def _ease_codes(ease):

@@ -71,10 +71,8 @@ TAG_RE = re.compile(r'<[^>]+>')
 
 
 # ---------------------------------------------------------------- AnkiConnect
-def ac(action: str, **params):
-    return AK.call(action, **params)
-
-
+# 全部经唯一通道 anki_api（AK.*）：deck_names / find_notes / notes_info /
+# find_cards / cards_info / call。本脚本只读，不写 Anki、不打标签。
 def chunks(seq, n=BATCH):
     """切块：实现走正本 ``AK.chunks``（批大小仍由本文件的 BATCH 决定，口径不变）。"""
     return AK.chunks(seq, n)
@@ -102,8 +100,8 @@ def pick(fields: dict, names) -> str:
 
 
 def collect() -> dict:
-    version = ac('version')
-    deck_names = ac('deckNames') or []
+    version = AK.call('version')
+    deck_names = AK.deck_names() or []
 
     def logical_of(deck_name: str) -> str:
         for logical, prefixes in DECK_SPECS.items():
@@ -123,58 +121,55 @@ def collect() -> dict:
         if not logical:
             continue
         deck_stats[logical]['deck_names'].append(deck_name)
-        nids = ac('findNotes', query=f'deck:"{deck_name}"') or []
-        for batch in chunks(nids):
-            for note in ac('notesInfo', notes=batch) or []:
-                nid = note['noteId']
-                fields = {k: clean_field(v.get('value', ''))
-                          for k, v in note.get('fields', {}).items()}
-                raw_surface = pick(fields, WORD_FIELDS)
-                if not raw_surface:
-                    raw_surface = next((v for v in fields.values() if v), '')
-                if not raw_surface:
-                    continue
-                if '〜' in raw_surface or '～' in raw_surface:
-                    affixes.add(norm_word(raw_surface))
-                surface = primary_form(raw_surface)
-                key = norm_word(surface)
-                if not key:
-                    continue
+        nids = AK.find_notes(f'deck:"{deck_name}"') or []
+        for note in AK.notes_info(nids, chunk=BATCH) or []:
+            nid = note['noteId']
+            fields = {k: clean_field(v.get('value', ''))
+                      for k, v in note.get('fields', {}).items()}
+            raw_surface = pick(fields, WORD_FIELDS)
+            if not raw_surface:
+                raw_surface = next((v for v in fields.values() if v), '')
+            if not raw_surface:
+                continue
+            if '〜' in raw_surface or '～' in raw_surface:
+                affixes.add(norm_word(raw_surface))
+            surface = primary_form(raw_surface)
+            key = norm_word(surface)
+            if not key:
+                continue
 
-                entry = words.get(key)
-                if entry is None:
-                    entry = words[key] = {
-                        'surface': surface, 'readings': [], 'core': None, 'jlpt': [],
-                        'mined': False, 'reps': 0, 'lapses': 0, 'interval': 0,
-                        'type': 0, 'queue': 0, 'known': False, 'mature': False,
-                    }
-                for rk in reading_keys(pick(fields, READING_FIELDS)):
-                    if rk and rk not in entry['readings']:
-                        entry['readings'].append(rk)
-                if logical == 'core6000':
-                    rank_txt = re.sub(r'\D', '', pick(fields, INDEX_FIELDS))
-                    if rank_txt:
-                        rank = int(rank_txt)
-                        if entry['core'] is None or rank < entry['core']:
-                            entry['core'] = rank
-                elif logical == 'jlpt':
-                    # 考级词汇已扁平化：子卡组没了，级别/频段改由 eggrolls 标签给出
-                    tags = note.get('tags', [])
-                    lv = JD.level_from_tags(tags)
-                    label = ('%s%s' % (lv, JD.band_from_tags(tags) or '')) if lv else deck_name
-                    if label not in entry['jlpt']:
-                        entry['jlpt'].append(label)
-                elif logical == 'mined':
-                    entry['mined'] = True
-                note_lex[nid] = (key, logical)
+            entry = words.get(key)
+            if entry is None:
+                entry = words[key] = {
+                    'surface': surface, 'readings': [], 'core': None, 'jlpt': [],
+                    'mined': False, 'reps': 0, 'lapses': 0, 'interval': 0,
+                    'type': 0, 'queue': 0, 'known': False, 'mature': False,
+                }
+            for rk in reading_keys(pick(fields, READING_FIELDS)):
+                if rk and rk not in entry['readings']:
+                    entry['readings'].append(rk)
+            if logical == 'core6000':
+                rank_txt = re.sub(r'\D', '', pick(fields, INDEX_FIELDS))
+                if rank_txt:
+                    rank = int(rank_txt)
+                    if entry['core'] is None or rank < entry['core']:
+                        entry['core'] = rank
+            elif logical == 'jlpt':
+                # 考级词汇已扁平化：子卡组没了，级别/频段改由 eggrolls 标签给出
+                tags = note.get('tags', [])
+                lv = JD.level_from_tags(tags)
+                label = ('%s%s' % (lv, JD.band_from_tags(tags) or '')) if lv else deck_name
+                if label not in entry['jlpt']:
+                    entry['jlpt'].append(label)
+            elif logical == 'mined':
+                entry['mined'] = True
+            note_lex[nid] = (key, logical)
 
     # 卡片状态
     by_note = collections.defaultdict(list)
-    for batch in chunks(list(note_lex)):
-        cids = ac('findCards', query=' OR '.join(f'nid:{n}' for n in batch)) or []
-        for cbatch in chunks(cids, 200):
-            for card in ac('cardsInfo', cards=cbatch) or []:
-                by_note[card['note']].append(card)
+    cids = AK.cards_of_notes(list(note_lex))
+    for card in AK.cards_info(cids, chunk=200) or []:
+        by_note[card['note']].append(card)
 
     for nid, (key, _logical) in note_lex.items():
         cards = by_note.get(nid, [])

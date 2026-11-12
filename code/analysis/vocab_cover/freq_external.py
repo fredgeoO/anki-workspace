@@ -549,7 +549,7 @@ def _cmd_field_models(args) -> int:
                 return 2
         elif args.commit:
             for m in missing:
-                AK.call('modelFieldAdd', modelName=m, fieldName=args.field)
+                AK.model_field_add(m, args.field)
             still = [m for m in missing if args.field not in AK.model_field_names(m)]
             if still:
                 print('✗ 加字段失败：%s' % '、'.join(still))
@@ -662,9 +662,6 @@ def cmd_field(args) -> int:
             return 2
         return _cmd_field_models(args)
 
-    add_pylibs()
-    import make_activate_plan as MAP  # AnkiConnect 调用只此一份
-
     plan = textio.load_json(args.plan)
     targets = plan['targets']
     want = {}
@@ -679,18 +676,18 @@ def cmd_field(args) -> int:
     models, current = set(), {}
     nids = list(want)
     for i in range(0, len(nids), 200):
-        for n in MAP.ac('notesInfo', notes=nids[i:i + 200]) or []:
+        for n in AK.notes_info(nids[i:i + 200]):
             models.add(n['modelName'])
-            current[n['noteId']] = (n.get('fields', {}).get(args.field) or {}).get('value')
+            current[int(n['noteId'])] = AK.field(n, args.field) or ''
     print('涉及笔记类型 %d 个：%s' % (len(models), '、'.join(sorted(models))))
 
-    missing = [m for m in sorted(models) if args.field not in MAP.ac('modelFieldNames', modelName=m)]
+    missing = [m for m in sorted(models) if args.field not in AK.model_field_names(m)]
     if missing:
         print('缺字段 %s 的笔记类型：%s' % (args.field, '、'.join(missing)))
         if args.add_field:
             if args.commit:
                 for m in missing:
-                    MAP.ac('modelFieldAdd', modelName=m, fieldName=args.field)
+                    AK.model_field_add(m, args.field)
                 print('  已添加字段（注意：Anki 会给这些类型的**全部**笔记补一个空字段，'
                       '同步量会比你写的笔记数更多）')
             else:
@@ -710,7 +707,7 @@ def cmd_field(args) -> int:
         print('词表 %s：%d 个归一化键' % (os.path.relpath(wl, WSP.ROOT), len(index)))
         alln = []
         for m in sorted(models):
-            got = MAP.ac('findNotes', query='note:"%s"' % m)
+            got = AK.find_notes('note:"%s"' % m)
             print('  %s：%d 个笔记' % (m, len(got)))
             alln.extend(got)
         derived, mismatch = {}, 0
@@ -722,7 +719,7 @@ def cmd_field(args) -> int:
             'eggrolls-JLPT10k-v3.5': ('VocabKanji',),
         }
         for i in range(0, len(alln), 200):
-            for n in MAP.ac('notesInfo', notes=alln[i:i + 200]) or []:
+            for n in AK.notes_info(alln[i:i + 200]):
                 fields = {k: (v.get('value') or '') for k, v in n['fields'].items()}
                 # 幂等判断要用**全部**笔记的当前值：上面那次 notesInfo 只覆盖了 plan 里的
                 # 11,990 个，若不复用这一趟，旧卡每次重跑都会被再写一遍（白涨 mod）。
@@ -810,7 +807,7 @@ def corpus_freq(corpus: dict):
 
 def cmd_compare(args) -> int:
     add_pylibs()
-    import make_activate_plan as MAP  # 卡组口径、字段名、AnkiConnect 只此一份
+    import make_activate_plan as MAP  # 卡组口径与字段名以它为准；collect_new_cards 内部已走 anki_api
 
     plan_path = args.words_file or _plan_path(args.media)
     index = {}

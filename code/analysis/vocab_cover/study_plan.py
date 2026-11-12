@@ -27,13 +27,13 @@ import datetime as _dt
 import json
 import math
 import os
-import sqlite3
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from _deps import DATA_DIR, STATE_JSON, WSP, add_pylibs, write_json  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import anki_api as AK  # noqa: E402  Anki 访问唯一接口（这里只用它的只读快照 Snapshot）
 from fmt import pct  # noqa: E402
 
 METRICS = os.path.join(DATA_DIR, 'metrics.json')
@@ -197,19 +197,26 @@ def band_composition(m: dict, corpus: dict, state: dict,
     return out
 
 
-# ------------------------------------------------------------------ 4. 语法卡组
-def grammar_stats(snapshot: str = None) -> dict:
+# ------------------------------------------------------------------ 快照只读访问
+def _open_snap(snapshot: str = None):
+    """打开 workspace 快照的只读取数器：(snap, path)；找不到候选返回 (None, None)。
+
+    经 ``AK.Snapshot``（mode=ro，unicase collation / Row 已内置），绝不打开 live collection 本体。
+    """
     cands = [snapshot] + [os.path.join(WSP.SNAPSHOTS, p) for p in
                           ('live/collection.anki2', 'ankisnap/c.anki2',
                            'anki_snapshot.db')]
     path = next((p for p in cands if p and os.path.exists(p)), None)
     if not path:
-        return {}
-    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
-    con.create_collation('unicase',
-                         lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
-    cur = con.cursor()
-    decks = {r[0]: r[1].replace('\x1f', '::') for r in cur.execute('SELECT id, name FROM decks')}
+        return None, None
+    try:
+        return AK.Snapshot.open(path=path), path
+    except AK.SnapshotError:
+        return None, None
+
+
+def _deck_groups(decks: dict) -> dict:
+    """{did: 牌组名} → {did: 组名}（语法 / core6000 / 考级词汇 / 素材例句）。"""
     did_of = {}
     for did, name in decks.items():
         if '语法' in name:
@@ -220,30 +227,39 @@ def grammar_stats(snapshot: str = None) -> dict:
             did_of[did] = '考级词汇'
         elif '素材生词' in name or name.endswith('2-例句'):
             did_of[did] = '素材/例句'
-    cards = {}
-    for cid, did, reps, lapses, ivl, type_ in cur.execute(
-            'SELECT id, did, reps, lapses, ivl, type FROM cards'):
-        g = did_of.get(did)
-        if g:
-            cards[cid] = (g, reps, lapses, ivl, type_)
-    stats = collections.defaultdict(lambda: {'cards': 0, 'studied': 0, 'mature': 0,
-                                             'reps': 0, 'again': 0, 'rev': 0, 'ms': 0})
-    for cid, (g, reps, lapses, ivl, type_) in cards.items():
-        s = stats[g]
-        s['cards'] += 1
-        s['studied'] += 1 if reps > 0 else 0
-        s['mature'] += 1 if (type_ == 2 and ivl >= 21) else 0
-    for ts, cid, ease, time_, type_ in cur.execute('SELECT id, cid, ease, time, type FROM revlog'):
-        row = cards.get(cid)
-        if not row:
-            continue
-        s = stats[row[0]]
-        s['reps'] += 1
-        s['ms'] += time_
-        if type_ == 1:
-            s['rev'] += 1
-            s['again'] += 1 if ease == 1 else 0
-    con.close()
+    return did_of
+
+
+# ------------------------------------------------------------------ 4. 语法卡组
+def grammar_stats(snapshot: str = None) -> dict:
+    snap, path = _open_snap(snapshot)
+    if not snap:
+        return {}
+    with snap:
+        did_of = _deck_groups(snap.decks())
+        cards = {}
+        for r in snap.query('SELECT id, did, reps, lapses, ivl, type FROM cards'):
+            g = did_of.get(int(r['did']))
+            if g:
+                cards[int(r['id'])] = (g, int(r['reps']), int(r['lapses']),
+                                       int(r['ivl']), int(r['type']))
+        stats = collections.defaultdict(lambda: {'cards': 0, 'studied': 0, 'mature': 0,
+                                                 'reps': 0, 'again': 0, 'rev': 0, 'ms': 0})
+        for cid, (g, reps, lapses, ivl, type_) in cards.items():
+            s = stats[g]
+            s['cards'] += 1
+            s['studied'] += 1 if reps > 0 else 0
+            s['mature'] += 1 if (type_ == 2 and ivl >= 21) else 0
+        for r in snap.query('SELECT cid, ease, time, type FROM revlog'):
+            row = cards.get(int(r['cid']))
+            if not row:
+                continue
+            s = stats[row[0]]
+            s['reps'] += 1
+            s['ms'] += int(r['time'])
+            if int(r['type']) == 1:
+                s['rev'] += 1
+                s['again'] += 1 if int(r['ease']) == 1 else 0
     out = {}
     for g, s in stats.items():
         out[g] = {
@@ -259,32 +275,24 @@ def new_card_order(snapshot: str = None) -> dict:
 
     如果新卡的 due 升序与 core6000 的 Index 升序一致，说明「按卡牌自身排序」成立。
     """
-    cands = [snapshot] + [os.path.join(WSP.SNAPSHOTS, p) for p in
-                          ('live/collection.anki2', 'ankisnap/c.anki2',
-                           'anki_snapshot.db')]
-    path = next((p for p in cands if p and os.path.exists(p)), None)
-    if not path:
+    snap, path = _open_snap(snapshot)
+    if not snap:
         return {}
-    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
-    con.create_collation('unicase',
-                         lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
-    cur = con.cursor()
-    decks = {r[0]: r[1].replace('\x1f', '::') for r in cur.execute('SELECT id, name FROM decks')}
-    did = next((d for d, n in decks.items() if '高频日语单词 6000' in n), None)
-    ntname = {r[0]: r[1] for r in cur.execute('SELECT id, name FROM notetypes')}
-    mid = next((m for m, n in ntname.items() if n == 'Japanese Vocabulary'), None)
-    rows = []
-    cur2 = con.cursor()
-    for cid, nid, due, queue in cur.execute(
-            'SELECT id, nid, due, queue FROM cards WHERE did=?', (did,)).fetchall():
-        if queue != 0:          # 只看未学的新卡
-            continue
-        flds = cur2.execute('SELECT flds FROM notes WHERE id=?', (nid,)).fetchone()
-        if not flds:
-            continue
-        parts = flds[0].split('\x1f')
-        rows.append((due, parts[1].strip() if len(parts) > 1 else '', parts[0].strip()))
-    con.close()
+    with snap:
+        decks = snap.decks()
+        did = next((d for d, n in decks.items() if '高频日语单词 6000' in n), None)
+        ntname = {mid: name for mid, (name, _fields) in snap.notetype_map().items()}
+        mid = next((m for m, n in ntname.items() if n == 'Japanese Vocabulary'), None)
+        rows = []
+        for r in snap.query('SELECT id, nid, due, queue FROM cards WHERE did=?', (did,)):
+            if int(r['queue']) != 0:      # 只看未学的新卡
+                continue
+            flds = snap.query('SELECT flds FROM notes WHERE id=?', (int(r['nid']),))
+            if not flds:
+                continue
+            parts = flds[0]['flds'].split('\x1f')
+            rows.append((int(r['due']), parts[1].strip() if len(parts) > 1 else '',
+                         parts[0].strip()))
     rows.sort()
     head = [r[1] for r in rows[:20]]
     # due 顺序与 Index 顺序的秩相关
@@ -311,52 +319,37 @@ def recent_load(days: int = 21, snapshot: str = None) -> dict:
 
     新卡必须用「全局第一次复习」判定 —— 只看窗口内记录，会把老卡的窗口内首刷误算成新卡。
     """
-    cands = [snapshot] + [os.path.join(WSP.SNAPSHOTS, p) for p in
-                          ('live/collection.anki2', 'ankisnap/c.anki2',
-                           'anki_snapshot.db')]
-    path = next((p for p in cands if p and os.path.exists(p)), None)
-    if not path:
+    snap, path = _open_snap(snapshot)
+    if not snap:
         return {}
-    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
-    con.create_collation('unicase',
-                         lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
-    cur = con.cursor()
-    decks = {r[0]: r[1].replace('\x1f', '::') for r in cur.execute('SELECT id, name FROM decks')}
-    did_of = {}
-    for d, name in decks.items():
-        if '语法' in name:
-            did_of[d] = '语法'
-        elif '高频日语单词 6000' in name:
-            did_of[d] = 'core6000'
-        elif '考级词汇' in name:
-            did_of[d] = '考级词汇'
-        elif '素材生词' in name or name.endswith('2-例句'):
-            did_of[d] = '素材/例句'
-    card = {cid: did_of.get(d) for cid, d in cur.execute('SELECT id, did FROM cards')}
-    day = 86400000
-    newest = cur.execute('SELECT MAX(id) FROM revlog').fetchone()[0] or 0
-    cut = newest - days * day
+    with snap:
+        did_of = _deck_groups(snap.decks())
+        card = {int(r['id']): did_of.get(int(r['did']))
+                for r in snap.query('SELECT id, did FROM cards')}
+        day = 86400000
+        newest = int(snap.query('SELECT MAX(id) FROM revlog')[0][0] or 0)
+        cut = newest - days * day
 
-    stats = collections.defaultdict(lambda: {'reps': 0, 'ms': 0, 'new': 0,
-                                             'rev': 0, 'again': 0})
-    for cid, ts in cur.execute('SELECT cid, MIN(id) FROM revlog GROUP BY cid'):
-        if ts > cut:
-            g = card.get(cid)
-            if g:
-                stats[g]['new'] += 1
-    active_days = set()
-    for ts, cid, ease, time_, type_ in cur.execute(
-            'SELECT id, cid, ease, time, type FROM revlog WHERE id > ?', (cut,)):
-        active_days.add(ts // day)
-        g = card.get(cid)
-        if not g:
-            continue
-        stats[g]['reps'] += 1
-        stats[g]['ms'] += time_
-        if type_ == 1:
-            stats[g]['rev'] += 1
-            stats[g]['again'] += 1 if ease == 1 else 0
-    con.close()
+        stats = collections.defaultdict(lambda: {'reps': 0, 'ms': 0, 'new': 0,
+                                                 'rev': 0, 'again': 0})
+        for r in snap.query('SELECT cid, MIN(id) AS mn FROM revlog GROUP BY cid'):
+            if int(r['mn']) > cut:
+                g = card.get(int(r['cid']))
+                if g:
+                    stats[g]['new'] += 1
+        active_days = set()
+        for r in snap.query('SELECT id, cid, ease, time, type FROM revlog WHERE id > ?',
+                            (cut,)):
+            ts = int(r['id'])
+            active_days.add(ts // day)
+            g = card.get(int(r['cid']))
+            if not g:
+                continue
+            stats[g]['reps'] += 1
+            stats[g]['ms'] += int(r['time'])
+            if int(r['type']) == 1:
+                stats[g]['rev'] += 1
+                stats[g]['again'] += 1 if int(r['ease']) == 1 else 0
     ndays = max(1, len(active_days))
     out = {}
     for g, s in stats.items():

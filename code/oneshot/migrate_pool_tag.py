@@ -5,6 +5,10 @@
 > 2026-10-06 **退场**（标签已清零、筛选牌组已删），`activate.py` / `mine.py` 也自
 > 2026-10-10 起不再写该标签。本脚本保留作历史参考与「万一要回退」的凭据 ——
 > 全记录与恢复路径见 docs/deprecated.md §2。
+>
+> **2026-11-12 注**：Anki 访问已改走唯一通道 `code/common/anki_api.py`
+> （AK.find_notes / AK.notes_info / AK.cards_of_notes / AK.cards_info / AK.add_tags /
+> AK.remove_tags）；读写语义与 `--commit` 闸门不变。不要真跑写路径。
 
 背景（2026-10-05 的设计统一）
 ---------------------------
@@ -42,14 +46,13 @@ import collections
 import json
 import os
 import sys
-import urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'common'))
+import anki_api as AK  # noqa: E402  Anki 唯一通道（code/common/anki_api.py）
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
-AC_URL = 'http://127.0.0.1:8765'
 POOL_TAG = '素材优先'
 SOURCE_PREFIXES = ('素材激活::', '素材生词::')
 BATCH = 200
@@ -79,16 +82,6 @@ SCOPES = {
 }
 
 
-def ac(action, **params):
-    body = json.dumps({'action': action, 'version': 6, 'params': params},
-                      ensure_ascii=False).encode('utf-8')
-    req = urllib.request.Request(AC_URL, body, {'Content-Type': 'application/json'})
-    r = json.loads(urllib.request.urlopen(req, timeout=300).read().decode('utf-8'))
-    if r.get('error'):
-        raise SystemExit('AnkiConnect [%s]: %s' % (action, r['error']))
-    return r['result']
-
-
 def batched(seq, n=BATCH):
     for i in range(0, len(seq), n):
         yield seq[i:i + n]
@@ -96,14 +89,14 @@ def batched(seq, n=BATCH):
 
 def collect_targets(scope: dict) -> list:
     """-> 需要补标签的 noteId 列表。"""
-    return ac('findNotes', query=scope['query'])
+    return AK.find_notes(scope['query'])
 
 
 def describe(nids: list) -> collections.Counter:
     """按已有的素材前缀统计，便于确认范围。"""
     c = collections.Counter()
     for b in batched(nids):
-        for n in ac('notesInfo', notes=b) or []:
+        for n in AK.notes_info(b) or []:
             tags = [t for t in n.get('tags', []) if t.startswith(SOURCE_PREFIXES)]
             c[tags[0].split('::')[0] if tags else '(无素材前缀)'] += 1
     return c
@@ -112,12 +105,9 @@ def describe(nids: list) -> collections.Counter:
 def describe_decks(nids: list, sample: int = 1000) -> collections.Counter:
     """按卡组统计（看范围对不对）。只抽样 cardsInfo，避免上万次往返。"""
     c = collections.Counter()
-    cids = []
-    for b in batched(nids[:sample]):
-        cids.extend(ac('findCards', query='nid:' + ','.join(str(x) for x in b)) or [])
-    for b in batched(cids):
-        for card in ac('cardsInfo', cards=b) or []:
-            c[card['deckName']] += 1
+    cids = AK.cards_of_notes(nids[:sample])
+    for card in AK.cards_info(cids) or []:
+        c[card['deckName']] += 1
     return c
 
 
@@ -131,11 +121,12 @@ def main() -> int:
     scope = SCOPES[args.scope]
     STATE = scope['state']
 
-    pool_n = len(ac('findNotes', query='tag:%s' % POOL_TAG))
-    print('范围：%s（--scope %s）' % (scope['label'], args.scope))
-    print('当前带 %s 的笔记：%d 个' % (POOL_TAG, pool_n))
-    print('模式：%s' % ('★ 真写库' if args.commit else '演练（不写库）'))
-    print()
+    with AK.guard():  # AnkiConnect 错误 → SystemExit（中文提示），不出 traceback
+        pool_n = len(AK.find_notes('tag:%s' % POOL_TAG))
+        print('范围：%s（--scope %s）' % (scope['label'], args.scope))
+        print('当前带 %s 的笔记：%d 个' % (POOL_TAG, pool_n))
+        print('模式：%s' % ('★ 真写库' if args.commit else '演练（不写库）'))
+        print()
 
     if args.revert:
         if not os.path.exists(STATE):
@@ -145,26 +136,28 @@ def main() -> int:
         if not args.commit:
             print('演练结束，未写库。加 --commit 真回退。')
             return 0
-        for b in batched(nids):
-            ac('removeTags', notes=b, tags=POOL_TAG)
-        print('已摘除。现在带 %s 的笔记：%d 个'
-              % (POOL_TAG, len(ac('findNotes', query='tag:%s' % POOL_TAG))))
+        with AK.guard():
+            for b in batched(nids):
+                AK.remove_tags(b, POOL_TAG)
+            print('已摘除。现在带 %s 的笔记：%d 个'
+                  % (POOL_TAG, len(AK.find_notes('tag:%s' % POOL_TAG))))
         return 0
 
-    nids = collect_targets(scope)
-    print('需要补 %s 的笔记：%d 个' % (POOL_TAG, len(nids)))
-    if nids:
-        print('  来源构成：', dict(describe(nids)))
-        deckc = describe_decks(nids)
-        print('  卡组构成（抽样最多 1000 张卡）：')
-        for d, n in deckc.most_common(12):
-            print('    %6d  %s' % (n, d))
-        for b in list(batched(nids))[:1]:
-            for n in (ac('notesInfo', notes=b[:5]) or []):
-                w = next((v['value'] for k, v in n['fields'].items()
-                          if k in ('Word', 'VocabKanji', 'Front') and v['value']), '')
-                print('    %-14s tags=%s' % (w[:14], [t for t in n['tags']
-                                                      if t.startswith(SOURCE_PREFIXES)]))
+    with AK.guard():
+        nids = collect_targets(scope)
+        print('需要补 %s 的笔记：%d 个' % (POOL_TAG, len(nids)))
+        if nids:
+            print('  来源构成：', dict(describe(nids)))
+            deckc = describe_decks(nids)
+            print('  卡组构成（抽样最多 1000 张卡）：')
+            for d, n in deckc.most_common(12):
+                print('    %6d  %s' % (n, d))
+            for b in list(batched(nids))[:1]:
+                for n in (AK.notes_info(b[:5]) or []):
+                    w = next((v['value'] for k, v in n['fields'].items()
+                              if k in ('Word', 'VocabKanji', 'Front') and v['value']), '')
+                    print('    %-14s tags=%s' % (w[:14], [t for t in n['tags']
+                                                          if t.startswith(SOURCE_PREFIXES)]))
     if not nids:
         print('无需变更。')
         return 0
@@ -174,9 +167,10 @@ def main() -> int:
         print('（回退记录会写到 %s）' % STATE)
         return 0
 
-    for b in batched(nids):
-        ac('addTags', notes=b, tags=POOL_TAG)
-    after = len(ac('findNotes', query='tag:%s' % POOL_TAG))
+    with AK.guard():
+        for b in batched(nids):
+            AK.add_tags(b, POOL_TAG)
+        after = len(AK.find_notes('tag:%s' % POOL_TAG))
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     json.dump({'pool_tag': POOL_TAG, 'scope': args.scope, 'query': scope['query'],
                'note_ids': nids, 'count': len(nids)},

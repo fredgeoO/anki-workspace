@@ -35,8 +35,9 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from _deps import CORPUS_JSON, DATA_DIR, STATE_JSON, add_pylibs, write_json  # noqa: E402
+from _deps import CORPUS_JSON, DATA_DIR, STATE_JSON, WSP, add_pylibs, write_json  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import anki_api as AK  # noqa: E402  Anki 访问唯一接口（这里只用它的只读快照 Snapshot）
 
 METRICS_JSON = os.path.join(DATA_DIR, 'metrics.json')
 BUCKETS = {0: 'core6000', 1: 'jlpt', 2: 'mined', 3: 'oov', 4: 'proper',
@@ -430,38 +431,46 @@ def zipf_fit(fc: dict, upto: int = 3000) -> dict:
 
 
 # ------------------------------------------------------------------ 主流程
+def _snap_candidates(snapshot: str = None) -> list:
+    """只读 workspace 快照的候选路径（按优先级）。"""
+    return [snapshot,
+            os.path.join(WSP.SNAPSHOTS, 'live', 'collection.anki2'),
+            WSP.SNAP_ANKISNAP]
+
+
 def learning_rate(snapshot: str = None) -> dict:
-    """从收藏快照的 revlog 算：词汇卡每月新学多少张（决定「还缺多少词」要多久）。"""
-    import sqlite3
-    cands = [snapshot,
-             os.path.join(os.path.dirname(DATA_DIR), 'snapshots', 'live', 'collection.anki2'),
-             os.path.join(os.path.dirname(DATA_DIR), 'snapshots', 'ankisnap', 'c.anki2'),
-             os.path.join(os.path.dirname(DATA_DIR), 'snapshots', 'anki_snapshot.db')]
-    path = next((p for p in cands if p and os.path.exists(p)), None)
+    """从收藏快照的 revlog 算：词汇卡每月新学多少张（决定「还缺多少词」要多久）。
+
+    只读 workspace 快照副本，经 ``AK.Snapshot``（mode=ro，unicase collation / Row 已内置）；
+    找不到候选快照就返回 {}。绝不打开 live collection 本体。
+    """
+    path = next((p for p in _snap_candidates(snapshot) if p and os.path.exists(p)), None)
     if not path:
         return {}
-    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
-    con.create_collation('unicase',
-                         lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
-    cur = con.cursor()
-    decks = {r[0]: r[1].replace('\x1f', '::') for r in cur.execute('SELECT id, name FROM decks')}
-    vocab_dids = {did for did, name in decks.items()
-                  if '高频日语单词 6000' in name or '考级词汇' in name
-                  or '素材生词' in name or name.endswith('2-例句')}
-    card_deck = {cid: did for cid, did in cur.execute('SELECT id, did FROM cards')}
-    first = {}
-    for cid, ts in cur.execute('SELECT cid, MIN(id) FROM revlog GROUP BY cid'):
-        if card_deck.get(cid) in vocab_dids:
-            first[cid] = ts
+    try:
+        snap = AK.Snapshot.open(path=path)
+    except AK.SnapshotError:
+        return {}
+    with snap:
+        decks = snap.decks()
+        vocab_dids = {did for did, name in decks.items()
+                      if '高频日语单词 6000' in name or '考级词汇' in name
+                      or '素材生词' in name or name.endswith('2-例句')}
+        card_deck = {int(r['id']): int(r['did'])
+                     for r in snap.query('SELECT id, did FROM cards')}
+        first = {}
+        for r in snap.query('SELECT cid, MIN(id) AS mn FROM revlog GROUP BY cid'):
+            cid = int(r['cid'])
+            if card_deck.get(cid) in vocab_dids:
+                first[cid] = int(r['mn'])
     monthly = collections.Counter()
-    for cid, ts in first.items():
+    for ts in first.values():
         d = _dt.datetime.fromtimestamp(ts / 1000)
         monthly[d.strftime('%Y-%m')] += 1
     months = sorted(monthly)
     recent = months[-6:]
-    con.close()
     return {
-        'snapshot': os.path.relpath(path, os.path.dirname(DATA_DIR)).replace('\\', '/'),
+        'snapshot': os.path.relpath(snap.path, WSP.DATA).replace('\\', '/'),
         'monthly': {k: monthly[k] for k in months},
         'recent_months': recent,
         'recent_total': sum(monthly[k] for k in recent),

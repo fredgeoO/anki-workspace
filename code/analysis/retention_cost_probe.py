@@ -1,6 +1,6 @@
 """One-shot: real review behaviour + FSRS load. Reads a WORKSPACE COPY of the live
 collection (data/snapshots/live/collection.anki2 + -wal) so nothing is locked and
-WAL contents are visible.
+WAL contents are visible — via AK.Snapshot.open(path=...) (read-only, mode=ro).
 
 Sections:
   A. daily volume / again rate / sec per card (last 21 days)
@@ -12,38 +12,38 @@ Sections:
 import json
 import os
 import re
-import sqlite3
 import struct
 from collections import defaultdict
 from datetime import datetime
 import sys
-_TEXTIO_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_TEXTIO_HERE, '..', 'common'))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, '..', 'common'))
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import paths as WSP  # noqa: E402  路径唯一来源（code/common/paths.py）
+import anki_api as AK  # noqa: E402  Anki 访问唯一接口（code/common/anki_api.py）
 
-WS = r"<工作区根>"
-DB = os.path.join(WS, r"data\snapshots\live\collection.anki2")
+DB = os.path.join(WSP.SNAPSHOTS, 'live', 'collection.anki2')
 MEDIA = os.path.join(os.environ["APPDATA"], "Anki2", "账户 1", "collection.media")
 
-con = sqlite3.connect(DB)
-cur = con.cursor()
+snap = AK.Snapshot.open(path=DB)
+cur = snap.con.cursor()
 
 decks = {}
-for did, name in cur.execute("select id, name from decks"):
+for did, name in snap.query("select id, name from decks"):
     if isinstance(name, bytes):
         name = name.decode("utf-8", "replace")
     decks[did] = name.replace("\x1f", "::")
 
 card_did = {}
 card_info = {}
-for cid, did, ivl, ctype, reps, lapses in cur.execute(
+for cid, did, ivl, ctype, reps, lapses in snap.query(
         "select id,did,ivl,type,reps,lapses from cards"):
     card_did[cid] = did
     card_info[cid] = (ivl, ctype, reps, lapses)
 
-NOW = max(list(cur.execute("select max(id) from revlog"))[0][0],
-          list(cur.execute("select max(mod) from cards"))[0][0] * 1000)
-print("NOW:", datetime.fromtimestamp(NOW / 1000), "| reviews:", list(cur.execute("select count(*) from revlog"))[0][0])
+NOW = max(list(snap.query("select max(id) from revlog"))[0][0],
+          list(snap.query("select max(mod) from cards"))[0][0] * 1000)
+print("NOW:", datetime.fromtimestamp(NOW / 1000), "| reviews:", list(snap.query("select count(*) from revlog"))[0][0])
 
 
 def secs(v):
@@ -61,7 +61,7 @@ def stats(v):
 
 print("\n=== A. daily volume (last 21 days) ===")
 buck = defaultdict(lambda: [0, 0, 0.0, 0])
-for rid, ease, t in cur.execute("select id,ease,time from revlog where id>=?",
+for rid, ease, t in snap.query("select id,ease,time from revlog where id>=?",
                                 (NOW - 21 * 86400_000,)):
     d = datetime.fromtimestamp(rid / 1000).strftime("%m-%d")
     b = buck[d]
@@ -78,7 +78,7 @@ cut14 = NOW - 14 * 86400_000
 cache = {}
 print("\n=== B. per deck (last 14 days) ===")
 agg = defaultdict(lambda: {"n": 0, "ag": 0, "ts": [], "e": defaultdict(int), "ivl": []})
-for rid, cid, ease, t, lastIvl in cur.execute(
+for rid, cid, ease, t, lastIvl in snap.query(
         "select id,cid,ease,time,lastIvl from revlog where id>=?", (cut14,)):
     did = card_did.get(cid)
     name = decks.get(did, f"?{did}")
@@ -147,14 +147,14 @@ def mp3_duration(path):
 # per-card answer times (last 14 days) and per-note audio totals
 card_times = defaultdict(list)
 card_note = {}
-for cid, nid in cur.execute("select id, nid from cards"):
+for cid, nid in snap.query("select id, nid from cards"):
     card_note[cid] = nid
-for rid, cid, t in cur.execute("select id,cid,time from revlog where id>=?", (cut14,)):
+for rid, cid, t in snap.query("select id,cid,time from revlog where id>=?", (cut14,)):
     if t <= 300_000:
         card_times[cid].append(secs(t))
 
 note_audio = {}
-for nid, flds in cur.execute("select id, flds from notes"):
+for nid, flds in snap.query("select id, flds from notes"):
     tot = 0.0
     cnt = 0
     for m in MP3.finditer(flds or ""):
@@ -194,7 +194,7 @@ print(f"  (measured {len(cache)} media files)")
 print("\n=== D. FSRS state per deck ===")
 states = defaultdict(lambda: {"n": 0, "S": [], "D": [], "ivl": [], "lapses": 0, "reps": 0})
 allrows = []
-for cid, did, ivl, factor, reps, lapses, cdata in cur.execute(
+for cid, did, ivl, factor, reps, lapses, cdata in snap.query(
         "select id,did,ivl,factor,reps,lapses,data from cards"):
     if not cdata:
         continue
@@ -245,7 +245,7 @@ print("\n=== F. Again rate by maturity (last 14 days) ===")
 bands = [(0, 1, "0-1d"), (1, 7, "1-7d"), (7, 21, "7-21d"), (21, 60, "21-60d"),
          (60, 180, "60-180d"), (180, 10 ** 9, "180d+")]
 g2 = defaultdict(lambda: defaultdict(lambda: [0, 0]))
-for rid, cid, ease, lastIvl in cur.execute(
+for rid, cid, ease, lastIvl in snap.query(
         "select id,cid,ease,lastIvl from revlog where id>=?", (cut14,)):
     name = decks.get(card_did.get(cid), "")
     key = name
@@ -268,4 +268,4 @@ for k in sorted(g2, key=lambda k: -sum(v[0] for v in g2[k].values())):
         n, ag = g2[k].get(lab, [0, 0])
         cells.append(f"{lab}:{ag}/{n}" if n else f"{lab}:-")
     print(f"  {k[:44]:44s} " + "  ".join(cells))
-con.close()
+snap.close()

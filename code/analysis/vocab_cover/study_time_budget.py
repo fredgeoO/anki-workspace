@@ -24,15 +24,16 @@ import argparse
 import collections
 import datetime as dt
 import os
-import sqlite3
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from _deps import WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import anki_api as AK  # noqa: E402  Anki 访问唯一接口（code/common/anki_api.py）
 
-SNAP = os.path.join(WSP.SNAPSHOTS, 'live', 'collection.anki2')
+# 只读 workspace 快照副本，经 AK.Snapshot（mode=ro，unicase collation / Row 已内置）。
+SNAP = WSP.SNAP_ANKISNAP
 YOUNG_DAYS = 30
 GROUPS = ('core6000', '考级词汇', '语法', '素材/例句')
 
@@ -52,20 +53,21 @@ def group_of(name: str):
 
 
 def measure(days: int = 21) -> dict:
-    con = sqlite3.connect('file:%s?mode=ro' % SNAP, uri=True)
-    con.create_collation('unicase',
-                         lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
-    cur = con.cursor()
-    decks = {r[0]: r[1].replace('\x1f', '::') for r in cur.execute('SELECT id, name FROM decks')}
-    card = {c: group_of(decks.get(d, '')) for c, d in cur.execute('SELECT id, did FROM cards')}
-    first = dict(cur.execute('SELECT cid, MIN(id) FROM revlog GROUP BY cid'))
-    newest = cur.execute('SELECT MAX(id) FROM revlog').fetchone()[0]
+    snap = AK.Snapshot.open(path=SNAP)
+    decks = snap.decks()
+    card = {int(r['id']): group_of(decks.get(int(r['did']), ''))
+            for r in snap.query('SELECT id, did FROM cards')}
+    first = {int(r['cid']): int(r['mn'])
+             for r in snap.query('SELECT cid, MIN(id) AS mn FROM revlog GROUP BY cid')}
+    newest = int(snap.query('SELECT MAX(id) AS mx FROM revlog')[0]['mx'])
     cut = newest - days * 86400000
 
     # bucket[group][layer] = [answers, ms]
     bucket = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0]))
     active = set()
-    for ts, cid, time_ in cur.execute('SELECT id, cid, time FROM revlog WHERE id > ?', (cut,)):
+    for r in snap.query('SELECT id, cid, time FROM revlog WHERE id > ?', (cut,)):
+        ts = int(r['id'])
+        cid = int(r['cid'])
         g = card.get(cid)
         active.add(ts // 86400000)
         if not g:
@@ -73,7 +75,7 @@ def measure(days: int = 21) -> dict:
         age_days = (ts - first[cid]) / 86400000.0
         layer = 'young' if age_days <= YOUNG_DAYS else 'old'
         bucket[g][layer][0] += 1
-        bucket[g][layer][1] += time_
+        bucket[g][layer][1] += int(r['time'])
 
     new = collections.Counter()
     for cid, ts in first.items():
@@ -81,7 +83,7 @@ def measure(days: int = 21) -> dict:
             g = card.get(cid)
             if g:
                 new[g] += 1
-    con.close()
+    snap.close()
 
     nd = max(1, len(active))
     out = {'days': days, 'active_days': nd,

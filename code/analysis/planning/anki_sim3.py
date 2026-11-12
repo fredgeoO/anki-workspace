@@ -10,7 +10,6 @@ v3:
 from __future__ import annotations
 
 import random
-import sqlite3
 import sys
 import time
 from collections import defaultdict
@@ -20,13 +19,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common"))
 import jp_decks as JD  # noqa: E402
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
+import anki_api as AK  # noqa: E402  Anki 访问唯一接口（code/common/anki_api.py）
 
-SNAP = Path(WSP.SNAP_ANKISNAP)
-db = sqlite3.connect(str(SNAP))
-db.row_factory = sqlite3.Row
-db.create_collation("unicase", lambda a, b: (a > b) - (a < b))
-decks = {r["id"]: r["name"].replace("\x1f", "::")
-         for r in db.execute("select id, name from decks")}
+# 只读 workspace 快照副本，经 AK.Snapshot（mode=ro，unicase collation 已内置）。
+snap = AK.Snapshot.open(path=WSP.SNAP_ANKISNAP)
+decks = snap.decks()
 
 CORE = JD.DECK_CORE6000
 # 考级词汇已扁平化：N5/N4/高/中/低 五个分支现在都在「2-考级词汇」这一个 deck 里，
@@ -35,12 +32,12 @@ CORE = JD.DECK_CORE6000
 KAOKYU_LABEL = {"N5": "词汇N5", "N4": "词汇N4",
                 "高频": "词汇高", "中频": "词汇中", "低频": "词汇低"}
 KAOKYU_NOTE_BRANCH = {}
-for _r in db.execute("select id, tags from notes"):
-    _tags = (_r["tags"] or "").split()
-    _lv = JD.level_from_tags(_tags)
+for _nid, _tags in snap.query("select id, tags from notes"):
+    _tag_list = (_tags or "").split()
+    _lv = JD.level_from_tags(_tag_list)
     if _lv:
-        KAOKYU_NOTE_BRANCH[_r["id"]] = KAOKYU_LABEL.get(
-            JD.band_from_tags(_tags) or _lv, "其他")
+        KAOKYU_NOTE_BRANCH[_nid] = KAOKYU_LABEL.get(
+            JD.band_from_tags(_tag_list) or _lv, "其他")
 
 BRANCH_PREFIX = [(CORE, "Core6000"), (JD.DECK_EXAMPLE, "对白例句")]
 ORDER = ["Core6000", "词汇N5", "词汇N4", "词汇高", "词汇中", "词汇低",
@@ -65,9 +62,9 @@ def branch_of(name: str, nid=None) -> str:
 
 NOW_MS = int(time.time() * 1000)
 CUT = NOW_MS - 60 * 86400_000
-rev = db.execute(
+rev = snap.query(
     "select r.type, r.time, r.ease, r.lastIvl, c.did, c.nid from revlog r "
-    "join cards c on c.id = r.cid where r.id > ?", (CUT,)).fetchall()
+    "join cards c on c.id = r.cid where r.id > ?", (CUT,))
 
 # ---------- seconds per review, by branch x review type
 sec = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
@@ -116,8 +113,7 @@ def p_of(ivl):
 
 
 # ---------- card states
-crt = db.execute("select crt from col").fetchone()[0]
-cards = db.execute("select id, did, nid, type, due, ivl, factor from cards").fetchall()
+cards = snap.query("select id, did, nid, type, due, ivl, factor from cards")
 by_branch = defaultdict(list)
 for c in cards:
     by_branch[branch_of(decks.get(c["did"], "?"), c["nid"])].append(c)

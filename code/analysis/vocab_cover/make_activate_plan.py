@@ -59,16 +59,11 @@ WORD_FIELDS = JD.WORD_FIELDS_CORE      # 含 '単語'（正本：code/common/jp_
 PREFER = {'core6000': 0, 'jlpt': 1, 'mined': 2}
 
 
-def ac(action: str, **params):
-    try:
-        return AK.call(action, **params)
-    except AK.AnkiError as e:
-        raise SystemExit('AnkiConnect 错误 [%s]: %s' % (action, e))
-
-
-def batched(seq, n=BATCH):
-    """切块：实现走正本 ``AK.chunks``（批大小仍由本文件的 BATCH 决定，口径不变）。"""
-    return AK.chunks(seq, n)
+# ---------------------------------------------------------------- AnkiConnect
+# 全部经唯一通道 anki_api（AK.*）：deck_names / find_cards / cards_info / notes_info
+# （三者都自带分批，批大小由 BATCH 指定）。
+# AK.guard() 把 AnkiError 变成带中文说明的 SystemExit（等价于原先的 ac() 包装）。
+# 本脚本只读，不写 Anki、不改 due、不打标签。
 
 
 def clean_field(v: str) -> str:
@@ -101,19 +96,18 @@ def collect_new_cards(exclude_prefixes=()) -> dict:
     ``exclude_prefixes`` 里的卡组（含其子卡组）不参与 —— 例如 ``0-日本语学习::2-例句``
     是例句卡，有它自己的激活路径，不该混进词汇词频队列。
     """
-    deck_names = ac('deckNames')
-    targets = [d for d in deck_names if group_of(d)
-               and not any(d == p or d.startswith(p + '::') for p in exclude_prefixes)]
-    query = 'is:new (' + ' or '.join('deck:"%s"' % d for d in targets) + ')'
-    cids = ac('findCards', query=query)
-    cards = []
-    for b in batched(cids):
-        cards.extend(ac('cardsInfo', cards=b))
+    with AK.guard():
+        deck_names = AK.deck_names()
+        targets = [d for d in deck_names if group_of(d)
+                   and not any(d == p or d.startswith(p + '::') for p in exclude_prefixes)]
+        query = 'is:new (' + ' or '.join('deck:"%s"' % d for d in targets) + ')'
+        cids = AK.find_cards(query=query)
+        cards = AK.cards_info(cids, chunk=BATCH)
     cards = [c for c in cards if c.get('type') == 0]
     nids = sorted({c['note'] for c in cards})
     notes = {}
-    for b in batched(nids):
-        for n in ac('notesInfo', notes=b) or []:
+    with AK.guard():
+        for n in AK.notes_info(nids, chunk=BATCH) or []:
             fields = {k: clean_field(v.get('value', '')) for k, v in n['fields'].items()}
             word = ''
             for f in WORD_FIELDS:

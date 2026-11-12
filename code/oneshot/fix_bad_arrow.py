@@ -22,25 +22,25 @@ LaTeX 本身还在。两种都不是好状态，统一收敛到 ASCII 之外、�
     python code/oneshot/fix_bad_arrow.py --only-note 1621392136383        # 演练单卡
     python code/oneshot/fix_bad_arrow.py --only-note 1621392136383 --commit
     python code/oneshot/fix_bad_arrow.py                                  # 演练 core6000 全部
-    python code/oneshot/fix_bad_arrow.py --commit
-    python code/oneshot/fix_bad_arrow.py --all-decks --commit             # 含其它牌组 18 张
+
+Anki 访问只走唯一通道 `code/common/anki_api.py`（AK.find_notes / AK.notes_info /
+AK.update_note_fields）。写库仍由本脚本的 `--commit` 闸门把关；默认演练、报告留档
+与写后回读不变。
 """
 import argparse
-import json
 import os
 import re
 import sys
 import unicodedata
-import urllib.request
 from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), 'common'))
+import anki_api as AK  # noqa: E402  Anki 唯一通道（code/common/anki_api.py）
 import paths as WSP  # noqa: E402
 import textio  # noqa: E402  UTF-8 stdio 唯一入口（code/common/textio.py）
 
 
-ANKI_URL = 'http://127.0.0.1:8765'
 DEFAULT_DECK = '0-日本语学习::0-词汇::1-高频日语单词 6000'
 ARROW = '\u2192'
 
@@ -85,14 +85,10 @@ TEXT_WRAP_RE = re.compile(r'\$[\t\n]?ext\{([^{}\\\n]{0,30})\}\$')
 FIELD_WHITELIST = None      # None = 所有字段；用 --fields 可限定
 
 
-def invoke(action, **params):
-    payload = json.dumps({'action': action, 'version': 6, 'params': params}).encode('utf-8')
-    req = urllib.request.Request(ANKI_URL, payload, {'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=180) as fh:
-        res = json.loads(fh.read().decode('utf-8'))
-    if res.get('error'):
-        raise RuntimeError('%s: %s' % (action, res['error']))
-    return res['result']
+# Anki 访问全部走唯一通道 anki_api（AK.*）：find_notes / notes_info / update_note_fields，
+# 单个动作走 AK.call。原先的 invoke() 已删——fix_text_wrap.py 与 verify_no_residue.py
+# 以 `import fix_bad_arrow as FB` 复用本模块，它们改调 AK.call（不再经此转发）。
+# 写库仍由本脚本 --commit 闸门把关。
 
 
 def fix_text(text, text_wrap=False):
@@ -141,17 +137,17 @@ def main():
     args = ap.parse_args()
 
     scope = 'deck:*' if args.all_decks else 'deck:"%s"' % args.deck
-    if args.only_note:
-        note_ids = sorted(set(args.only_note))
-        scope = 'explicit noteIds'
-    else:
-        note_ids = sorted(set(invoke('findNotes', query=scope)))
-    print('扫描范围: %s，note 数: %d' % (scope, len(note_ids)))
+    with AK.guard():
+        if args.only_note:
+            note_ids = sorted(set(args.only_note))
+            scope = 'explicit noteIds'
+        else:
+            note_ids = sorted(set(AK.find_notes(scope)))
+        print('扫描范围: %s，note 数: %d' % (scope, len(note_ids)))
 
-    planned = []
-    skipped = []
-    for i in range(0, len(note_ids), 400):
-        for info in invoke('notesInfo', notes=note_ids[i:i + 400]):
+        planned = []
+        skipped = []
+        for info in AK.notes_info(note_ids):
             note_id = info['noteId']
             fields = info.get('fields', {})
             word = (fields.get('Word', {}) or {}).get('value', '')
@@ -212,12 +208,13 @@ def main():
         write_report(args.report, args, planned, skipped, committed=False)
         return
 
-    done = 0
-    for p in planned:
-        for fname, new in p['after'].items():
-            invoke('updateNoteFields',
-                   note={'id': p['noteId'], 'fields': {fname: new}})
-            done += 1
+    expected = {p['noteId']: dict(p['after']) for p in planned}
+    with AK.guard():
+        done = 0
+        for nid, fields in expected.items():
+            for fname, new in fields.items():
+                AK.update_note_fields(nid, {fname: new})
+                done += 1
     print('\n✅ 已写库：%d 张卡 / %d 个字段' % (len(planned), done))
     write_report(args.report, args, planned, skipped, committed=True)
     verify(args, planned)
@@ -238,8 +235,8 @@ def verify(args, planned):
     ids = [p['noteId'] for p in planned]
     left_bad = 0
     arrows = 0
-    for i in range(0, len(ids), 400):
-        for info in invoke('notesInfo', notes=ids[i:i + 400]):
+    with AK.guard():
+        for info in AK.notes_info(ids):
             for fv in info.get('fields', {}).values():
                 val = fv.get('value', '') or ''
                 left_bad += len(TOKEN_RE.findall(val))
@@ -257,8 +254,7 @@ def write_report(path, args, planned, skipped, committed):
         'skipped': skipped,
         'notes': planned,
     }
-    with open(path, 'w', encoding='utf-8') as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
+    textio.dump_json(data, path, indent=2)
     print('明细报告: %s' % path)
 
 
