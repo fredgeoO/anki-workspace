@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 
     const EN = {
       'panel.title': 'Anki Workspace',
-      'panel.subtitle': 'Six workspace capabilities, live status and commit-by-default write actions.',
+      'panel.subtitle': 'Seven workspace capabilities, live status and commit-by-default write actions.',
       'panel.loading': 'Loading status…',
       'panel.refresh': 'Refresh',
       'panel.lastUpdated': 'Updated',
@@ -52,6 +52,18 @@ window.__ModuleLoader__.load({
       'card.addExample.limit': 'Limit',
       'card.addExample.run': 'Run chain',
       'card.addExample.commit': 'Write to Anki (--commit, on by default)',
+      'card.addExample.listJisho': 'List Jisho candidates',
+      'card.addExample.candidates': 'Jisho candidate sentences',
+      'card.addExample.pickHint': 'Pick one (or none = auto-pick), then run the chain to overwrite the card.',
+      'card.addExample.rubyWarn': 'ruby check failed',
+      'card.addExample.none': 'No Jisho candidates listed (the word may already have a second sentence, or Jisho has no usable example).',
+      'llm.label': 'Local model',
+      'llm.default': 'Default (config / endpoint pin)',
+      'llm.groupProfiles': 'Profiles',
+      'llm.groupModels': 'Endpoint models',
+      'llm.active': 'serving now',
+      'llm.endpoint': 'Endpoint',
+      'llm.loadFailed': 'Could not read the model list',
       'card.todayNew.title': "Today's new words",
       'card.todayNew.desc': 'Pick N words from one subtitle / work directory. Writes tags by default; uncheck to dry run.',
       'card.todayNew.input': 'Subtitle file or work directory',
@@ -206,11 +218,64 @@ window.__ModuleLoader__.load({
       'cover.screen.ranked': 'LLM ranking',
       'cover.screen.occurrences': 'by occurrences',
       'cover.textInput': 'Text input',
+      'tabs.cardFix': 'Card Fix',
+      'card.fix.title': 'Regenerate by word',
+      'card.fix.desc': 'Type one word, tick what to regenerate (Word Audio / Sentence HTML / AINote), then click Regenerate. One card runs immediately; when several cards share the word, tick the ones below and click Regenerate again.',
+      'card.fix.wordInput': 'Word (dictionary form)',
+      'card.fix.run': 'Regenerate',
+      'card.fix.lookup': 'Find cards',
+      'card.fix.audio': 'Word Audio',
+      'card.fix.force': 'Overwrite existing audio',
+      'card.fix.audioCandidates': 'Word Audio candidates',
+      'card.fix.fieldCandidates': 'Example card candidates',
+      'card.fix.multiHint': 'Several cards share this word: tick the ones to update, then click Regenerate again.',
+      'card.fix.noAudio': 'No mined-vocabulary card found for this word.',
+      'card.fix.noFields': 'No example card whose Word matches this word.',
+      'card.fix.needTarget': 'Tick at least one target.',
+      'card.fix.wordTip': 'The word is looked up in the example deck (Word field) and in the mined-vocabulary deck; one input drives both lookups.',
+      'card.fix.audioTip': 'Regenerate Word Audio with edge-TTS ja-JP-NanamiNeural reading the Transliteration kana. Existing audio is kept unless “Overwrite existing audio” is ticked.',
+      'card.fix.htmlTip': 'Regenerate Sentence HTML (ruby) from the example card’s Sentence; only this field is written.',
+      'card.fix.ainoteTip': 'Regenerate the AINote explanation from the example card’s Sentence; only this field is written.',
+      'card.fix.commitTip': 'On by default: actually write Anki. Untick to dry-run.',
+      'card.fix.forceTip': 'Also regenerate Word Audio when the field already has audio.',
+      'card.fix.runTip': 'Look up cards first; if only one card matches, it regenerates immediately. If several match, tick them and click again.',
+      'card.fix.pickTip': 'Include this card in the regeneration.',
+      'card.fix.cards': 'Candidate cards',
+      'card.fix.none': 'No example card whose Word matches this word.',
+      'card.fix.sentence': 'Sentence',
+      'card.fix.word': 'Word',
+      'card.fix.has': 'has content',
+      'card.fix.empty': 'empty',
+      'card.fix.commit': 'Write to Anki (--commit, on by default)',
+      'card.fix.selectHint': 'Pick a card, then click regenerate.',
+      'card.fix.htmlBtn': 'Regenerate Sentence HTML',
+      'card.fix.ainoteBtn': 'Regenerate AINote',
+      'card.fix.output': 'Raw output',
+      'card.fix.generated': 'Generated result',
+      'card.fix.noValue': 'No content returned.',
+      'card.fix.failed': 'failed',
+      'card.wordAudio.title': 'Word Audio (TTS)',
+      'card.wordAudio.desc': 'Generate / fix the Word Audio for one word. The script reads the Transliteration (kana) with edge-TTS ja-JP-NanamiNeural. If several cards share the word, pick which one to update. Sentence Audio is kept when it already has the actor’s original voice.',
+      'card.wordAudio.word': 'Word (dictionary form)',
+      'card.wordAudio.plan': 'Find cards',
+      'card.wordAudio.apply': 'Generate / update',
+      'card.wordAudio.commit': 'Write to Anki (--commit, on by default)',
+      'card.wordAudio.force': 'Overwrite existing audio',
+      'wordAudio.candidates': 'Candidate cards',
+      'wordAudio.none': 'No candidate cards found, or every card already has Word Audio.',
+      'wordAudio.empty': 'empty',
+      'wordAudio.has': 'has audio',
+      'wordAudio.wordAudio': 'Word Audio',
+      'wordAudio.sentenceAudio': 'Sentence Audio',
+      'wordAudio.reading': 'reading',
+      'wordAudio.action': 'action',
+      'wordAudio.selectHint': 'Pick a card below, then click “Generate / update”.',
+      'wordAudio.selected': 'selected',
     }
 
     const ZH = {
       'panel.title': 'Anki 工作区',
-      'panel.subtitle': '六项常用能力：实时状态 + 默认真写的写库动作。',
+      'panel.subtitle': '七项常用能力：实时状态 + 默认真写的写库动作。',
       'panel.loading': '正在加载状态…',
       'panel.refresh': '刷新',
       'panel.lastUpdated': '更新于',
@@ -248,6 +313,18 @@ window.__ModuleLoader__.load({
       'card.addExample.limit': '张数上限',
       'card.addExample.run': '跑三步',
       'card.addExample.commit': '真写库（--commit，默认勾选）',
+      'card.addExample.listJisho': '列 Jisho 候选',
+      'card.addExample.candidates': 'Jisho 候选例句',
+      'card.addExample.pickHint': '选一条（或不选 = 自动挑选），再跑三步覆写卡片资料。',
+      'card.addExample.rubyWarn': '振假名不合格',
+      'card.addExample.none': '没有列出任何 Jisho 候选（该词可能已有第二句，或 Jisho 无可用例句）。',
+      'llm.label': '本地模型',
+      'llm.default': '默认（配置 / 跟随端点）',
+      'llm.groupProfiles': '档位 profile',
+      'llm.groupModels': '端点模型',
+      'llm.active': '当前在服务',
+      'llm.endpoint': '端点',
+      'llm.loadFailed': '读取模型清单失败',
       'card.todayNew.title': '今日选词',
       'card.todayNew.desc': '从一集字幕 / 作品目录挑 N 个词。默认真写标签，取消勾选才演练。',
       'card.todayNew.input': '字幕文件或作品目录',
@@ -402,6 +479,59 @@ window.__ModuleLoader__.load({
       'cover.screen.ranked': 'LLM 精排',
       'cover.screen.occurrences': '按出现次数',
       'cover.textInput': '文本输入',
+      'tabs.cardFix': '卡片修正',
+      'card.fix.title': '按单词重新生成',
+      'card.fix.desc': '输入一个单词，勾选要重新生成的内容（单词音频 / Sentence HTML / AINote），点「重新生成」。只有一张卡时直接生成；同词多张时在下方勾选要处理的卡，再点一次「重新生成」。',
+      'card.fix.wordInput': '单词名（词典形）',
+      'card.fix.run': '重新生成',
+      'card.fix.lookup': '查卡片',
+      'card.fix.audio': '音频',
+      'card.fix.force': '覆盖已有音频',
+      'card.fix.audioCandidates': '单词配音候选',
+      'card.fix.fieldCandidates': '例句卡候选',
+      'card.fix.multiHint': '同词有多张卡：勾选要处理的卡，再点一次「重新生成」。',
+      'card.fix.noAudio': '没有找到这个单词的素材生词卡。',
+      'card.fix.noFields': '没有找到 Word 等于这个单词的例句卡。',
+      'card.fix.needTarget': '至少勾选一项要重新生成的内容。',
+      'card.fix.wordTip': '一个输入框同时查两个地方：例句卡按 Word 字段查，素材生词卡按词形查。',
+      'card.fix.audioTip': '重新生成 Word Audio：edge-TTS ja-JP-NanamiNeural 读 Transliteration 假名。已有音频默认保留，勾选「覆盖已有音频」才重做。',
+      'card.fix.htmlTip': '按例句卡的 Sentence 重新渲染 Sentence HTML（振假名），只写这个字段。',
+      'card.fix.ainoteTip': '按例句卡的 Sentence 重新生成 AINote 讲解，只写这个字段。',
+      'card.fix.commitTip': '默认勾选＝真写库；取消勾选只演练，不写 Anki。',
+      'card.fix.forceTip': 'Word Audio 字段已有音频时也重新生成。',
+      'card.fix.runTip': '先查卡片；只有一张时直接生成，同词多张时勾选后再点一次。',
+      'card.fix.pickTip': '把这张卡纳入本次重新生成。',
+      'card.fix.cards': '候选卡片',
+      'card.fix.none': '没找到 Word 等于这个单词的例句卡',
+      'card.fix.sentence': '例句',
+      'card.fix.word': '重点词',
+      'card.fix.has': '有内容',
+      'card.fix.empty': '空',
+      'card.fix.commit': '真写库（--commit，默认勾选）',
+      'card.fix.selectHint': '选一张卡，再点重新生成',
+      'card.fix.htmlBtn': '重新生成 Sentence HTML',
+      'card.fix.ainoteBtn': '重新生成 AINote',
+      'card.fix.output': '脚本原始输出',
+      'card.fix.generated': '生成结果',
+      'card.fix.noValue': '没有返回内容',
+      'card.fix.failed': '失败',
+      'card.wordAudio.title': '单词配音（Word Audio）',
+      'card.wordAudio.desc': '给一个词的素材生词卡生成 / 修 Word Audio：edge-TTS ja-JP-NanamiNeural 读 Transliteration（假名读音）。同词多张卡时，选要更新哪一张。Sentence Audio 已有演员原声则保留不动。默认真写库，取消勾选才演练。',
+      'card.wordAudio.word': '单词名（词典形）',
+      'card.wordAudio.plan': '查候选卡',
+      'card.wordAudio.apply': '生成 / 更新',
+      'card.wordAudio.commit': '真写库（--commit，默认勾选）',
+      'card.wordAudio.force': '覆盖已有音频',
+      'wordAudio.candidates': '候选卡片',
+      'wordAudio.none': '没找到候选卡，或这些卡的 Word Audio 都已有音频。',
+      'wordAudio.empty': '空',
+      'wordAudio.has': '已有音频',
+      'wordAudio.wordAudio': 'Word Audio',
+      'wordAudio.sentenceAudio': 'Sentence Audio',
+      'wordAudio.reading': '读音',
+      'wordAudio.action': '动作',
+      'wordAudio.selectHint': '在下方勾选要更新的卡，再点「生成 / 更新」。',
+      'wordAudio.selected': '已选',
     }
 
     // Extensions offered by the picker for subtitle / plain-text inputs.
@@ -413,6 +543,7 @@ window.__ModuleLoader__.load({
       { id: 'today-new', label: 'tabs.todayNew' },
       { id: 'vocab-cover', label: 'tabs.cover' },
       { id: 'study-report', label: 'tabs.report' },
+      { id: 'card-fix', label: 'tabs.cardFix', wide: true },
     ]
 
     // The main slot unmounts this panel when another sidebar icon is selected.
@@ -423,6 +554,9 @@ window.__ModuleLoader__.load({
       results: {},
       reportSnapshot: null,
       activeTab: 'today-new',
+      // 本地模型档位：清单只读一次缓存在这里；选择跨卸载保留，空串=默认。
+      llmModels: null,
+      llmChoice: '',
     }
     const PANEL_LISTENERS = new Set()
 
@@ -452,6 +586,8 @@ window.__ModuleLoader__.load({
 .anki-row.between{justify-content:space-between}
 .anki-input,.anki-textarea{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;padding:7px 9px;outline:none}
 .anki-input:focus,.anki-textarea:focus{border-color:var(--dsw-alias-brand-primary)}
+.anki-select{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;padding:7px 9px;outline:none;max-width:420px}
+.anki-select:focus{border-color:var(--dsw-alias-brand-primary)}
 .anki-textarea{min-height:76px;resize:vertical;line-height:1.5}
 .anki-check{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}
 .anki-check input{accent-color:var(--dsw-alias-brand-primary)}
@@ -588,6 +724,26 @@ window.__ModuleLoader__.load({
 .anki-report-row .anki-bar{height:7px}
 .anki-report-row b{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;color:var(--dsw-alias-label-primary)}
 @media (max-width:720px){.anki-form-grid{grid-template-columns:minmax(0,1fr)}}
+.anki-tab-wide{padding-left:20px;padding-right:20px}
+.anki-fixgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
+.anki-fixgrid > .anki-card{min-width:0}
+@media (max-width:980px){.anki-fixgrid{grid-template-columns:minmax(0,1fr)}}
+.anki-candlist{display:flex;flex-direction:column;gap:6px;min-width:0}
+.anki-cand{min-width:0;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base);padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.anki-cand-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.anki-cand-check{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}
+.anki-cand-check input{accent-color:var(--dsw-alias-brand-primary)}
+.anki-cand-word{font-size:14px;font-weight:650;line-height:1.3;color:var(--dsw-alias-label-primary)}
+.anki-cand-reading{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.anki-cand-audio{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.anki-cand-audio .anki-tag{font-size:11px}
+.anki-cand-index{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:6px;font-size:11px;font-weight:700;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-l2)}
+.anki-cand.selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary) inset}
+.anki-cand.selected .anki-cand-index{color:var(--dsw-alias-brand-primary);background:transparent}
+.anki-cand-sentence{font-size:13.5px;line-height:1.55;color:var(--dsw-alias-label-primary);word-break:break-word}
+.anki-fixprev{border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base);padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.anki-fixprev-sentence{font-size:13px;line-height:1.6;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}
+.anki-fixactions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 `
 
     async function rpc(method, args) {
@@ -649,7 +805,8 @@ window.__ModuleLoader__.load({
       return lines.join('\n')
     }
 
-    function formatValue(name, value) {
+    function formatValue(name, value, t) {
+      const tr = typeof t === 'function' ? t : (key) => key
       if (value == null) return ''
       if (name === 'add-example') {
         const lines = [value.ok === true ? '三步完成' : '未完成', value.note || '']
@@ -675,6 +832,20 @@ window.__ModuleLoader__.load({
         if (value.reportBytes != null) lines.push('大小：' + value.reportBytes + ' 字节')
         if (value.report) lines.push('', truncate(JSON.stringify(value.report, null, 2), 5000))
         if (value.output) lines.push('', truncate(value.output, 3000))
+        return lines.filter(Boolean).join('\n')
+      }
+      if (name === 'word-audio') {
+        const lines = []
+        if (value.phase === 'apply') {
+          lines.push(value.ok === true ? tr('result.committed') : tr('result.failed'))
+          if (value.noteIds && value.noteIds.length > 0) lines.push('noteIds: ' + value.noteIds.join(', '))
+          if (value.verified) lines.push('回读校验通过')
+          if (value.note) lines.push(value.note)
+          if (value.output) lines.push('', truncate(value.output, 3000))
+        } else if (value.phase === 'plan') {
+          lines.push(value.note || '')
+          if (value.output) lines.push(truncate(value.output, 3000))
+        }
         return lines.filter(Boolean).join('\n')
       }
       return truncate(JSON.stringify(value, null, 2), 6000)
@@ -1089,7 +1260,7 @@ window.__ModuleLoader__.load({
       if (name === 'today-new' && value.result) return h(TodayNewResult, { t, value })
       if (name === 'vocab-cover' && value.result) return h(CoverResult, { t, value })
       if (name === 'study-report') return h(ReportResult, { t, value })
-      return h('pre', { className: 'anki-out' }, formatValue(name, value))
+      return h('pre', { className: 'anki-out' }, formatValue(name, value, t))
     }
 
     function StatusPill(props) {
@@ -1461,20 +1632,80 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 本地模型档位下拉（今日选词 / 增加例句共用）。
+     * value：'' = 默认（不注入旗标，跟随 local-llm.json + pin_active）；
+     *        'profile:<name>' → llmProfile；'model:<id>' → llmModel。
+     */
+    function LlmModelSelect(props) {
+      const { t, data, value, onChange } = props
+      const choice = (kind, name) => (name === '' ? '' : `${kind}:${name}`)
+      const profiles = Array.isArray(data?.profiles) ? data.profiles : []
+      const models = Array.isArray(data?.models) ? data.models : []
+      return h('div', { className: 'anki-row' },
+        h('span', { className: 'anki-meta' }, t('llm.label')),
+        h('select', {
+          className: 'anki-select',
+          value,
+          onChange: (event) => onChange(event.target.value),
+        },
+          h('option', { value: '' }, t('llm.default')
+            + (data?.activeModel ? `（${t('llm.active')}：${data.activeModel}）` : '')),
+          profiles.length === 0 ? null : h('optgroup', { label: t('llm.groupProfiles') },
+            profiles.map((p) => {
+              const bits = []
+              if (p.model) bits.push(p.model)
+              if (p.contextWindow) bits.push(`ctx ${p.contextWindow}`)
+              return h('option', { key: `p:${p.name}`, value: choice('profile', p.name) },
+                `${p.name === '' ? t('llm.default') : p.name}${bits.length ? ` — ${bits.join(' · ')}` : ''}`)
+            })),
+          models.length === 0 ? null : h('optgroup', { label: t('llm.groupModels') },
+            models.map((m) => h('option', { key: `m:${m.id}`, value: choice('model', m.id) },
+              `${m.id}${m.contextWindow ? ` · ctx ${m.contextWindow}` : ''}${data?.activeModel === m.id ? `（${t('llm.active')}）` : ''}`))),
+        ),
+      )
+    }
+
+    function llmArgsFrom(choice) {
+      const raw = String(choice || '')
+      const at = raw.indexOf(':')
+      if (at <= 0) return {}
+      const kind = raw.slice(0, at)
+      const name = raw.slice(at + 1)
+      if (kind === 'profile') return { llmProfile: name }
+      if (kind === 'model') return { llmModel: name }
+      return {}
+    }
+
     function AddExampleCard(props) {
-      const { t, call, busy, result, tabbed } = props
+      const { t, call, busy, result, tabbed, llmModels, llmChoice, setLlmChoice } = props
       const [words, setWords] = React.useState('')
       const [noteIds, setNoteIds] = React.useState('')
       const [limit, setLimit] = React.useState('')
       // 默认真写（用户 2026-11-09 定的规矩）：取消勾选才演练。
       const [commit, setCommit] = React.useState(true)
+      // Jisho 候选例句选择：listJisho 拉清单，pickIndex 钉住某条来覆写卡片资料。
+      const [jishoList, setJishoList] = React.useState(null)
+      const [pickIndex, setPickIndex] = React.useState(null)
       const running = busy === 'add-example'
+      const runningList = busy === 'add-example-list'
+      const anyRunning = busy !== ''
+      const doList = () => {
+        if (words.trim() === '') return
+        setPickIndex(null)
+        call('add-example', 'jisho-list', { words: words.trim(), limit: limit.trim() === '' ? undefined : Number(limit) }, 'add-example-list').then((value) => {
+          if (value != null) setJishoList(value)
+        })
+      }
       const submit = () => call('add-example', 'add-example', {
         words,
         noteIds,
         commit,
         limit: limit.trim() === '' ? undefined : Number(limit),
+        jishoPick: pickIndex || undefined,
+        ...llmArgsFrom(llmChoice),
       })
+      const candidates = jishoList && Array.isArray(jishoList.candidates) ? jishoList.candidates : []
       return h('section', { className: 'anki-card' },
         tabbed ? null : h('h3', null, t('card.addExample.title')),
         h('p', null, t('card.addExample.desc')),
@@ -1485,6 +1716,7 @@ window.__ModuleLoader__.load({
               placeholder: t('card.addExample.words'),
               value: words,
               onChange: (event) => setWords(event.target.value),
+              onKeyDown: (event) => { if (event.key === 'Enter') doList() },
             }),
             h('input', {
               className: 'anki-input',
@@ -1507,13 +1739,46 @@ window.__ModuleLoader__.load({
               t('card.addExample.commit'),
             ),
           ),
+          h(LlmModelSelect, { t, data: llmModels, value: llmChoice || '', onChange: setLlmChoice }),
+          // —— Jisho 候选例句选择区 ——
+          h('div', { className: 'anki-section' },
+            h('div', { className: 'anki-row between' },
+              h('h5', null, t('card.addExample.candidates')),
+              h('button', {
+                type: 'button',
+                className: 'anki-btn',
+                disabled: anyRunning || words.trim() === '',
+                onClick: doList,
+              }, runningList ? t('common.working') : t('card.addExample.listJisho')),
+            ),
+            jishoList == null
+              ? null
+              : candidates.length === 0
+                ? h('div', { className: 'anki-meta' }, jishoList.note || t('card.addExample.none'))
+                : h('div', { className: 'anki-candlist' },
+                    h('div', { className: 'anki-result-sub' }, t('card.addExample.pickHint')),
+                    candidates.map(function (cand) {
+                      const selected = pickIndex === cand.index
+                      return h('div', {
+                        className: 'anki-cand' + (selected ? ' selected' : ''),
+                        key: 'jisho' + cand.index,
+                        onClick: function () { setPickIndex(selected ? null : cand.index) },
+                      },
+                        h('div', { className: 'anki-cand-head' },
+                          h('span', { className: 'anki-cand-index' }, String(cand.index)),
+                          h(Tag, { label: cand.source, value: cand.len + '字' }),
+                          cand.rubyOk === false ? h(Badge, { tone: 'warn' }, t('card.addExample.rubyWarn')) : null,
+                          selected ? h(Badge, { tone: 'green' }, '✓') : null),
+                        h('div', { className: 'anki-cand-sentence' }, cand.jp))
+                    }))
+          ),
           h('div', { className: 'anki-row' },
             h('button', {
               type: 'button',
               className: 'anki-btn',
-              disabled: busy !== '' || (words.trim() === '' && noteIds.trim() === ''),
+              disabled: anyRunning || (words.trim() === '' && noteIds.trim() === ''),
               onClick: submit,
-            }, running ? t('common.working') : t('card.addExample.run')),
+            }, running ? t('common.working') : t('card.addExample.run') + (pickIndex ? '（#' + pickIndex + '）' : '')),
           ),
           h(ResultBlock, { t, name: 'add-example', value: result }),
         ),
@@ -1521,7 +1786,7 @@ window.__ModuleLoader__.load({
     }
 
     function TodayNewCard(props) {
-      const { t, call, busy, result, tabbed } = props
+      const { t, call, busy, result, tabbed, llmModels, llmChoice, setLlmChoice } = props
       const [input, setInput] = React.useState('')
       const [picking, setPicking] = React.useState(false)
       const [n, setN] = React.useState('30')
@@ -1540,6 +1805,7 @@ window.__ModuleLoader__.load({
         noSenseRepair: fast,
         // 默认真写：勾选=true，取消勾选才显式演练（false）。
         commit,
+        ...llmArgsFrom(llmChoice),
       })
       return h('section', { className: 'anki-card' },
         tabbed ? null : h('h3', null, t('card.todayNew.title')),
@@ -1587,6 +1853,7 @@ window.__ModuleLoader__.load({
             h('input', { type: 'checkbox', checked: commit, onChange: (event) => setCommit(event.target.checked) }),
             t('card.todayNew.commit'),
           ),
+          h(LlmModelSelect, { t, data: llmModels, value: llmChoice || '', onChange: setLlmChoice }),
           h('div', { className: 'anki-row' },
             h('button', {
               type: 'button',
@@ -1866,6 +2133,511 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function WordAudioCard(props) {
+      const { t, call, busy, result, tabbed } = props
+      const [word, setWord] = React.useState('')
+      const [commit, setCommit] = React.useState(true)
+      const [force, setForce] = React.useState(false)
+      const [selected, setSelected] = React.useState({})
+      const planValue = result && result.phase === 'plan' ? result : null
+      const applyValue = result && result.phase === 'apply' ? result : null
+      const candidates = planValue && Array.isArray(planValue.candidates) ? planValue.candidates : []
+      const runningPlan = busy === 'word-audio-plan'
+      const runningApply = busy === 'word-audio-apply'
+      const anyRunning = busy !== ''
+
+      const toggle = (index) => {
+        setSelected((prev) => {
+          const next = Object.assign({}, prev)
+          if (next[index]) delete next[index]
+          else next[index] = true
+          return next
+        })
+      }
+
+      const selectedCount = Object.keys(selected).length
+
+      const doPlan = () => {
+        if (word.trim() === '') return
+        call('word-audio', 'word-audio', { word: word.trim(), phase: 'plan' }, 'word-audio-plan')
+      }
+
+      const doApply = () => {
+        const ids = []
+        for (let i = 0; i < candidates.length; i += 1) {
+          if (selected[i]) ids.push(i)
+        }
+        if (ids.length === 0) return
+        call('word-audio', 'word-audio', {
+          word: word.trim(),
+          phase: 'apply',
+          commit,
+          force,
+          candidateIndices: ids,
+        }, 'word-audio-apply')
+      }
+
+      return h('section', { className: 'anki-card' },
+        tabbed ? null : h('h3', null, t('card.wordAudio.title')),
+        h('p', null, t('card.wordAudio.desc')),
+        h('div', { className: 'anki-card-body' },
+          h('input', {
+            className: 'anki-input',
+            placeholder: t('card.wordAudio.word'),
+            value: word,
+            onChange: (event) => setWord(event.target.value),
+            onKeyDown: (event) => { if (event.key === 'Enter') doPlan() },
+          }),
+          h('div', { className: 'anki-row' },
+            h('button', {
+              type: 'button',
+              className: 'anki-btn',
+              disabled: anyRunning || word.trim() === '',
+              onClick: doPlan,
+            }, runningPlan ? t('common.working') : t('card.wordAudio.plan')),
+            h('label', { className: 'anki-check' },
+              h('input', { type: 'checkbox', checked: commit, onChange: (event) => setCommit(event.target.checked) }),
+              t('card.wordAudio.commit'),
+            ),
+            h('label', { className: 'anki-check' },
+              h('input', { type: 'checkbox', checked: force, onChange: (event) => setForce(event.target.checked) }),
+              t('card.wordAudio.force'),
+            ),
+          ),
+          candidates.length > 0
+            ? h('div', { className: 'anki-section' },
+                h('h5', null, t('wordAudio.candidates') + '（' + candidates.length + '）'),
+                h('div', { className: 'anki-candlist' },
+                  candidates.map((cand, index) => {
+                    const checked = !!selected[index]
+                    return h('div', { className: 'anki-cand', key: 'cand' + index },
+                      h('div', { className: 'anki-cand-head' },
+                        h('label', { className: 'anki-cand-check' },
+                          h('input', {
+                            type: 'checkbox',
+                            checked,
+                            onChange: () => toggle(index),
+                          }),
+                          cand.reading ? h('span', { className: 'anki-cand-reading' }, cand.reading) : null),
+                        h('span', { className: 'anki-cand-word' }, cand.word)),
+                      h('div', { className: 'anki-cand-audio' },
+                        h(Tag, {
+                          label: t('wordAudio.wordAudio'),
+                          value: cand.wordAudioEmpty ? t('wordAudio.empty') : (cand.wordAudio || t('wordAudio.has')),
+                          dim: cand.wordAudioEmpty,
+                        }),
+                        h(Tag, {
+                          label: t('wordAudio.sentenceAudio'),
+                          value: cand.sentenceAudioEmpty ? t('wordAudio.empty') : (cand.sentenceAudio || t('wordAudio.has')),
+                          dim: cand.sentenceAudioEmpty,
+                        }),
+                      ),
+                    )
+                  })),
+                h('div', { className: 'anki-row', style: { marginTop: '8px' } },
+                  h('button', {
+                    type: 'button',
+                    className: 'anki-btn',
+                    disabled: anyRunning || selectedCount === 0,
+                    onClick: doApply,
+                  }, runningApply ? t('common.working') : t('card.wordAudio.apply') + (selectedCount > 0 ? '（' + selectedCount + '）' : '')),
+                ))
+            : null,
+          planValue != null && candidates.length === 0
+            ? h('div', { className: 'anki-meta' }, t('wordAudio.none'))
+            : null,
+          applyValue != null
+            ? h(ResultBlock, { t, name: 'word-audio', value: applyValue })
+            : null,
+        ),
+      )
+    }
+
+    // 卡片修正 · 生成结果视图：每张卡 noteId + 生成值；失败/演练状态一行 meta，
+    // value.output（脚本原始输出）折叠在 details 里。html 与 ainote 结果复用同一组件。
+    function CardFixResult(props) {
+      const { t, value } = props
+      if (value == null) return null
+      const cards = Array.isArray(value.cards) ? value.cards : []
+      const failedRun = value.ok === false || (value.exitCode != null && value.exitCode !== 0)
+      const bits = []
+      bits.push(failedRun ? t('card.fix.failed') : (value.commit === false ? t('result.dryRun') : t('result.committed')))
+      if (Array.isArray(value.noteIds) && value.noteIds.length > 0) bits.push('noteIds: ' + value.noteIds.join(', '))
+      if (value.verified) bits.push('回读校验通过')
+      if (value.note) bits.push(value.note)
+      const errorText = value.error || ''
+      return h('div', { className: 'anki-result' },
+        h('div', { className: 'anki-meta' }, bits.join(' · ')),
+        failedRun && errorText !== '' ? h('div', { className: 'anki-fail' }, errorText) : null,
+        cards.length === 0
+          ? h('div', { className: 'anki-meta' }, t('card.fix.noValue'))
+          : h(ResultSection, { title: t('card.fix.generated') },
+              h('div', { className: 'anki-rows' }, cards.map(function (row, index) {
+                return h('div', { className: 'anki-fixprev', key: 'fix' + index },
+                  h('div', { className: 'anki-rowline' }, h('b', null, String(row.noteId))),
+                  row.value
+                    ? h('pre', { className: 'anki-out' }, truncate(row.value, 4000))
+                    : h('div', { className: 'anki-meta' }, t('card.fix.noValue')))
+              }))),
+        value.output
+          ? h('details', null,
+              h('summary', null, t('card.fix.output')),
+              h('pre', { className: 'anki-out' }, truncate(value.output, 6000)))
+          : null,
+      )
+    }
+
+    // 卡片修正 · 右列：按单词名查例句卡 → 选卡预览 → 按 Sentence 重新生成字段。
+    // 两个按钮各管一个字段：card-fix-html（Sentence HTML）与 card-fix-ainote（AINote）。
+    function FieldFixCard(props) {
+      const { t, call, busy, lookupValue, htmlValue, ainoteValue } = props
+      const [wordText, setWordText] = React.useState('')
+      const [commit, setCommit] = React.useState(true)
+      const [selectedIndex, setSelectedIndex] = React.useState(0)
+      const candidates = lookupValue && Array.isArray(lookupValue.cards) ? lookupValue.cards : []
+      // 候选表变化后旧下标可能越界，钳到有效范围。
+      const safeIndex = candidates.length > 0
+        ? Math.min(Math.max(selectedIndex, 0), candidates.length - 1)
+        : 0
+      const selectedCard = candidates.length > 0 ? candidates[safeIndex] : null
+      const runningLookup = busy === 'card-lookup'
+      const runningHtml = busy === 'card-fix-html'
+      const runningAinote = busy === 'card-fix-ainote'
+      const anyRunning = busy !== ''
+
+      const doLookup = () => {
+        if (wordText.trim() === '') return
+        call('card-lookup', 'card-lookup', { word: wordText.trim() }, 'card-lookup')
+      }
+
+      const doHtml = () => {
+        if (selectedCard == null) return
+        call('card-fix-html', 'card-fix', {
+          noteIds: [String(selectedCard.noteId)],
+          field: 'html',
+          commit,
+        }, 'card-fix-html')
+      }
+
+      const doAinote = () => {
+        if (selectedCard == null) return
+        call('card-fix-ainote', 'card-fix', {
+          noteIds: [String(selectedCard.noteId)],
+          field: 'ainote',
+          commit,
+        }, 'card-fix-ainote')
+      }
+
+      return h('section', { className: 'anki-card' },
+        h('h3', null, t('card.fix.title')),
+        h('p', null, t('card.fix.desc')),
+        h('div', { className: 'anki-card-body' },
+          h('input', {
+            className: 'anki-input',
+            placeholder: t('card.fix.wordInput'),
+            value: wordText,
+            onChange: (event) => setWordText(event.target.value),
+            onKeyDown: (event) => { if (event.key === 'Enter') doLookup() },
+          }),
+          h('div', { className: 'anki-row' },
+            h('button', {
+              type: 'button',
+              className: 'anki-btn',
+              disabled: anyRunning || wordText.trim() === '',
+              onClick: doLookup,
+            }, runningLookup ? t('common.working') : t('card.fix.lookup')),
+            h('label', { className: 'anki-check' },
+              h('input', { type: 'checkbox', checked: commit, onChange: (event) => setCommit(event.target.checked) }),
+              t('card.fix.commit'),
+            ),
+          ),
+          lookupValue != null && candidates.length === 0
+            ? h('div', { className: 'anki-meta' },
+                lookupValue.note || lookupValue.error || t('card.fix.none'))
+            : null,
+          candidates.length > 0
+            ? h('div', { className: 'anki-section' },
+                h('h5', null, t('card.fix.cards') + '（' + candidates.length + '）'),
+                h('select', {
+                  className: 'anki-select',
+                  value: String(safeIndex),
+                  onChange: (event) => setSelectedIndex(Number(event.target.value) || 0),
+                }, candidates.map(function (cand, index) {
+                  return h('option', { key: 'fix' + index, value: String(index) },
+                    cand.noteId + ' · ' + (cand.word || '') + ' · ' + (cand.sentence || ''))
+                })),
+                selectedCard
+                  ? h('div', { className: 'anki-fixprev' },
+                      h('div', { className: 'anki-fixprev-sentence' },
+                        t('card.fix.sentence') + '：' + (selectedCard.sentence || '')),
+                      h('div', { className: 'anki-cand-audio' },
+                        h(Tag, { label: t('card.fix.word'), value: selectedCard.word || t('card.fix.empty'), dim: !selectedCard.word }),
+                        h(Tag, {
+                          label: 'AINote',
+                          value: selectedCard.hasAinote ? t('card.fix.has') : t('card.fix.empty'),
+                          dim: !selectedCard.hasAinote,
+                        }),
+                        h(Tag, {
+                          label: 'Sentence HTML',
+                          value: selectedCard.hasHtml ? t('card.fix.has') : t('card.fix.empty'),
+                          dim: !selectedCard.hasHtml,
+                        }),
+                      ),
+                    )
+                  : null,
+                h('div', { className: 'anki-fixactions' },
+                  h('button', {
+                    type: 'button',
+                    className: 'anki-btn',
+                    disabled: anyRunning || selectedCard == null,
+                    onClick: doHtml,
+                  }, runningHtml ? t('common.working') : t('card.fix.htmlBtn')),
+                  h('button', {
+                    type: 'button',
+                    className: 'anki-btn',
+                    disabled: anyRunning || selectedCard == null,
+                    onClick: doAinote,
+                  }, runningAinote ? t('common.working') : t('card.fix.ainoteBtn')),
+                  h('span', { className: 'anki-meta' }, t('card.fix.selectHint')),
+                ))
+            : null,
+          htmlValue != null ? h(CardFixResult, { t, value: htmlValue }) : null,
+          ainoteValue != null ? h(CardFixResult, { t, value: ainoteValue }) : null,
+        ),
+      )
+    }
+
+    // 卡片修正 tab：一个单词输入 + 目标 checkbox + 一个「重新生成」按钮。
+    // 音频目标查素材生词卡，Sentence HTML / AINote 目标查例句卡。同词多张时
+    // 先列出候选并默认全选，勾选后再点同一个按钮执行；只有一张时直接执行。
+    function CardFixCard(props) {
+      const { t, call, busy, results } = props
+      const r = results || {}
+      const [wordText, setWordText] = React.useState('')
+      const [targets, setTargets] = React.useState({ audio: true, html: true, ainote: true })
+      const [commit, setCommit] = React.useState(true)
+      const [force, setForce] = React.useState(false)
+      const [lookup, setLookup] = React.useState(null)
+      const [audioChecked, setAudioChecked] = React.useState({})
+      const [fieldChecked, setFieldChecked] = React.useState({})
+      const anyRunning = busy !== ''
+      const running = busy === 'word-audio-plan' || busy === 'word-audio-apply' ||
+        busy === 'card-lookup' || busy === 'card-fix-html' || busy === 'card-fix-ainote'
+      const hasTarget = targets.audio || targets.html || targets.ainote
+      const word = wordText.trim()
+      const signature = [word, targets.audio ? 'a' : '', targets.html ? 'h' : '',
+        targets.ainote ? 'n' : ''].join('|')
+
+      const toggleTarget = (name) => {
+        setTargets((prev) => Object.assign({}, prev, { [name]: !prev[name] }))
+        setLookup(null)
+      }
+      const toggleId = (setter, id) => {
+        setter((prev) => {
+          const next = Object.assign({}, prev)
+          if (next[id]) delete next[id]
+          else next[id] = true
+          return next
+        })
+      }
+      const checkAll = (rows) => {
+        const out = {}
+        for (const row of rows) if (row.noteId != null) out[row.noteId] = true
+        return out
+      }
+      const idsFrom = (rows, checked) => rows
+        .filter((row) => row.noteId != null && checked[row.noteId])
+        .map((row) => row.noteId)
+
+      const doLookup = async (sig, opts) => {
+        const found = { key: sig, word: opts.word, audio: [], fields: [] }
+        if (opts.audio) {
+          const value = await call('word-audio-plan', 'word-audio',
+            { word: opts.word, phase: 'plan' }, 'word-audio-plan')
+          if (value && Array.isArray(value.candidates)) {
+            found.audio = value.candidates.filter((c) => c.noteId != null)
+          }
+        }
+        if (opts.html || opts.ainote) {
+          const value = await call('card-lookup', 'card-lookup', { word: opts.word }, 'card-lookup')
+          if (value && Array.isArray(value.cards)) found.fields = value.cards
+        }
+        return found
+      }
+
+      const execute = async (found, audioIds, fieldIds) => {
+        if (targets.audio && audioIds.length > 0) {
+          await call('word-audio-apply', 'word-audio', {
+            word: found.word, phase: 'apply', noteIds: audioIds, commit, force,
+          }, 'word-audio-apply')
+        }
+        if (targets.html && fieldIds.length > 0) {
+          await call('card-fix-html', 'card-fix', {
+            noteIds: fieldIds, field: 'html', commit,
+          }, 'card-fix-html')
+        }
+        if (targets.ainote && fieldIds.length > 0) {
+          await call('card-fix-ainote', 'card-fix', {
+            noteIds: fieldIds, field: 'ainote', commit,
+          }, 'card-fix-ainote')
+        }
+      }
+
+      const doRun = async () => {
+        if (word === '' || !hasTarget) return
+        let found = lookup
+        let audioIds
+        let fieldIds
+        if (found == null || found.key !== signature) {
+          found = await doLookup(signature, {
+            word, audio: targets.audio, html: targets.html, ainote: targets.ainote,
+          })
+          setLookup(found)
+          const allAudio = checkAll(found.audio)
+          const allFields = checkAll(found.fields)
+          setAudioChecked(allAudio)
+          setFieldChecked(allFields)
+          audioIds = idsFrom(found.audio, allAudio)
+          fieldIds = idsFrom(found.fields, allFields)
+          const needsChoice = (targets.audio && audioIds.length > 1) ||
+            ((targets.html || targets.ainote) && fieldIds.length > 1)
+          if (needsChoice) return
+          await execute(found, audioIds, fieldIds)
+          return
+        }
+        audioIds = idsFrom(found.audio, audioChecked)
+        fieldIds = idsFrom(found.fields, fieldChecked)
+        await execute(found, audioIds, fieldIds)
+      }
+
+      const current = lookup != null && lookup.key === signature ? lookup : null
+      const audioRows = current ? current.audio : []
+      const fieldRows = current ? current.fields : []
+      const multi = current != null && (
+        (targets.audio && audioRows.length > 1) ||
+        ((targets.html || targets.ainote) && fieldRows.length > 1)
+      )
+      const audioApply = r['word-audio-apply']
+      const audioPlan = r['word-audio-plan']
+
+      return h('section', { className: 'anki-card' },
+        h('h3', null, t('card.fix.title')),
+        h('p', null, t('card.fix.desc')),
+        h('div', { className: 'anki-card-body' },
+          h('input', {
+            className: 'anki-input',
+            placeholder: t('card.fix.wordInput'),
+            title: t('card.fix.wordTip'),
+            value: wordText,
+            onChange: (event) => { setWordText(event.target.value); setLookup(null) },
+            onKeyDown: (event) => { if (event.key === 'Enter') doRun() },
+          }),
+          h('div', { className: 'anki-fixactions' },
+            h('label', { className: 'anki-check', title: t('card.fix.audioTip') },
+              h('input', { type: 'checkbox', title: t('card.fix.audioTip'), checked: targets.audio, onChange: () => toggleTarget('audio') }),
+              t('card.fix.audio')),
+            h('label', { className: 'anki-check', title: t('card.fix.htmlTip') },
+              h('input', { type: 'checkbox', title: t('card.fix.htmlTip'), checked: targets.html, onChange: () => toggleTarget('html') }),
+              'Sentence HTML'),
+            h('label', { className: 'anki-check', title: t('card.fix.ainoteTip') },
+              h('input', { type: 'checkbox', title: t('card.fix.ainoteTip'), checked: targets.ainote, onChange: () => toggleTarget('ainote') }),
+              'AINote'),
+          ),
+          h('div', { className: 'anki-fixactions' },
+            h('button', {
+              type: 'button',
+              className: 'anki-btn',
+              title: t('card.fix.runTip'),
+              disabled: anyRunning || word === '' || !hasTarget,
+              onClick: doRun,
+            }, running ? t('common.working') : t('card.fix.run')),
+            h('label', { className: 'anki-check', title: t('card.fix.commitTip') },
+              h('input', { type: 'checkbox', checked: commit, onChange: (event) => setCommit(event.target.checked) }),
+              t('card.fix.commit')),
+            targets.audio
+              ? h('label', { className: 'anki-check', title: t('card.fix.forceTip') },
+                  h('input', { type: 'checkbox', checked: force, onChange: (event) => setForce(event.target.checked) }),
+                  t('card.fix.force'))
+              : null,
+          ),
+          word === '' || hasTarget
+            ? null
+            : h('div', { className: 'anki-meta' }, t('card.fix.needTarget')),
+          multi
+            ? h('div', { className: 'anki-meta' }, t('card.fix.multiHint'))
+            : null,
+          current == null ? null : h('div', { className: 'anki-section' },
+            targetHintRows(t, targets, current, audioRows, fieldRows),
+            audioRows.length === 0 ? null : h('div', null,
+              h('h5', null, t('card.fix.audioCandidates') + '（' + audioRows.length + '）'),
+              h('div', { className: 'anki-candlist' }, audioRows.map((cand) => h('div', { className: 'anki-cand', key: 'a' + cand.noteId },
+                h('div', { className: 'anki-cand-head' },
+                  h('label', { className: 'anki-cand-check', title: t('card.fix.pickTip') },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!audioChecked[cand.noteId],
+                      onChange: () => toggleId(setAudioChecked, cand.noteId),
+                    }),
+                    cand.reading ? h('span', { className: 'anki-cand-reading' }, cand.reading) : null),
+                  h('span', { className: 'anki-cand-word' }, cand.word)),
+                h('div', { className: 'anki-cand-audio' },
+                  h(Tag, {
+                    label: t('wordAudio.wordAudio'),
+                    value: cand.wordAudioEmpty ? t('wordAudio.empty') : (cand.wordAudio || t('wordAudio.has')),
+                    dim: cand.wordAudioEmpty,
+                  }),
+                  h(Tag, {
+                    label: t('wordAudio.sentenceAudio'),
+                    value: cand.sentenceAudioEmpty ? t('wordAudio.empty') : (cand.sentenceAudio || t('wordAudio.has')),
+                    dim: cand.sentenceAudioEmpty,
+                  })))))),
+            fieldRows.length === 0 ? null : h('div', null,
+              h('h5', null, t('card.fix.fieldCandidates') + '（' + fieldRows.length + '）'),
+              h('div', { className: 'anki-candlist' }, fieldRows.map((cand) => h('div', { className: 'anki-cand', key: 'f' + cand.noteId },
+                h('div', { className: 'anki-cand-head' },
+                  h('label', { className: 'anki-cand-check', title: t('card.fix.pickTip') },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!fieldChecked[cand.noteId],
+                      onChange: () => toggleId(setFieldChecked, cand.noteId),
+                    }),
+                    h('span', { className: 'anki-cand-reading' }, cand.word || '')),
+                  h('span', { className: 'anki-cand-word' }, cand.noteId)),
+                h('div', { className: 'anki-fixprev-sentence' }, cand.sentence || ''),
+                h('div', { className: 'anki-cand-audio' },
+                  h(Tag, {
+                    label: 'AINote',
+                    value: cand.hasAinote ? t('card.fix.has') : t('card.fix.empty'),
+                    dim: !cand.hasAinote,
+                  }),
+                  h(Tag, {
+                    label: 'Sentence HTML',
+                    value: cand.hasHtml ? t('card.fix.has') : t('card.fix.empty'),
+                    dim: !cand.hasHtml,
+                  }))))))),
+          audioApply != null ? h(ResultBlock, { t, name: 'word-audio', value: audioApply }) : null,
+          audioApply == null && audioPlan != null && audioPlan.ok === false
+            ? h('div', { className: 'anki-error' }, audioPlan.error || audioPlan.note || '')
+            : null,
+          r['card-fix-html'] != null ? h(CardFixResult, { t, value: r['card-fix-html'] }) : null,
+          r['card-fix-ainote'] != null ? h(CardFixResult, { t, value: r['card-fix-ainote'] }) : null,
+        ),
+      )
+    }
+
+    // 候选为空时给一句目标相关的提示（不要只说「没找到」，用户不知道是哪种卡）。
+    function targetHintRows(t, targets, lookup, audioRows, fieldRows) {
+      const rows = []
+      if (targets.audio && audioRows.length === 0) {
+        rows.push(h('div', { className: 'anki-meta', key: 'no-audio' }, t('card.fix.noAudio')))
+      }
+      if ((targets.html || targets.ainote) && fieldRows.length === 0) {
+        rows.push(h('div', { className: 'anki-meta', key: 'no-field' },
+          lookup.note || t('card.fix.noFields')))
+      }
+      return rows
+    }
+
     function TabBar(props) {
       const { t, active, onChange } = props
       return h('div', { className: 'anki-tabs', role: 'tablist', 'aria-label': t('tabs.aria') },
@@ -1876,7 +2648,7 @@ window.__ModuleLoader__.load({
           id: 'anki-tab-' + tab.id,
           'aria-selected': active === tab.id ? 'true' : 'false',
           'aria-controls': 'anki-panel-' + tab.id,
-          className: 'anki-tab' + (active === tab.id ? ' active' : ''),
+          className: 'anki-tab' + (active === tab.id ? ' active' : '') + (tab.wide === true ? ' anki-tab-wide' : ''),
           onClick: () => onChange(tab.id),
         }, t(tab.label))))
     }
@@ -1907,6 +2679,8 @@ window.__ModuleLoader__.load({
       const resultsRef = React.useRef(PANEL_CACHE.results)
       const [reportSnapshot, setReportSnapshot] = React.useState(PANEL_CACHE.reportSnapshot)
       const [activeTab, setActiveTab] = React.useState(PANEL_CACHE.activeTab)
+      const [llmModels, setLlmModels] = React.useState(PANEL_CACHE.llmModels)
+      const [llmChoice, setLlmChoiceState] = React.useState(PANEL_CACHE.llmChoice)
 
       // Mirror the view state into the module cache. The panel can be unmounted
       // at any moment by a sidebar switch, so each committed state is copied.
@@ -1927,6 +2701,24 @@ window.__ModuleLoader__.load({
       }, [])
       React.useEffect(() => { PANEL_CACHE.reportSnapshot = reportSnapshot }, [reportSnapshot])
       React.useEffect(() => { PANEL_CACHE.activeTab = activeTab }, [activeTab])
+      React.useEffect(() => { PANEL_CACHE.llmChoice = llmChoice }, [llmChoice])
+
+      const setLlmChoice = (next) => {
+        PANEL_CACHE.llmChoice = next
+        setLlmChoiceState(next)
+      }
+
+      // 模型清单只在面板打开时拉一次（缓存到模块级）；失败也记一次，点刷新可重试。
+      React.useEffect(() => {
+        if (PANEL_CACHE.llmModels != null) return
+        let alive = true
+        rpc('llm-models', {}).then((value) => {
+          if (!alive) return
+          PANEL_CACHE.llmModels = value
+          setLlmModels(value)
+        }).catch(() => {})
+        return () => { alive = false }
+      }, [])
 
       React.useEffect(() => {
         let alive = true
@@ -1960,8 +2752,8 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      const call = async (name, method, args) => {
-        setBusy(name)
+      const call = async (name, method, args, busyKey) => {
+        setBusy(busyKey || name)
         setError(null)
         try {
           const value = await rpc(method, args)
@@ -1973,6 +2765,10 @@ window.__ModuleLoader__.load({
           publishResults(nextResults)
           if (method === 'refresh') {
             setSnapshot(value)
+            rpc('llm-models', {}).then((next) => {
+              PANEL_CACHE.llmModels = next
+              setLlmModels(next)
+            }).catch(() => {})
             rpc('report', {}).then((next) => {
               PANEL_CACHE.reportSnapshot = next
               setReportSnapshot(next)
@@ -2024,6 +2820,9 @@ window.__ModuleLoader__.load({
             busy,
             result: results['add-example'],
             tabbed: true,
+            llmModels,
+            llmChoice,
+            setLlmChoice,
           })),
           panel('today-new', h(TodayNewCard, {
             t,
@@ -2031,6 +2830,9 @@ window.__ModuleLoader__.load({
             busy,
             result: results['today-new'],
             tabbed: true,
+            llmModels,
+            llmChoice,
+            setLlmChoice,
           })),
           panel('vocab-cover', h(CoverCard, {
             t,
@@ -2046,6 +2848,14 @@ window.__ModuleLoader__.load({
             result: results['study-report'],
             reportSnapshot,
             snapshot,
+            tabbed: true,
+          })),
+          panel('card-fix', h(CardFixCard, {
+            t,
+            call,
+            busy,
+            result: results['word-audio'],
+            results,
             tabbed: true,
           })),
         )
@@ -2150,6 +2960,11 @@ window.__ModuleLoader__.load({
         ReportResult: ReportResult,
         StatusCorner: StatusCorner,
         TabBar: TabBar,
+        WordAudioCard: WordAudioCard,
+        CardFixCard: CardFixCard,
+        FieldFixCard: FieldFixCard,
+        CardFixResult: CardFixResult,
+        LlmModelSelect: LlmModelSelect,
         PANEL_CACHE: PANEL_CACHE,
       },
     }

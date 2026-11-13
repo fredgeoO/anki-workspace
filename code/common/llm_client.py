@@ -188,6 +188,49 @@ def llm_list_models(cfg, timeout=20):
         return json.loads(resp.read().decode('utf-8'))
 
 
+def read_llm_file_config():
+    """配置文件原样合并（全局正本打底 + 工作区覆盖），**不套 profile**。
+
+    给「列模型/profiles」这类只读展示用：load_llm_config 会把选中 profile 盖到
+    顶层上，展示层要的是没盖之前的样子。读不到返回 {}。
+    """
+    file_cfg = {}
+    for path in (LLM_GLOBAL_CONFIG_FILE, LLM_CONFIG_FILE):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding='utf-8-sig') as fh:
+                file_cfg.update(json.load(fh) or {})
+        except (OSError, json.JSONDecodeError):
+            pass
+    return file_cfg
+
+
+def llm_list_profiles(file_cfg=None):
+    """`~/.dsh/local-llm.json` 里 profiles 的清单（只读展示，不联网）。
+
+    返回 [{name, model, base_url, context_window}]；顶层默认档位排在最前
+    （name=''，即「不指定 profile」）。
+    """
+    cfg = file_cfg if isinstance(file_cfg, dict) else read_llm_file_config()
+    rows = []
+    profs = cfg.get('profiles')
+    names = list(profs.keys()) if isinstance(profs, dict) else []
+    if cfg.get('model') or cfg.get('base_url'):
+        names.insert(0, '')
+    for name in names:
+        src = profs[name] if (name and isinstance(profs, dict)) else cfg
+        if not isinstance(src, dict):
+            continue
+        rows.append({
+            'name': name,
+            'model': src.get('model') or '',
+            'base_url': src.get('base_url') or '',
+            'context_window': as_int(src.get('context_window') or src.get('n_ctx') or 0),
+        })
+    return rows
+
+
 def split_llm_messages(messages):
     """chat 形状的 messages → (instructions, input)。
 

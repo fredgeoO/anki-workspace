@@ -101,6 +101,7 @@ GROUPS = {
     'sense-repair': os.path.join(WSP.TOOLS, 'sense_repair.py'),
     'rank':      os.path.join(WSP.TOOLS, 'rank_gate.py'),
     'unranked':  os.path.join(WSP.TOOLS, 'unranked.py'),
+    'local-llm-models': os.path.join(WSP.TOOLS, 'local_llm_models.py'),
     'r':         os.path.join(AN, 'ankir.py'),
 }
 

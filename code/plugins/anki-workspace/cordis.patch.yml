@@ -6,3 +6,10 @@
         pythonPath: python
         timeZone: Asia/Shanghai
         refreshMinutes: 10
+        # 本地模型默认档位（today-new 精排 / core6000 gen 用）。留空 = 跟随
+        # ~/.dsh/local-llm.json（profile + pin_active），与命令行不加旗标同口径。
+        # llmProfile：profiles 里的哪一档（ninfer / strata / strata_abl）；换端点走这个。
+        # llmModel：钉住端点上某个模型 id（会关掉 pin，视为「人明确指定」）。
+        # 单次调用（面板下拉 / 工具参数 llmModel、llmProfile）可覆盖这里的默认。
+        llmProfile: ''
+        llmModel: ''

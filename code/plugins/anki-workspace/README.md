@@ -1,25 +1,59 @@
 # @local/anki-workspace
 
-把 anki-workspace 的六项常用能力装进 DeepSeek Harness（desktop profile）：
-六个 Agent 工具、一条动态上下文注入，以及一个 Web 控制面板。
+把 anki-workspace 的常用能力装进 DeepSeek Harness（desktop profile）：
+十个 Agent 工具、一条动态上下文注入，以及一个 Web 控制面板。
 
 插件本身**不直接读写 Anki**：所有动作都通过工作区既有入口
 （`code/cli.py`、`code/common/anki_api.py`）执行，因此沿用它们原有的
 `--commit`、备份与回读闸门。
 
-## 六项能力
+## 十项能力
 
 | 工具 | 对应命令 | 写库 |
 |---|---|---|
 | `anki_status` | `python code/common/anki_api.py check` | 只读 |
 | `anki_doctor` | `python code/cli.py doctor [--tag …]` | 只读 |
 | `anki_add_example` | `core6000 gen` → `tts` → `apply` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
+| `anki_jisho_list` | `core6000 gen --list-jisho` | 只读（列 Jisho 候选例句，不调模型不写库） |
 | `anki_today_new` | `python code/cli.py today-new <input> --json` | **默认真写**（`--commit`）；显式 `commit=false` 才演练 |
 | `anki_vocab_cover` | `python code/cli.py vocab cover … --json` | 只读 |
 | `anki_study_report` | `python code/cli.py r report --json --out …` | 只读 Anki；每月写一份报告文件 |
+| `anki_word_audio` | `mine_audio.py plan/apply --query …` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
+| `anki_card_fix` | `cards.py gen --note-id … --only <field> [--commit]` | **默认真写**（`gen --overwrite --commit`）；显式 `commit=false` 才演练 |
+| `anki_llm_models` | `python code/cli.py local-llm-models` | 只读（列端点模型 + profiles，不含 api_key） |
 
 `anki_study_report` 默认每月一次：`output/reports/ankir/monthly-YYYY-MM.json`
 已存在时直接跳过；`force=true` 才重建。
+
+`anki_word_audio` 给一个单词的素材生词卡挂 / 修 Word Audio（edge-TTS
+`ja-JP-NanamiNeural` 读 `Transliteration` 假名）。`phase=plan`（默认）列出该词
+所有候选卡及其音频现状；`phase=apply` + `noteIds` 真写指定卡的 Word Audio。
+同词多卡时由调用方先 plan 再选 noteId。Sentence Audio 已有原声则保留不动。
+
+`anki_card_fix` 按 noteId 给例句卡重新生成 `Sentence HTML` 或 `AINote` 中的一个字段
+（`field: 'html' | 'ainote'`）：复用 `cards.py gen --only <field> --overwrite` 的既有
+提示词与 `ruby_engine` 重渲染，**只写选中的那个字段**，另一字段原值不动。默认真写
+（`--commit`），显式 `commit=false` 才演练；写后回读校验。
+
+## 本地模型选择（llmModel / llmProfile）
+
+写库类能力里跑本地模型的步骤（`today-new` 的 LLM 精排、`core6000 gen` 的讲解
+生成）支持指定档位，三层优先级从高到低：
+
+1. **单次调用**：工具参数 `llmModel` / `llmProfile`（面板「本地模型」下拉同理）。
+   - `llmProfile` → `--profile <name>`：用 `~/.dsh/local-llm.json` 里 `profiles`
+     的那一档（ninfer / strata / strata_abl）；**换端点走这个**（与脚本 help 一致）。
+   - `llmModel` → `--model <id>`：钉住端点 `/v1/models` 里的某个模型 id。Python 侧
+     （`code/common/llm_client.py`）把显式 model 视为「人明确指定」，会**关掉 pin**
+     （不再对齐 `/props` 当前在服务的模型）。
+2. **插件 Config 默认**：`llmProfile` / `llmModel`（见下表），经环境变量
+   `DSH_LOCAL_LLM_PROFILE` / `DSH_LOCAL_LLM_MODEL` 注入所有子进程，兜底生效。
+3. **留空** = 什么都不注入：跟随 `local-llm.json` 的 `profile` + `pin_active`，
+   与命令行不加旗标完全同口径（默认行为不变）。
+
+面板下拉的清单来自只读脚本 `python code/cli.py local-llm-models`（端点
+`/v1/models` + `/props` 当前在服务 + 配置文件 profiles；**绝不输出 api_key**），
+对应工具 `anki_llm_models`。面板打开时拉一次并缓存，点「刷新」重拉。
 
 ## 上下文注入
 
@@ -45,13 +79,27 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   - **1 Anki 在线状态、2 doctor 结论**：收成右上角两枚小状态按钮（绿/黄/红点 +
     状态短词）。点开是浮动详情，含完整信息与「立即检测 / 跑 doctor」；
     点空白处或再点按钮关闭。
-  - **3 补例句、4 今日选词、5 词汇覆盖率、6 每月报告**：合并成一个 tab 区
-    （tab 顺序即 3→6），同一时间只显示一个；切换 tab 不丢表单和上次结果
-    （四块保持挂载、只隐藏非活动块）。默认停在「今日选词」。
+  - **3 补例句、4 今日选词、5 词汇覆盖率、6 每月报告、7 卡片修正**：合并成一个 tab 区
+    （tab 顺序即 3→7），同一时间只显示一个；切换 tab 不丢表单和上次结果
+    （五块保持挂载、只隐藏非活动块）。默认停在「今日选词」。
     关闭面板或切到别的 sidebar 页再点回来，当前 tab 和上次生成的结果仍然在
     （结果缓存在 Client 模块内；生成过程中切走，完成后也会写进缓存；刷新整个
     页面才清空）。
 - 写库动作都有「真写」勾选框，默认真写（取消勾选才演练）。
+- 「今日选词」「增加例句」卡里各有一个**本地模型下拉**（两个 tab 共享同一个
+  选择）：默认项 = 跟随配置/端点 pin；分组列出 `profiles` 与端点模型。清单由
+  Host 半的 `llm-models` API 提供（只读，见上节）。
+- **增加例句** tab 有 Jisho 候选例句选择区：填词 → 点「列 Jisho 候选」（走
+  `jisho-list`，即 `core6000 gen --list-jisho`，只读、不调模型）→ 面板列出该词的
+  Jisho 真实例句（编号 / 字数 / 来源 Tatoeba·Jreibun / 句子原文，振假名不合格的
+  会标 ⚠️）→ 点某条选中（或不选 = 自动挑选）→ 点「跑三步」时把选中编号作为
+  `jishoPick` 透传给 `add-example`，按这条句子生成音频 + AINote 讲解并覆写卡片资料
+  （Sentence / Sentence HTML / Sentence Translation / AINote / Sentence Audio）。
+  **手动选择优先**：这张卡上次已有合格产出、但用的是别的 Jisho 句子时，`gen`
+  会重新生成，不会拿「已有产出」跳过用户这次的选择；「与第一句太像」这条偏好
+  闸门也不再拦手动选中的句子（振假名结构 / 真含目标词仍照查，避免写坏卡）。
+  对应工具 `anki_jisho_list`（先 list 看编号）+ `anki_add_example` 的 `jishoPick`
+  （再 pick 指定）。
 - 需要选文件 / 目录的输入（今日选词的「字幕文件或作品目录」、词汇覆盖率的
   文件列表）都是**只读显示 + 「浏览…」按钮**，点击弹出应用内选择对话框：
   面包屑导航、上一级、按名称过滤、目录优先排序；今日选词可挑一个文件或
@@ -77,11 +125,34 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
     这份 JSON 并显示**，不再只显示一句「跳过」。
   - 今日选词 / 词汇覆盖率两份为 `schema: 1`；月度报告是 ankiR
     `anki_report` 的原始 JSON（没有额外 schema 包装）。
+- **卡片修正** tab（原「单词配音」，宽按钮）：**一个单词输入框**驱动三种目标——
+  勾选「单词音频 / Sentence HTML / AINote」后点唯一的「重新生成」按钮。每个
+  checkbox 和按钮都有 mouseover tooltip 说明。
+  - 单词音频：查素材生词卡，列出 Word Audio / Sentence Audio 现状；同词多张时
+    勾选要更新的卡，再点一次「重新生成」。Host 半跑
+    `mine_audio.py plan --query "note:<word>"`（人读表格）和
+    `anki_api.py find "note:<word>" --json`（机器读 noteId），按索引对齐后把
+    noteId 附到候选卡上；apply 阶段直接传真实 noteId，走
+    `mine_audio.py apply --query "nid:…" [--commit] [--force]`。
+  - 字段重新生成：按例句卡的 `Word` 字段找卡（`Word:"…"` + 精确过滤），列出
+    Sentence / AINote / Sentence HTML 现状；同词多张时勾选后再点一次。两个字段
+    分别走 `card-fix` + `field:'html'` / `field:'ainote'`，**复用 cards.py 既有
+    提示词**（`LOCAL_INSTRUCTION` + `ruby_engine` 重渲染，不新增提示词），
+    **只写选中字段**、另一字段原值不动。
+  - 只有一张候选卡时第一次点击就直接执行；多张时第一次点击只列候选，勾选后
+    再点同一个按钮。**默认真写**（勾选「真写库」= `--commit`），取消勾选即
+    `commit=false` 演练。生成结果按目标显示，脚本原始输出折叠在「脚本原始输出」里。
 - 面板通过 `POST /anki-workspace/api` 调用 Host 半；该路由只接受
-  loopback 同源请求，并拒绝非 JSON Content-Type。除六个动作外还有两个
+  loopback 同源请求，并拒绝非 JSON Content-Type。除写库/生成动作外还有三个
   只读方法：`browse`（入参 `{ path }`，省略即工作区根）给选择对话框列目录；
   `report`（入参 `{ month? }`）直接读取当月月度报告 JSON，供页面 6 在
-  打开时和刷新后显示。
+  打开时和刷新后显示；`llm-models`（无入参）返回本地模型档位清单。
+- API 方法中与卡片修正相关的两个：`card-lookup`（入参 `{ word }` 或 `{ ids }`，
+  只读；`word` 路径在例句 deck 里用 `Word:"…"` 字段搜索，再按 `Word` 字段精确过滤，经
+  `anki_api.py notes --json` 读回 Sentence / Word / Source / AINote / Sentence HTML
+  现状）；`card-fix`（入参 `{ noteIds, field:
+  'html'|'ainote', commit }`，跑 `cards.py gen --only <field> --overwrite
+  [--commit]`，默认真写）。
 
 ## 配置
 
@@ -93,6 +164,8 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
 | `pythonPath` | `python` | 调 `cli.py` 的 Python |
 | `timeZone` | `Asia/Shanghai` | 判断「本月」用 |
 | `refreshMinutes` | `10` | 后台状态刷新间隔 |
+| `llmProfile` | 空 | 本地模型默认档位（`local-llm.json` profiles 的哪一项）；空 = 跟随配置文件 |
+| `llmModel` | 空 | 钉住端点上某个模型 id（会关 pin）；空 = 不指定 |
 
 改 `workspaceRoot` 后需要重新加载插件（`plugin_manager` 关/开一次，或重启
 Harness）才会生效。改了 `index.js` / `lib/core.js` / `client.js` 这类 JS 代码
@@ -127,6 +200,7 @@ node --check code\plugins\anki-workspace\lib\core.js
 node --test --test-isolation=none code\plugins\anki-workspace\test\logic.test.mjs
 node --test --test-isolation=none code\plugins\anki-workspace\test\render.test.mjs
 node --test --test-isolation=none code\plugins\anki-workspace\test\locale.test.mjs
+python code\tests\test_cards_only.py
 ```
 
 > Windows + DSH 沙箱下 `node --test` 默认会 spawn 子进程并触发 EPERM；

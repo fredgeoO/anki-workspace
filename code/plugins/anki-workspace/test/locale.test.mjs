@@ -114,3 +114,42 @@ test('a locale service that appears after apply is adopted', () => {
   const sidebar = slots.find((entry) => entry.options.name === 'sidebar.panellist')
   assert.equal(sidebar.options.label(), 'Anki 工作区')
 })
+
+test('card-fix tab labels translate in both languages', () => {
+  const locale = fakeLocale()
+  const { ctx, slots } = fakeContext(locale)
+  module.apply(ctx)
+
+  const main = slots.find((entry) => entry.options.name === 'main')
+  const tree = main.component({})
+  const t = tree.props.t
+
+  // Chinese translations for the renamed tab and its placeholder card.
+  assert.equal(t('tabs.cardFix'), '卡片修正')
+  assert.equal(t('card.wordAudio.title'), '单词配音（Word Audio）')
+  assert.equal(t('card.fix.title'), '按单词重新生成')
+  assert.equal(t('card.wordAudio.plan'), '查候选卡')
+  assert.equal(t('card.wordAudio.apply'), '生成 / 更新')
+  assert.equal(t('wordAudio.candidates'), '候选卡片')
+  assert.equal(t('wordAudio.empty'), '空')
+  assert.equal(t('wordAudio.has'), '已有音频')
+  // 阶段 2：Sentence HTML 重新生成按钮与候选区文案。
+  assert.equal(t('card.fix.htmlBtn'), '重新生成 Sentence HTML')
+  assert.equal(t('card.fix.lookup'), '查卡片')
+  assert.equal(t('card.fix.wordInput'), '单词名（词典形）')
+  assert.equal(t('card.fix.none'), '没找到 Word 等于这个单词的例句卡')
+  assert.equal(t('card.fix.commit'), '真写库（--commit，默认勾选）')
+  // 阶段 3：AINote 重新生成按钮与 output 折叠区标题。
+  assert.equal(t('card.fix.ainoteBtn'), '重新生成 AINote')
+  assert.equal(t('card.fix.output'), '脚本原始输出')
+  // 统一输入 + checkbox + 单按钮 + tooltip。
+  assert.equal(t('card.fix.run'), '重新生成')
+  assert.equal(t('card.fix.audio'), '音频')
+  assert.equal(t('card.fix.force'), '覆盖已有音频')
+  assert.match(t('card.fix.wordTip'), /一个输入框/)
+  assert.match(t('card.fix.audioTip'), /Word Audio/)
+  assert.match(t('card.fix.htmlTip'), /Sentence HTML/)
+  assert.match(t('card.fix.ainoteTip'), /AINote/)
+  assert.match(t('card.fix.commitTip'), /真写库/)
+  assert.match(t('card.fix.runTip'), /只有一张/)
+})

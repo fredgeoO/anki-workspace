@@ -272,6 +272,11 @@ test('tab bar and compact status pills render their labels', () => {
   assert.match(tabs, /tabs\.todayNew/)
   assert.match(tabs, /tabs\.cover/)
   assert.match(tabs, /tabs\.report/)
+  assert.match(tabs, /tabs\.cardFix/)
+  // 卡片修正 tab 是宽按钮（wide），其余不是。
+  const wide = nodesOf(components.TabBar({ t, active: 'study-report', onChange: () => {} }))
+    .filter((node) => node.props && typeof node.props.className === 'string' && node.props.className.includes('anki-tab-wide'))
+  assert.equal(wide.length, 1)
 
   const corner = textOf(components.StatusCorner({
     t,
@@ -321,6 +326,7 @@ test('add-example is rendered as a tab panel, not a standalone card', () => {
     'anki-panel-today-new',
     'anki-panel-vocab-cover',
     'anki-panel-study-report',
+    'anki-panel-card-fix',
   ])
 
   const addPanel = panels[0]
@@ -332,4 +338,239 @@ test('add-example is rendered as a tab panel, not a standalone card', () => {
   assert.equal(nodesOf(addPanel).filter((node) => node.type === 'h3').length, 0)
   // No card outside the tab group any more.
   assert.equal(nodes.filter((node) => node.props && node.props.className === 'anki-solo').length, 0)
+})
+
+const wordAudioPlanValue = {
+  ok: true,
+  phase: 'plan',
+  word: 'キャンプ場',
+  exitCode: 0,
+  candidates: [
+    { word: 'キャンプ場', reading: 'きゃんぷじょう', noteId: 1792712150771, wordAudio: null, wordAudioEmpty: true, sentenceAudio: 'ik_drama_x.mp3', sentenceAudioEmpty: false, action: '生成 词TTS' },
+    { word: 'キャンプ場', reading: 'きゃんぷじょう', noteId: 1792712150772, wordAudio: 'mine-キャンプ場-fd034fb0.mp3', wordAudioEmpty: false, sentenceAudio: null, sentenceAudioEmpty: true, action: '保留' },
+  ],
+  output: '',
+  note: '2 张候选卡；选一张后点「生成/更新」真写。',
+}
+
+const wordAudioApplyValue = {
+  ok: true,
+  phase: 'apply',
+  word: 'キャンプ場',
+  commit: true,
+  noteIds: ['1792712150771'],
+  verified: true,
+  output: '回读校验 1 张：Word Audio 1 / Sentence Audio 1 非空\n★ 全部通过',
+  note: '已真写：合成 TTS、上传媒体、写 Word Audio 字段并回读。',
+}
+
+test('word-audio card renders plan candidates with audio status tags', () => {
+  const tree = components.WordAudioCard({
+    t,
+    call: () => {},
+    busy: '',
+    result: wordAudioPlanValue,
+    tabbed: true,
+  })
+  const text = textOf(tree)
+  assert.match(text, /キャンプ場/)
+  assert.match(text, /きゃんぷじょう/)
+  assert.match(text, /wordAudio\.empty/)
+  assert.match(text, /mine-キャンプ場-fd034fb0\.mp3/)
+  assert.match(text, /card\.wordAudio\.apply/)
+})
+
+test('word-audio card renders apply result with verified badge', () => {
+  const tree = components.WordAudioCard({
+    t,
+    call: () => {},
+    busy: '',
+    result: wordAudioApplyValue,
+    tabbed: true,
+  })
+  const text = textOf(tree)
+  assert.match(text, /result\.committed/)
+  assert.match(text, /noteIds/)
+  assert.match(text, /回读校验通过/)
+})
+
+test('word-audio card shows empty state when no candidates found', () => {
+  const emptyPlan = { ...wordAudioPlanValue, candidates: [], note: '没有匹配到任何卡片。' }
+  const tree = components.WordAudioCard({
+    t,
+    call: () => {},
+    busy: '',
+    result: emptyPlan,
+    tabbed: true,
+  })
+  const text = textOf(tree)
+  assert.match(text, /wordAudio\.none/)
+})
+
+const cardFixLookupValue = {
+  ok: true,
+  noteIds: ['1792712150771', '1792712150772'],
+  cards: [
+    { noteId: 1792712150771, sentence: '愛すべきお客様に最高の笑顔を', word: 'お客様', source: '第01集', hasAinote: true, hasHtml: false, ainote: '讲解…', html: '' },
+    { noteId: 1792712150772, sentence: '屋上で待っている', word: '屋上', source: '第02集', hasAinote: false, hasHtml: true, ainote: '', html: '<ruby>屋上<rt>おくじょう</rt></ruby>' },
+  ],
+  output: '',
+}
+
+const cardFixHtmlValue = {
+  ok: true,
+  field: 'html',
+  commit: true,
+  noteIds: ['1792712150771'],
+  exitCode: 0,
+  verified: true,
+  cards: [{ noteId: 1792712150771, sentence: '愛すべきお客様に最高の笑顔を', value: '<ruby>お客様<rt>おきゃくさま</rt></ruby>' }],
+  output: 'gen --only html：1 张完成\n★ 全部通过',
+  note: '默认真写：cards.py gen --commit 已写入选中字段并回读（另一字段不动）。',
+}
+
+const cardFixAinoteValue = {
+  ok: true,
+  field: 'ainote',
+  commit: false,
+  noteIds: ['1792712150771'],
+  exitCode: 0,
+  cards: [{ noteId: 1792712150771, sentence: '愛すべきお客様に最高の笑顔を', value: '① お客様＝客人…' }],
+  output: 'gen --only ainote：1 张完成（演练）',
+  note: '演练：未写库。',
+}
+
+test('field-fix card renders selected candidate, sentence and HTML button', () => {
+  const tree = components.FieldFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    lookupValue: cardFixLookupValue,
+    htmlValue: null,
+  })
+  const text = textOf(tree)
+  assert.match(text, /card\.fix\.lookup/)
+  assert.match(text, /card\.fix\.cards/)
+  assert.match(text, /愛すべきお客様に最高の笑顔を/)
+  assert.match(text, /card\.fix\.has/)
+  assert.match(text, /card\.fix\.empty/)
+  assert.match(text, /card\.fix\.htmlBtn/)
+  // select 存在且默认第 0 张；placeholder 是输入框属性，不在文本里。
+  const inputs = nodesOf(tree).filter((node) => node.type === 'input')
+  assert.ok(inputs.some((node) => node.props.placeholder === 'card.fix.wordInput'))
+  const selects = nodesOf(tree).filter((node) => node.type === 'select')
+  assert.equal(selects.length, 1)
+  assert.equal(selects[0].props.value, '0')
+})
+
+test('field-fix card renders both regenerate buttons together', () => {
+  const tree = components.FieldFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    lookupValue: cardFixLookupValue,
+    htmlValue: null,
+    ainoteValue: null,
+  })
+  const text = textOf(tree)
+  assert.match(text, /card\.fix\.htmlBtn/)
+  assert.match(text, /card\.fix\.ainoteBtn/)
+})
+
+test('field-fix card renders AINote button result with its own value', () => {
+  const tree = components.FieldFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    lookupValue: cardFixLookupValue,
+    htmlValue: null,
+    ainoteValue: cardFixAinoteValue,
+  })
+  const text = textOf(tree)
+  assert.match(text, /card\.fix\.ainoteBtn/)
+  assert.match(text, /① お客様＝客人…/)
+  assert.match(text, /result\.dryRun/)
+  assert.match(text, /gen --only ainote/)
+})
+
+test('field-fix card shows generated result with per-card value and output details', () => {
+  const tree = components.FieldFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    lookupValue: cardFixLookupValue,
+    htmlValue: cardFixHtmlValue,
+  })
+  const text = textOf(tree)
+  assert.match(text, /card\.fix\.generated/)
+  assert.match(text, /<ruby>お客様<rt>/)
+  assert.match(text, /1792712150771/)
+  assert.match(text, /result\.committed/)
+  assert.match(text, /gen --only html/)
+  // output 折叠区标题走 locale。
+  assert.match(text, /card\.fix\.output/)
+})
+
+test('field-fix card shows card.fix.none for an empty lookup', () => {
+  const tree = components.FieldFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    lookupValue: { ok: true, cards: [], noteIds: [] },
+    htmlValue: null,
+  })
+  assert.match(textOf(tree), /card\.fix\.none/)
+})
+
+test('card-fix panel uses one word input, target checkboxes and one regenerate button', () => {
+  const tree = components.CardFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    results: {},
+  })
+  assert.equal(tree.props.className, 'anki-card')
+  const text = textOf(tree)
+  assert.match(text, /card\.fix\.title/)
+  assert.match(text, /card\.fix\.desc/)
+  assert.match(text, /card\.fix\.audio/)
+  assert.match(text, /Sentence HTML/)
+  assert.match(text, /AINote/)
+  assert.match(text, /card\.fix\.run/)
+
+  const nodes = nodesOf(tree)
+  // 共用一个单词输入：只有一个非 checkbox 的 input。
+  const textInputs = nodes.filter((node) => node.type === 'input' && node.props.type !== 'checkbox')
+  assert.equal(textInputs.length, 1)
+  assert.equal(textInputs[0].props.placeholder, 'card.fix.wordInput')
+  assert.equal(textInputs[0].props.title, 'card.fix.wordTip')
+
+  // 音频 / HTML / AINote + 真写 / 覆盖音频 都是 checkbox。
+  const checks = nodes.filter((node) => node.type === 'input' && node.props.type === 'checkbox')
+  assert.ok(checks.length >= 5)
+
+  // mouseover tooltip 挂在输入框、目标 checkbox 和按钮上。
+  const titles = nodes
+    .filter((node) => node.props && typeof node.props.title === 'string')
+    .map((node) => node.props.title)
+  assert.ok(titles.includes('card.fix.audioTip'))
+  assert.ok(titles.includes('card.fix.htmlTip'))
+  assert.ok(titles.includes('card.fix.ainoteTip'))
+  assert.ok(titles.includes('card.fix.runTip'))
+  assert.ok(titles.includes('card.fix.commitTip'))
+})
+
+test('card-fix panel renders audio and field generation results', () => {
+  const tree = components.CardFixCard({
+    t,
+    call: () => {},
+    busy: '',
+    results: {
+      'word-audio-apply': wordAudioApplyValue,
+      'card-fix-ainote': cardFixAinoteValue,
+    },
+  })
+  const text = textOf(tree)
+  assert.match(text, /① お客様＝客人…/)
+  assert.match(text, /result\.committed/)
 })

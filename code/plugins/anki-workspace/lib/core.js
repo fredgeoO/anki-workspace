@@ -80,6 +80,130 @@ export function parseAnkiCheck(text) {
   return out
 }
 
+/**
+ * Parse the human-readable output of `mine_audio.py plan` into a list of
+ * candidate cards for the Word Audio tab. Each data row in the script's table
+ * has the shape:
+ *
+ *   <word>  <reading>  <wordAudioRef or empty marker>  <sentenceAudioRef>  <action>
+ *
+ * The word form is the first token; the reading is the second (katakana /
+ * hiragana only); the two audio references are either `[sound:file.mp3]`
+ * strings or an empty placeholder the script prints for a blank field. The
+ * last column is the action ("不动" / "生成 词TTS+句"). Only rows below the
+ * table's '-' separator count, so header/summary lines never leak in. Every
+ * row is kept — including rows for other words whose sentences merely mention
+ * the queried word — so callers can align rows 1:1 with the noteIds from
+ * `anki_api.py find` and filter afterwards. The `word` argument is unused;
+ * rows are not filtered by it.
+ */
+export function parseWordAudioCandidates(text, word) {
+  void word // kept for call-site compatibility; rows are no longer filtered by it
+  const body = String(text ?? '')
+  const lines = body.split(/\r?\n/)
+  const out = []
+  const soundRe = /\[sound:([^\]]+)\]/
+  // mine_audio.py pads columns with `%-Ns`, which counts code points — CJK
+  // cells (ゴンドラ / 「已有」) therefore leave only one space before the next
+  // column. Split on runs of >=1 space instead; audio refs never contain
+  // spaces and the action column is re-joined below.
+  const splitCells = (s) => s.split(/\s+/).filter(Boolean)
+  // mine_audio.py prints `print('-' * 100)` right after the header; treat only
+  // that exact line as the table separator so summary lines like
+  // "需要新生成并上传的媒体文件：0 个" can never be parsed as rows.
+  const SEPARATOR = '-'.repeat(100)
+  const emptyMarkers = new Set(['', '（空）', '(空)', '-', '—', '无'])
+  let seenSeparator = false
+  for (const line of lines) {
+    if (line.trim() === SEPARATOR) {
+      seenSeparator = true
+      continue
+    }
+    if (!seenSeparator) continue
+    const trimmed = line.trim()
+    // A blank line closes the table body (mine_audio.py prints one before the
+    // summary lines), so "Sentence Audio：…" summaries never leak in.
+    if (trimmed === '') break
+    // A data row has at least the four padded columns plus an action token.
+    const cells = splitCells(trimmed)
+    if (cells.length < 5) continue
+    // The action column itself contains a space ("生成 词TTS+句"), so anything
+    // beyond the first four columns belongs to it.
+    const [w, reading, wordAudioRaw, sentenceAudioRaw] = cells
+    const action = cells.slice(4).join(' ')
+    // The reading column is always kana; anything else (e.g. the summary line
+    // "Word Audio   ：…") means this isn't a data row.
+    if (!/^[\u3041-\u30ffー〜]+$/.test(reading)) continue
+    const wordAudio = soundRe.exec(wordAudioRaw)?.[1] ?? ''
+    const sentenceAudio = soundRe.exec(sentenceAudioRaw)?.[1] ?? ''
+    const wordEmpty = wordAudioRaw === '' || emptyMarkers.has(wordAudioRaw)
+    const sentenceEmpty = sentenceAudioRaw === '' || emptyMarkers.has(sentenceAudioRaw)
+    out.push({
+      word: w,
+      reading: reading || null,
+      wordAudio: wordAudio || null,
+      wordAudioEmpty: wordEmpty,
+      sentenceAudio: sentenceAudio || null,
+      sentenceAudioEmpty: sentenceEmpty,
+      action: action || null,
+    })
+  }
+  return out
+}
+
+/**
+ * Parse the human-readable output of `core6000_example.py gen --list-jisho`
+ * into a list of Jisho candidate sentences for the Add-example tab. Each
+ * candidate row in the script's output has the shape:
+ *
+ *   <word>（<noteId>）的 Jisho 候选 N 条（gen --jisho-pick N 按这个编号挑）：
+ *     - 1. [41字 ｜ Jreibun] 句子原文…
+ *     - 2. [12字 ｜ Tatoeba] ⚠️ 振假名不合格 另一句…
+ *
+ * The word header line carries the noteId and the candidate count; each
+ * candidate line is prefixed by `- <index>. [<len>字 ｜ <source>]` (plus an
+ * optional ruby-warning flag) followed by the sentence text. We return one
+ * object per candidate so the panel can render a pickable list and hand the
+ * chosen index back to `addExample` as `jishoPick`. Header / summary lines
+ * (the dispatcher banner, the `--list-jisho 结束` footer, api-key warnings)
+ * are never parsed as candidates.
+ */
+export function parseJishoCandidates(text) {
+  const body = String(text ?? '')
+  const lines = body.split(/\r?\n/)
+  const out = []
+  // Word header: "適当（1621392074520）的 Jisho 候选 1 条（…）："
+  const headerRe = /^(.+?)（(\d+)）的\s*Jisho\s*候选\s*(\d+)\s*条/
+  // Candidate line: "- 1. [41字 ｜ Jreibun] 句子…" or with "⚠️ 振假名不合格"
+  const candRe = /^\s*-\s*(\d+)\.\s*\[(\d+)字\s*[｜|]\s*([^\]]*)\]\s*(.*)$/
+  let currentWord = null
+  let currentNoteId = null
+  for (const line of lines) {
+    const header = headerRe.exec(line)
+    if (header !== null) {
+      currentWord = header[1].trim()
+      currentNoteId = Number(header[2])
+      continue
+    }
+    if (currentWord === null) continue
+    const m = candRe.exec(line)
+    if (m === null) continue
+    const rest = m[4].trim()
+    const rubyWarn = /振假名不合格/.test(rest)
+    const jp = rest.replace(/⚠️\s*振假名不合格\s*/, '').trim()
+    out.push({
+      index: Number(m[1]),
+      word: currentWord,
+      noteId: currentNoteId,
+      len: Number(m[2]),
+      source: m[3].trim(),
+      rubyOk: !rubyWarn,
+      jp,
+    })
+  }
+  return out
+}
+
 export function parseDoctor(text, exitCode) {
   const body = String(text ?? '')
   const num = (re) => {
@@ -260,14 +384,83 @@ export async function listWorkspaceDirectory(root, arg) {
   }
 }
 
-export function buildAddExampleCalls(selector, commit) {
+/**
+ * 本地模型档位选择（面板下拉 / 工具参数 → CLI 旗标）。
+ *
+ * 语义与 code/common/llm_client.py 的查找链一致：
+ *  - `llmModel`   → `--model <id>`：显式钉住端点上的某个模型 id。Python 侧看到
+ *                   显式 model 会**关掉 pin**（不再对齐 /props 当前在服务的模型）——
+ *                   这正是「人明确指定」的口径。
+ *  - `llmProfile` → `--profile <name>`：用 local-llm.json 里 profiles 的那一档；
+ *                   脚本 help 推荐换档位走这个（端点/窗口一起切）。
+ * 两者都给时 Python 侧 model 覆盖 profile 的 model，pin 关闭。空值 = 不注入，
+ * 维持现状（profile 默认 + pin_active）。
+ */
+export function normalizeLlmChoice(args) {
+  const clean = (v) => (typeof v === 'string' ? v.trim() : '')
+  const model = clean(args?.llmModel)
+  let profile = clean(args?.llmProfile)
+  // 面板的「默认档位」传空串；也接受显式的 'default' 别名。
+  if (profile.toLowerCase() === 'default') profile = ''
+  return { model, profile }
+}
+
+/** 单次调用（override）盖在 Config 默认之上；空值不覆盖。 */
+export function mergeLlm(base, override) {
+  const b = normalizeLlmChoice(base)
+  const o = normalizeLlmChoice(override)
+  return { model: o.model || b.model, profile: o.profile || b.profile }
+}
+
+/**
+ * llmModels() 的原始 JSON → 面板/工具用的形状。Python 侧 local_llm_models.py
+ * 已经把 api_key 挡在门外，这里只搬运展示字段；解析失败返回 error。
+ */
+export function normalizeLlmModels(raw) {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: '模型清单输出里没有可解析的 JSON' }
+  const models = Array.isArray(raw.models)
+    ? raw.models
+      .filter((m) => m && typeof m.id === 'string' && m.id !== '')
+      .map((m) => ({ id: m.id, contextWindow: Number.isFinite(m.context_window) ? m.context_window : null }))
+    : []
+  const profiles = Array.isArray(raw.profiles)
+    ? raw.profiles.map((p) => ({
+      name: typeof p?.name === 'string' ? p.name : '',
+      model: typeof p?.model === 'string' ? p.model : '',
+      baseUrl: typeof p?.base_url === 'string' ? p.base_url : '',
+      contextWindow: Number.isFinite(p?.context_window) && p.context_window > 0 ? p.context_window : null,
+    }))
+    : []
+  return {
+    ok: true,
+    baseUrl: raw?.endpoint?.base_url ?? '',
+    activeModel: raw?.endpoint?.active_model ?? null,
+    models,
+    profiles,
+    endpointError: typeof raw.error === 'string' ? raw.error : null,
+  }
+}
+
+export function buildAddExampleCalls(selector, commit, llmArgs, opts = {}) {
   const extra = Array.isArray(selector) ? selector.slice() : []
+  // 本地模型覆盖：core6000 的 gen/tts/apply 都挂了 add_llm_args，三步统一追加。
+  const llm = normalizeLlmChoice(llmArgs)
+  const modelFlags = []
+  if (llm.model !== '') modelFlags.push('--model', llm.model)
+  if (llm.profile !== '') modelFlags.push('--profile', llm.profile)
+  // Jisho 选句旗标**只属于 gen**（tts/apply 的 argparse 没有这些参数，塞进去会报错）：
+  // --jisho-pick N 用第 N 条候选（1 起，编号与 --list-jisho 一致），--list-jisho 只列候选清单，
+  // --jisho-max-len N 只保留去空白后 ≤N 字的候选（仍受 6 字下限约束）。
+  const genJishoFlags = []
+  if (Number.isInteger(opts.jishoPick) && opts.jishoPick > 0) genJishoFlags.push('--jisho-pick', String(opts.jishoPick))
+  if (opts.listJisho === true) genJishoFlags.push('--list-jisho')
+  if (Number.isInteger(opts.jishoMaxLen) && opts.jishoMaxLen > 0) genJishoFlags.push('--jisho-max-len', String(opts.jishoMaxLen))
   const base = ['code/cli.py', 'core6000']
   // 默认真写（commit !== false）：用户 2026-11-09 定的规矩「不再演练，直接写入」。
   // 只有显式 commit === false 才退回演练（apply 不加 --commit）。
   const write = commit !== false
   return [
-    { name: 'gen', argv: [...base, 'gen', ...extra], timeoutMs: 30 * 60_000 },
+    { name: 'gen', argv: [...base, 'gen', ...extra, ...modelFlags, ...genJishoFlags], timeoutMs: 30 * 60_000 },
     { name: 'tts', argv: [...base, 'tts', ...extra], timeoutMs: 15 * 60_000 },
     {
       name: 'apply',
@@ -283,6 +476,10 @@ export function buildTodayNewArgs(args) {
   // --json 让 Python 把结果写成结构化 JSON；人读日志走 stderr，面板再用它渲染。
   const argv = ['code/cli.py', 'today-new', input, '--json']
   if (Number.isInteger(args.n) && args.n > 0) argv.push('--n', String(args.n))
+  // 本地模型覆盖（面板/工具点名的档位）：直接走脚本自己的 --model / --profile。
+  const llm = normalizeLlmChoice(args)
+  if (llm.model !== '') argv.push('--model', llm.model)
+  if (llm.profile !== '') argv.push('--profile', llm.profile)
   if (args.season === true) argv.push('--season')
   if (args.noLlmRank === true) argv.push('--no-llm-rank')
   if (args.noSenseCheck === true) argv.push('--no-sense-check')
@@ -309,6 +506,37 @@ export function buildCoverArgs(root, args) {
   if (Number.isInteger(args.top) && args.top > 0) argv.push('--top', String(args.top))
   if (args.screen === true) argv.push('--screen')
   return { argv }
+}
+
+/**
+ * 解析用户输入的 noteId 串：逗号 / 空格 / 中文逗号分隔，去重并保持出现顺序。
+ * 非法值（非数字、非正整数）直接丢弃；全空返回空数组，由调用方决定报错文案。
+ */
+export function normalizeNoteIds(value) {
+  const raw = Array.isArray(value) ? value.join(',') : String(value ?? '')
+  const out = []
+  for (const part of raw.replace(/，/g, ',').split(/[,\s]+/)) {
+    const token = part.trim()
+    if (token === '') continue
+    if (!/^\d+$/.test(token)) continue
+    const n = Number(token)
+    if (!Number.isSafeInteger(n) || n <= 0) continue
+    if (!out.includes(n)) out.push(n)
+  }
+  return out
+}
+
+/**
+ * 卡片修正（阶段 2/3）的固定命令：复用 cards.py 的既有生成方法（LOCAL_INSTRUCTION
+ * + ruby_engine），`--only` 只生成/写入选中字段，`--out` 落一份 JSON 供面板读回。
+ * **无论演练还是真写都加 `--overwrite`**：这个动作的语义就是重做已存在的字段，
+ * 不加会在演练时被「已有内容跳过」直接跳过、面板拿不到任何结果。
+ */
+export function buildCardFixArgv(ids, field, commit, outPath) {
+  const argv = ['code/execution/cards.py', 'gen', '--note-id', ids.join(','),
+    '--only', field, '--out', outPath, '--overwrite']
+  if (commit === true) argv.push('--commit')
+  return argv
 }
 
 function readCollected(reader) {
@@ -342,6 +570,8 @@ export function createRuntime(ctx, config = {}) {
   const refreshMs = Number.isFinite(config.refreshMinutes) && config.refreshMinutes > 0
     ? Math.round(config.refreshMinutes * 60_000)
     : 10 * 60_000
+  // 默认本地模型档位（Config 兜底）；单次调用参数 llmModel/llmProfile 覆盖它。
+  const defaultLlm = normalizeLlmChoice({ llmModel: config.llmModel, llmProfile: config.llmProfile })
 
   let cache = null
   let refreshing = null
@@ -423,6 +653,11 @@ export function createRuntime(ctx, config = {}) {
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     }
+    // 兜底档位（Config llmModel/llmProfile）：走 llm_client.py 的 env 查找链，
+    // 对所有子命令生效；单次调用注入的 --model/--profile 旗标优先级更高。
+    const llm = normalizeLlmChoice(opts.llm)
+    if (llm.model !== '') env.DSH_LOCAL_LLM_MODEL = llm.model
+    if (llm.profile !== '') env.DSH_LOCAL_LLM_PROFILE = llm.profile
     const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0
       ? opts.timeoutMs
       : DEFAULT_TIMEOUT_MS
@@ -748,6 +983,9 @@ export function createRuntime(ctx, config = {}) {
       `doctor：${doctorLine}`,
       `检测时间：${cache.refreshedAt ?? '?'}`,
       '工具：anki_status、anki_doctor、anki_add_example、anki_today_new、anki_vocab_cover、anki_study_report。',
+      ...(defaultLlm.model || defaultLlm.profile
+        ? [`本地模型默认：${defaultLlm.profile ? `profile=${defaultLlm.profile}` : ''}${defaultLlm.profile && defaultLlm.model ? ' + ' : ''}${defaultLlm.model ? `model=${defaultLlm.model}` : ''}（写库类工具可单次用 llmModel/llmProfile 覆盖）`]
+        : []),
       '约定：写库动作默认直接真写（commit 省略=true），只有显式 commit=false 才演练；不替用户做学习决策。',
       '</anki-workspace>',
     ]
@@ -767,7 +1005,15 @@ export function createRuntime(ctx, config = {}) {
     if (Number.isInteger(args?.limit) && args.limit > 0) selector.push('--limit', String(args.limit))
     // 默认真写；只有显式 commit === false 才演练（apply 不加 --commit）。
     const commit = args?.commit !== false
-    const calls = buildAddExampleCalls(selector, commit)
+    // 单次档位选择覆盖 Config 默认；再合并出传给 run() 的兜底 env。
+    const llm = mergeLlm(defaultLlm, normalizeLlmChoice(args))
+    // Jisho 选句旗标只透传给 gen（见 buildAddExampleCalls）：jishoPick 正整数才注入，
+    // listJisho 严格 === true 才注入，jishoMaxLen 正整数才注入；tts/apply 的 argv 绝不出现这些参数。
+    const jishoOpts = {}
+    if (Number.isInteger(args?.jishoPick) && args.jishoPick > 0) jishoOpts.jishoPick = args.jishoPick
+    if (args?.listJisho === true) jishoOpts.listJisho = true
+    if (Number.isInteger(args?.jishoMaxLen) && args.jishoMaxLen > 0) jishoOpts.jishoMaxLen = args.jishoMaxLen
+    const calls = buildAddExampleCalls(selector, commit, llm, jishoOpts)
     const steps = []
     for (const call of calls) {
       const r = await run(root, call.argv, { timeoutMs: call.timeoutMs, signal })
@@ -791,8 +1037,48 @@ export function createRuntime(ctx, config = {}) {
     }
   }
 
+  /**
+   * Read-only Jisho candidate listing for the Add-example tab. Runs
+   * `core6000 gen --list-jisho` (no model call, no Anki write) and parses the
+   * human-readable candidate list into structured rows so the panel can show a
+   * pickable sentence list. The chosen index is handed back to `addExample` as
+   * `jishoPick`, which pins that exact Jisho candidate through gen → tts → apply.
+   */
+  async function jishoList(args, agent, signal) {
+    const words = typeof args?.words === 'string' ? args.words.trim() : ''
+    if (words === '') {
+      return { ok: false, error: '需要 words（词形，逗号/空格分隔）' }
+    }
+    const root = await resolveRoot(agent)
+    const selector = ['--words', words]
+    if (Number.isInteger(args?.limit) && args.limit > 0) selector.push('--limit', String(args.limit))
+    // --list-jisho only belongs on gen; buildAddExampleCalls puts it there and
+    // strips it from tts/apply. We run just the gen step here (it exits before
+    // any model call when --list-jisho is set).
+    const llm = mergeLlm(defaultLlm, normalizeLlmChoice(args))
+    const calls = buildAddExampleCalls(selector, true, llm, { listJisho: true })
+    const r = await run(root, calls[0].argv, { timeoutMs: calls[0].timeoutMs, signal })
+    const out = tail(combineOutput(r.stdout, r.stderr), 8000)
+    const candidates = parseJishoCandidates(out)
+    return {
+      ok: r.exitCode === 0,
+      root,
+      words,
+      exitCode: r.exitCode,
+      timedOut: r.timedOut,
+      durationMs: r.durationMs,
+      candidates,
+      output: out,
+      note: candidates.length === 0
+        ? '没有列出任何 Jisho 候选（该词可能已有第二句，或 Jisho 无可用例句）。'
+        : `${candidates.length} 条 Jisho 候选；选一条后点「生成 / 更新」，会按这条句子覆写卡片资料。`,
+    }
+  }
+
   async function todayNew(args, agent, signal) {
-    const built = buildTodayNewArgs(args)
+    // 单次档位选择覆盖 Config 默认（buildTodayNewArgs 负责注入 --model/--profile）。
+    const merged = mergeLlm(defaultLlm, args)
+    const built = buildTodayNewArgs({ ...args, llmModel: merged.model, llmProfile: merged.profile })
     if (built.error !== undefined) return { ok: false, error: built.error }
     const root = await resolveRoot(agent)
     const r = await run(root, built.argv, { timeoutMs: 30 * 60_000, signal })
@@ -913,8 +1199,337 @@ export function createRuntime(ctx, config = {}) {
     return listWorkspaceDirectory(root, args?.path)
   }
 
+  /**
+   * Read-only list of local-model choices for the panel's model dropdown and
+   * the Agent: endpoint models (/v1/models + active /props) plus the profiles
+   * declared in local-llm.json. Never includes the api_key — the Python side
+   * (`cli.py local-llm-models`) keeps it out of its JSON.
+   */
+  async function llmModels(agent) {
+    const root = await resolveRoot(agent)
+    const r = await run(root, ['code/cli.py', 'local-llm-models'], { timeoutMs: 45_000 })
+    if (r.exitCode !== 0) {
+      return { ok: false, error: tail(combineOutput(r.stdout, r.stderr), 2000) || `exit ${r.exitCode}` }
+    }
+    const value = normalizeLlmModels(extractJson(r.stdout))
+    return { ...value, root, defaultModel: defaultLlm.model, defaultProfile: defaultLlm.profile }
+  }
+
+  /**
+   * Word Audio (阶段 5 · 生词配音) for a single named word.
+   *
+   * Two phases:
+   *  - phase "plan" (default): run `mine_audio.py plan --query '"Word" deck:<素材生词>'`
+   *    to discover every card that carries this word, and in parallel
+   *    `anki_api.py find '"Word" deck:<素材生词>' --json` to get the ordered list of
+   *    noteIds. The i-th candidate in the plan table corresponds to the
+   *    i-th noteId from the find command. We attach each noteId to its
+   *    candidate so the panel can let the user pick which one to update.
+   *  - phase "apply": the caller passes back either `noteIds` (real Anki
+   *    note IDs, used by the agent tool) or `candidateIndices` (indices into
+   *    the most recent plan's candidates array, used by the Web panel). We
+   *    resolve them to noteIds and run
+   *    `mine_audio.py apply --query "nid:<id>" [--commit] [--force]`.
+   *    This is the only path that writes to Anki, and it goes through the
+   *    workspace's own entry point exactly like every other capability.
+   *
+   * We never talk to Anki directly here — `mine_audio.py` owns the read/write
+   * gate, the backup, and the post-write verify.
+   */
+  // The mined-vocabulary deck, hard-coded to match `jp_decks.DECK_MINED` — the
+  // single source of truth in the workspace. An unqualified quoted search hits
+  // every deck (example cards etc.), so we restrict the plan to this deck;
+  // `nid:` queries in the apply phase don't need the restriction.
+  const DECK_MINED = '0-日本语学习::0-词汇::0-素材生词'
+
+  // 例句卡牌组：`Sentence` / `Sentence HTML` / `AINote` 三个字段只在例句卡上，
+  // 按单词名找「重新生成字段」的目标卡时只需要看这个 deck。
+  const DECK_EXAMPLE = '0-日本语学习::2-例句'
+
+  // Per-word cache so the apply phase can resolve candidateIndices without
+  // re-running the plan. Keyed by the trimmed word form.
+  const wordAudioPlanCache = {}
+
+  /**
+   * 卡片修正 · 读取（只读）：按**单词名**找到例句卡，或按 noteId 直接回读。
+   *
+   * 面板的主输入是单词名（`Word` 字段）：直接用 `Word:"…"` 字段搜索限定在例句
+   * deck，再按 `Word` 字段**精确相等**过滤——Anki 的字段搜索可能命中词形包含
+   * 该词的卡，不精确过滤会让用户改错卡。
+   * 同一单词命中多张时全部返回，由面板让用户选。
+   * 走 `code/common/anki_api.py notes --query/--ids --json`，Host 不直连 AnkiConnect。
+   */
+  async function cardLookup(args, agent, signal) {
+    const word = typeof args?.word === 'string' ? args.word.trim() : ''
+    const ids = normalizeNoteIds(args?.ids ?? args?.noteIds)
+    if (word === '' && ids.length === 0) {
+      return { ok: false, error: '需要 word（单词名）或 noteId' }
+    }
+    if (word.includes('"')) {
+      return { ok: false, error: 'word 不能包含引号（"）' }
+    }
+    const root = await resolveRoot(agent)
+    // 注意：`anki_api.py notes --fields` 会按空白再切一次，
+    // `Sentence HTML` 这种带空格的字段名会被切成 `Sentence` + `HTML`。
+    // 这里不传 --fields，拿全字段再按名字取。
+    const base = ['code/common/anki_api.py', 'notes', '--json']
+    const argv = word !== ''
+      ? [...base, '--query', `Word:"${word}" deck:"${DECK_EXAMPLE}"`, '--limit', '50']
+      : [...base, '--ids', ids.join(',')]
+    const r = await run(root, argv, { timeoutMs: 60_000, signal })
+    const out = tail(combineOutput(r.stdout, r.stderr), 8000)
+    const parsed = extractJson(r.stdout)
+    const clip = (s) => {
+      const v = String(s ?? '')
+      return v.length > 4000 ? `${v.slice(0, 4000)}…` : v
+    }
+    const cards = []
+    if (Array.isArray(parsed)) {
+      for (const row of parsed) {
+        const f = row?.fields ?? {}
+        const cardWord = String(f.Word ?? '')
+        // 按单词名查时只保留 Word 字段精确相等的卡；noteId 路径不过滤。
+        if (word !== '' && cardWord.trim() !== word) continue
+        const ainote = String(f.AINote ?? '')
+        const html = String(f['Sentence HTML'] ?? '')
+        cards.push({
+          noteId: Number(row?.noteId),
+          sentence: String(f.Sentence ?? ''),
+          word: cardWord,
+          source: String(f.Source ?? ''),
+          hasAinote: ainote.trim() !== '',
+          hasHtml: html.trim() !== '',
+          ainote: clip(ainote),
+          html: clip(html),
+        })
+      }
+    }
+    return {
+      ok: r.exitCode === 0,
+      root,
+      word: word || null,
+      noteIds: cards.map((c) => c.noteId),
+      cards,
+      exitCode: r.exitCode,
+      timedOut: r.timedOut,
+      durationMs: r.durationMs,
+      output: out,
+      note: word !== '' && cards.length === 0
+        ? `例句 deck 里没有 Word 字段等于「${word}」的卡。`
+        : (word !== '' && cards.length > 1
+          ? `「${word}」命中 ${cards.length} 张例句卡，选一张再生成。`
+          : ''),
+    }
+  }
+
+  /**
+   * 卡片修正 · 生成/写库：按卡上 Sentence 重新生成选中字段（html | ainote）。
+   * 只经 `code/execution/cards.py gen --only <field>`——复用既有提示词与
+   * ruby_engine 重渲染，Host 不直连 AnkiConnect、不新增提示词。
+   * 默认真写（commit !== false）；commit=false 演练（只去掉 --commit）。
+   */
+  async function cardFix(args, agent, signal) {
+    const field = args?.field
+    if (field !== 'html' && field !== 'ainote') {
+      return { ok: false, error: "field 必须是 'html' 或 'ainote'" }
+    }
+    const ids = normalizeNoteIds(args?.noteIds ?? args?.ids)
+    if (ids.length === 0) {
+      return { ok: false, field, error: '需要 noteId' }
+    }
+    // 默认真写（用户口径同其它写库工具）：只有显式 commit === false 才演练。
+    const commit = args?.commit !== false
+    const root = await resolveRoot(agent)
+    const outRel = `temp/cardfix_${field}_${Date.now()}.json`
+    const argv = buildCardFixArgv(ids, field, commit, outRel)
+    // opts.llm = args：单次 llmModel/llmProfile 覆盖 Config 默认（run() 注入 env）。
+    const r = await run(root, argv, { timeoutMs: 20 * 60_000, signal, llm: mergeLlm(defaultLlm, args) })
+    const out = tail(combineOutput(r.stdout, r.stderr), 8000)
+    // 读回 --out 的 JSON（形状 [{noteId, sentence, AINote, SentenceHTML}]）；
+    // 读回失败不整体失败：cards 给空数组，保留 output 供诊断。
+    let cards = []
+    try {
+      const text = await readFile(join(root, outRel), 'utf8')
+      const parsed = extractJson(text)
+      if (Array.isArray(parsed)) {
+        for (const row of parsed) {
+          const value = String(row?.[field === 'html' ? 'SentenceHTML' : 'AINote'] ?? '')
+          cards.push({
+            noteId: Number(row?.noteId),
+            sentence: String(row?.sentence ?? ''),
+            value,
+          })
+        }
+      }
+    } catch {
+      cards = []
+    }
+    return {
+      ok: r.exitCode === 0,
+      root,
+      field,
+      commit,
+      noteIds: ids,
+      outPath: outRel,
+      exitCode: r.exitCode,
+      timedOut: r.timedOut,
+      durationMs: r.durationMs,
+      cards,
+      verified: commit && r.exitCode === 0 && cards.length > 0
+        && cards.every((c) => String(c.value ?? '').trim() !== ''),
+      output: out,
+      note: commit
+        ? (r.exitCode === 0
+          ? '默认真写：cards.py gen --commit 已写入选中字段并回读（另一字段不动）。'
+          : '真写失败，看 output 定位（未通过的卡不会写）。')
+        : '演练（commit=false）：未加 --commit，没有写 Anki。',
+    }
+  }
+
+  async function wordAudio(args, agent, signal) {
+    const word = typeof args?.word === 'string' ? args.word.trim() : ''
+    if (word === '') {
+      return { ok: false, error: '需要 word（单词名）' }
+    }
+    // Guard against breaking out of the quoted term with a stray quote.
+    if (word.includes('"')) {
+      return { ok: false, error: 'word 不能包含引号（"）' }
+    }
+    const phase = args?.phase === 'apply' ? 'apply' : 'plan'
+    const commit = args?.commit !== false
+    const root = await resolveRoot(agent)
+
+    if (phase === 'plan') {
+      // Anki's `note:` prefix means "has a note" — searching the word form is
+      // a bare quoted term, scoped to the mined-vocabulary deck so example
+      // cards don't pollute the candidate list.
+      const query = `"${word}" deck:"${DECK_MINED}"`
+      // Run both commands in parallel: the human-readable table from
+      // mine_audio.py and the machine-readable noteId list from anki_api.py.
+      const [r, rFind] = await Promise.all([
+        run(
+          root,
+          ['code/execution/mine_audio.py', 'plan', '--query', query],
+          { timeoutMs: 60_000, signal },
+        ),
+        run(
+          root,
+          ['code/common/anki_api.py', 'find', query, '--json'],
+          { timeoutMs: 30_000, signal },
+        ),
+      ])
+      const out = tail(combineOutput(r.stdout, r.stderr), 8000)
+      // mine_audio.py's table lists every note its query hit — including notes
+      // for *other* words that merely contain the queried word (ゴンドラ also
+      // pulls in 漕ぐ/ケンカ cards whose sentences mention it). The find
+      // command below returns those same notes in gather() order, so we align
+      // them by noteId and keep only rows whose Word field equals the query.
+      let noteIds = []
+      if (rFind.exitCode === 0) {
+        const parsed = extractJson(rFind.stdout)
+        if (Array.isArray(parsed)) {
+          noteIds = parsed.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        } else if (parsed && Array.isArray(parsed.ids)) {
+          noteIds = parsed.ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        }
+      }
+      const allRows = parseWordAudioCandidates(out, word)
+      const candidates = []
+      for (let i = 0; i < allRows.length; i += 1) {
+        const noteId = noteIds[i] != null ? noteIds[i] : null
+        if (noteId == null || allRows[i].word === word) {
+          allRows[i].noteId = noteId
+          candidates.push(allRows[i])
+        }
+      }
+
+      // Cache for the apply phase (candidateIndices resolution).
+      wordAudioPlanCache[word] = candidates
+
+      return {
+        ok: r.exitCode === 0,
+        root,
+        phase: 'plan',
+        word,
+        exitCode: r.exitCode,
+        timedOut: r.timedOut,
+        durationMs: r.durationMs,
+        candidates,
+        output: out,
+        note: candidates.length === 0
+          ? '没有匹配到任何卡片，或该词的 Word Audio 字段都已有音频。'
+          : `${candidates.length} 张候选卡；选一张后点「生成/更新」真写。`,
+      }
+    }
+
+    // phase === 'apply'
+    let ids = []
+    if (Array.isArray(args?.noteIds) && args.noteIds.length > 0) {
+      // Agent tool path: real noteIds passed directly.
+      ids = args.noteIds
+        .filter((id) => Number.isInteger(id) && id > 0)
+        .map(String)
+    } else if (Array.isArray(args?.candidateIndices) && args.candidateIndices.length > 0) {
+      // Web panel path: indices into the cached plan's candidates.
+      const cached = wordAudioPlanCache[word]
+      if (!cached || cached.length === 0) {
+        return {
+          ok: false,
+          phase: 'apply',
+          error: '没有该词的 plan 缓存；请先点「查候选卡」。',
+        }
+      }
+      for (const idx of args.candidateIndices) {
+        if (Number.isInteger(idx) && idx >= 0 && idx < cached.length) {
+          const nid = cached[idx].noteId
+          if (nid != null) ids.push(String(nid))
+        }
+      }
+      if (ids.length === 0) {
+        return {
+          ok: false,
+          phase: 'apply',
+          error: '所选候选卡都没有 noteId（plan 时 anki_api.py find 失败）。请重新「查候选卡」。',
+        }
+      }
+    } else {
+      return { ok: false, phase: 'apply', error: '需要 noteIds 或 candidateIndices（至少一个）' }
+    }
+
+    // Deduplicate while preserving order.
+    ids = [...new Set(ids)]
+    // nid:a or nid:b is valid Anki query syntax for multiple notes.
+    const query = ids.map((id) => `nid:${id}`).join(' or ')
+    const argv = ['code/execution/mine_audio.py', 'apply', '--query', query]
+    if (commit) argv.push('--commit')
+    if (args?.force === true) argv.push('--force')
+    const r = await run(root, argv, { timeoutMs: 5 * 60_000, signal })
+    const out = tail(combineOutput(r.stdout, r.stderr), 8000)
+    const verified = /全部通过|回读校验/.test(out) && /非空/.test(out)
+    return {
+      ok: r.exitCode === 0,
+      root,
+      phase: 'apply',
+      word,
+      commit,
+      force: args?.force === true,
+      noteIds: ids,
+      exitCode: r.exitCode,
+      timedOut: r.timedOut,
+      durationMs: r.durationMs,
+      verified,
+      output: out,
+      note: commit
+        ? (r.exitCode === 0
+          ? '已真写：合成 TTS、上传媒体、写 Word Audio 字段并回读。'
+          : '真写失败，看下方输出定位。')
+        : '演练（commit=false）：未加 --commit，没有写 Anki。',
+    }
+  }
+
   return {
     config: { pythonPath, configuredRoot, timeZone, refreshMs },
+    llmDefaults: defaultLlm,
     resolveRoot,
     statusAt,
     doctorAt,
@@ -926,11 +1541,16 @@ export function createRuntime(ctx, config = {}) {
     snapshot,
     contextText,
     addExample,
+    jishoList,
     todayNew,
     vocabCover,
     studyReport,
     reportData,
     browse,
+    llmModels,
+    wordAudio,
+    cardLookup,
+    cardFix,
     monthlyReportInfo,
     readMonthlyReport,
   }

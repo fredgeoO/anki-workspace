@@ -1,9 +1,9 @@
 {
   "name": "@local/anki-workspace",
-  "version": "1.2.2",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "anki-workspace 六项常用能力的 Cordis 插件：状态上下文、Agent 工具与 Web 控制面板",
+  "description": "anki-workspace 常用能力的 Cordis 插件：状态上下文、Agent 工具（含本地模型档位选择）与 Web 控制面板",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

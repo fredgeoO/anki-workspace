@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildAddExampleCalls,
+  buildCardFixArgv,
   buildCoverArgs,
   buildTodayNewArgs,
   crumbsFor,
@@ -10,9 +11,13 @@ import {
   isInside,
   monthKey,
   monthlyReportRelPath,
+  mergeLlm,
+  normalizeLlmModels,
+  normalizeNoteIds,
   normalizeRelPath,
   parseAnkiCheck,
   parseDoctor,
+  parseWordAudioCandidates,
   sortAndCapEntries,
   tail,
   toRelPath,
@@ -93,6 +98,109 @@ test('today-new commits by default and only dry-runs when explicitly told not to
   assert.deepEqual(buildTodayNewArgs({}), { error: '需要 input（字幕文件或作品目录）' })
 })
 
+test('local model choice injects --model / --profile and defaults stay clean', () => {
+  // 默认：不注入任何模型旗标（跟随 local-llm.json + pin_active）。
+  const plain = buildTodayNewArgs({ input: 'a.srt' })
+  assert.equal(plain.argv.includes('--model'), false)
+  assert.equal(plain.argv.includes('--profile'), false)
+
+  // profile：换档位走 --profile（推荐口径）。
+  const prof = buildTodayNewArgs({ input: 'a.srt', llmProfile: 'strata' })
+  assert.equal(prof.argv.includes('--profile'), true)
+  const pIdx = prof.argv.indexOf('--profile')
+  assert.equal(prof.argv[pIdx + 1], 'strata')
+  assert.equal(prof.argv.includes('--model'), false)
+
+  // model：钉住模型 id。
+  const model = buildTodayNewArgs({ input: 'a.srt', llmModel: 'qwen3.8-flash-next-iq3_s_abl' })
+  const mIdx = model.argv.indexOf('--model')
+  assert.ok(mIdx > 0)
+  assert.equal(model.argv[mIdx + 1], 'qwen3.8-flash-next-iq3_s_abl')
+
+  // 'default' 别名与空白值都视为不指定。
+  const alias = buildTodayNewArgs({ input: 'a.srt', llmProfile: ' default ', llmModel: '  ' })
+  assert.equal(alias.argv.includes('--profile'), false)
+  assert.equal(alias.argv.includes('--model'), false)
+
+  // core6000：gen 带旗标，tts/apply 不跑模型所以不带。
+  const chain = buildAddExampleCalls(['--words', '徹夜'], true, { llmProfile: 'ninfer', llmModel: 'x' })
+  assert.equal(chain[0].argv.includes('--profile'), true)
+  assert.equal(chain[0].argv.includes('--model'), true)
+  assert.equal(chain[1].argv.includes('--model'), false)
+  assert.equal(chain[2].argv.includes('--model'), false)
+
+  // mergeLlm：单次覆盖 Config 默认；空值不覆盖。
+  assert.deepEqual(mergeLlm({ llmProfile: 'strata' }, { llmModel: 'a' }), { model: 'a', profile: 'strata' })
+  assert.deepEqual(mergeLlm({ llmProfile: 'strata' }, {}), { model: '', profile: 'strata' })
+})
+
+test('jisho pick/list flags go to gen only, never to tts or apply', () => {
+  const has = (argv, flag) => argv.includes(flag)
+  const valAfter = (argv, flag) => {
+    const i = argv.indexOf(flag)
+    return i === -1 ? null : argv[i + 1]
+  }
+
+  // opts {jishoPick:2}：只有 gen 的 argv 含 --jisho-pick 2，tts/apply 不含。
+  const picked = buildAddExampleCalls(['--words', '徹夜'], true, {}, { jishoPick: 2 })
+  assert.equal(has(picked[0].argv, '--jisho-pick'), true)
+  assert.equal(valAfter(picked[0].argv, '--jisho-pick'), '2')
+  assert.equal(has(picked[1].argv, '--jisho-pick'), false)
+  assert.equal(has(picked[2].argv, '--jisho-pick'), false)
+  assert.equal(has(picked[1].argv, '--list-jisho'), false)
+  assert.equal(has(picked[2].argv, '--list-jisho'), false)
+
+  // opts {listJisho:true}：只有 gen 的 argv 含 --list-jisho。
+  const listed = buildAddExampleCalls(['--words', '徹夜'], true, {}, { listJisho: true })
+  assert.equal(has(listed[0].argv, '--list-jisho'), true)
+  assert.equal(has(listed[1].argv, '--list-jisho'), false)
+  assert.equal(has(listed[2].argv, '--list-jisho'), false)
+  assert.equal(has(listed[1].argv, '--jisho-pick'), false)
+  assert.equal(has(listed[2].argv, '--jisho-pick'), false)
+
+  // 都不传（opts 省略 / 空）：三条 argv 与现状完全一致。
+  const plain = buildAddExampleCalls(['--words', '徹夜'])
+  for (const call of plain) {
+    assert.equal(has(call.argv, '--jisho-pick'), false)
+    assert.equal(has(call.argv, '--list-jisho'), false)
+    assert.equal(has(call.argv, '--jisho-max-len'), false)
+  }
+  assert.equal(plain[0].argv.join(' '), 'code/cli.py core6000 gen --words 徹夜')
+  assert.equal(plain[1].argv.join(' '), 'code/cli.py core6000 tts --words 徹夜')
+  assert.equal(plain[2].argv.join(' '), 'code/cli.py core6000 apply --words 徹夜 --commit')
+
+  // opts {jishoMaxLen:20}：只有 gen 的 argv 含 --jisho-max-len 20，tts/apply 不含。
+  const maxed = buildAddExampleCalls(['--words', '徹夜'], true, {}, { jishoMaxLen: 20 })
+  assert.equal(has(maxed[0].argv, '--jisho-max-len'), true)
+  assert.equal(valAfter(maxed[0].argv, '--jisho-max-len'), '20')
+  assert.equal(has(maxed[1].argv, '--jisho-max-len'), false)
+  assert.equal(has(maxed[2].argv, '--jisho-max-len'), false)
+  assert.equal(has(maxed[1].argv, '--jisho-pick'), false)
+  assert.equal(has(maxed[2].argv, '--jisho-pick'), false)
+
+  // 非正整数的 jishoMaxLen（0 / 负数 / 小数 / 字符串）一律不注入。
+  for (const bad of [0, -1, 1.5, '20']) {
+    const c = buildAddExampleCalls(['--words', '徹夜'], true, {}, { jishoMaxLen: bad })
+    assert.equal(has(c[0].argv, '--jisho-max-len'), false, `jishoMaxLen=${JSON.stringify(bad)} 不该注入`)
+  }
+})
+
+test('normalizeLlmModels keeps display fields and drops junk', () => {
+  const value = normalizeLlmModels({
+    endpoint: { base_url: 'http://127.0.0.1:8080/v1', active_model: 'm-active' },
+    models: [{ id: 'm-a', context_window: 131072 }, { id: '' }, null],
+    profiles: [{ name: '', model: 'top', base_url: 'u', context_window: 0 }, { name: 'strata', model: 's' }],
+    error: null,
+  })
+  assert.equal(value.ok, true)
+  assert.equal(value.baseUrl, 'http://127.0.0.1:8080/v1')
+  assert.equal(value.activeModel, 'm-active')
+  assert.deepEqual(value.models, [{ id: 'm-a', contextWindow: 131072 }])
+  assert.deepEqual(value.profiles[0], { name: '', model: 'top', baseUrl: 'u', contextWindow: null })
+  assert.equal(value.endpointError, null)
+  assert.equal(normalizeLlmModels(null).ok, false)
+})
+
 test('vocab cover resolves relative paths and always asks for JSON', () => {
   const root = 'C:/work/anki-workspace'
   const built = buildCoverArgs(root, { paths: ['subtitles/a.srt'], top: 20 })
@@ -167,4 +275,74 @@ test('picker crumbs walk from the workspace root to the current folder', () => {
     { name: 'subtitles', path: 'subtitles' },
     { name: '作品', path: 'subtitles/作品' },
   ])
+})
+
+test('normalizeNoteIds handles commas, spaces, full-width commas, dupes and junk', () => {
+  // 逗号 / 空格 / 中文逗号混合分隔，去重且保持出现顺序。
+  assert.deepEqual(normalizeNoteIds('123,456'), [123, 456])
+  assert.deepEqual(normalizeNoteIds('123 456  789'), [123, 456, 789])
+  assert.deepEqual(normalizeNoteIds('123，456，123'), [123, 456])
+  assert.deepEqual(normalizeNoteIds(' 123 , 456 '), [123, 456])
+  // 非法值（非数字 / 负数 / 0）直接丢弃；全非法或空 → 空数组。
+  assert.deepEqual(normalizeNoteIds('123,abc,-5,0,456'), [123, 456])
+  assert.deepEqual(normalizeNoteIds('abc,, '), [])
+  assert.deepEqual(normalizeNoteIds(''), [])
+  assert.deepEqual(normalizeNoteIds(undefined), [])
+  // 数组入参（工具传 noteIds 数组）也能吃。
+  assert.deepEqual(normalizeNoteIds([123, '456', 123]), [123, 456])
+})
+
+test('buildCardFixArgv pins the fixed cards.py gen command', () => {
+  // commit=true：带 --overwrite 与 --commit（默认真写口径）。
+  const write = buildCardFixArgv([123, 456], 'html', true, 'temp/cardfix_html_1.json')
+  assert.deepEqual(write, [
+    'code/execution/cards.py', 'gen', '--note-id', '123,456',
+    '--only', 'html', '--out', 'temp/cardfix_html_1.json',
+    '--overwrite', '--commit',
+  ])
+  // commit=false（演练）：只去掉 --commit；--overwrite 必须保留，否则已有内容的卡
+  // 会被 cards.py 直接跳过，演练拿不到任何可预览结果。
+  const dry = buildCardFixArgv([123], 'ainote', false, 'temp/cardfix_ainote_2.json')
+  assert.equal(dry.includes('--commit'), false)
+  assert.equal(dry.includes('--overwrite'), true)
+  assert.deepEqual(dry, [
+    'code/execution/cards.py', 'gen', '--note-id', '123',
+    '--only', 'ainote', '--out', 'temp/cardfix_ainote_2.json',
+    '--overwrite',
+  ])
+})
+
+test('parseWordAudioCandidates reads mine_audio.py plan table rows', () => {
+  // Byte-for-byte output of mine_audio.py cmd_plan's `%-10s %-8s %-26s %-26s %s`
+  // rows (Python pads by code point, JS padEnd by UTF-16 unit — so hard-code).
+  const sample = [
+    '范围："ゴンドラ" deck:"0-日本语学习::0-词汇::0-素材生词"',
+    '新牌组 3 张   媒体库 80017 个文件',
+    '',
+    '词          读音       Word Audio                 Sentence Audio             这次怎么办',
+    '-'.repeat(100),
+    'ゴンドラ       ごんどら     （空）                       [sound:asbp_a_01.sr_2.mp3] 不动',
+    '漕ぐ         こぐ       （空）                       [sound:asbp_a_01.sr_2.mp3] 不动',
+    'ゴンドラ       ごんどら     [sound:mine-ゴンドラ-f4.mp3]   （空）                        生成 词TTS+句',
+    '',
+    'Sentence Audio：保留已有 2 张 / 需生成 1 张（原声 0、TTS 兜底 1）',
+    'Word Audio   ：保留已有 2 张 / 需生成 1 张（TTS ja-JP-NanamiNeural）',
+  ].join('\n')
+  const rows = parseWordAudioCandidates(sample, 'ゴンドラ')
+  // Every table row is kept (including the 漕ぐ row) so callers can align
+  // rows 1:1 with find's noteIds before filtering.
+  assert.equal(rows.length, 3)
+  assert.deepEqual(
+    rows.map((r) => [r.word, r.reading, r.wordAudioEmpty, r.sentenceAudioEmpty]),
+    [
+      ['ゴンドラ', 'ごんどら', true, false],
+      ['漕ぐ', 'こぐ', true, false],
+      ['ゴンドラ', 'ごんどら', false, true],
+    ],
+  )
+  assert.equal(rows[2].wordAudio, 'mine-ゴンドラ-f4.mp3')
+  assert.equal(rows[2].action, '生成 词TTS+句')
+  // Rows for unrelated words are still parsed (alignment with find's noteIds);
+  // header / separator / summary lines never leak in as candidates.
+  assert.equal(parseWordAudioCandidates(sample, 'ケンカ').length, 3)
 })

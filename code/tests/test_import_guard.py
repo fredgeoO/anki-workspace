@@ -32,8 +32,10 @@ import textio  # noqa: E402  UTF-8 stdio 唯一入口（common）
 
 #: 允许的流程依赖：(借方文件, 被借脚本) -> 属性集合。多一个就算回归。
 ALLOWED = {
-    # 生成循环 / 提示词：走模型与落盘，是流程本身
-    ("cards.py", "pipeline"): {"gen_loop"},
+    # 生成循环 / 提示词：走模型与落盘，是流程本身。
+    # cards.py 的 `--only html` 要逐张发一次请求（不能走按 AINote 判失败的
+    # gen_loop），所以额外借 gen_request；提示词仍是 pipeline 的 LOCAL_INSTRUCTION。
+    ("cards.py", "pipeline"): {"gen_loop", "gen_request"},
     ("immersionkit.py", "reposition"): {"reposition"},
     # 已知词判据 / Jiten 排名口径：要查库或读词表，留在执行层
     ("immersionkit.py", "mine"): {"JITEN_NO_RANK", "jiten_rank", "load_jiten_index",

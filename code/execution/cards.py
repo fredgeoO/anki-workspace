@@ -142,18 +142,27 @@ def note_card(note):
     }
 
 
-def filled_fields(card):
-    """已经非空的目标字段（默认跳过 / 拒绝覆盖；--overwrite 才重做）。"""
+def target_fields(only):
+    """`--only` → 选中的目标字段（both = 两个都做，默认）。"""
+    if only == 'ainote':
+        return (F_NOTE,)
+    if only == 'html':
+        return (F_HTML,)
+    return (F_NOTE, F_HTML)
+
+
+def filled_fields(card, only='both'):
+    """选中字段里已经非空的那些（默认跳过 / 拒绝覆盖；--overwrite 才重做）。"""
     out = []
-    if (card.get('old_ainote') or '').strip():
-        out.append(F_NOTE)
-    if (card.get('old_html') or '').strip():
-        out.append(F_HTML)
+    for f in target_fields(only):
+        key = 'old_ainote' if f == F_NOTE else 'old_html'
+        if (card.get(key) or '').strip():
+            out.append(f)
     return out
 
 
-def filled(card):
-    return bool(filled_fields(card))
+def filled(card, only='both'):
+    return bool(filled_fields(card, only))
 
 
 # ============================================================================
@@ -228,22 +237,35 @@ def build_lexicon(cards, a):
 # ============================================================================
 # 生成结果 → 最终记录
 # ============================================================================
-def finalize(card, ainote, html, lex):
+def finalize(card, ainote, html, lex, only='both'):
     """`(记录, 状态, 问题, repair 信息)`；状态 ∈ ok / skipped / bad。
 
     关键：`Sentence HTML` 一律过 `ruby_engine.repair(mode='fix')`。
     `mode='fix'` 让**权威读音**（例外表/字幕注音/本 deck）优先于模型给的读法；
-    两个字段都空 = 模型判定"讲不了"，按规范有意跳过，不写库。
+    **选中的字段**都空 = 模型判定"讲不了"，按规范有意跳过，不写库。
+    闸门按 `check_cards.split_hard` 拆成两侧，只汇总选中字段那一侧的硬性问题：
+    `--only html` 时 AINote 为空不算失败（HTML 是这次唯一要写的东西）。
     """
     ainote = OUT.as_text(ainote)
     html = OUT.as_text(html)
-    if not ainote and not html.strip():
+    selected = target_fields(only)
+    if not any(((ainote if f == F_NOTE else html).strip()) for f in selected):
         return ({'noteId': card['noteId'], 'sentence': card['sentence'],
                  'AINote': '', 'SentenceHTML': ''}, 'skipped', [], {})
     new_html, info = RE.repair(card['sentence'], html, lex, mode='fix')
     rec = {'noteId': card['noteId'], 'sentence': card['sentence'],
            'AINote': ainote, 'SentenceHTML': new_html}
-    hard, _soft = CC.check(rec)
+    # check_cards.split_hard 在 AINote 为空时只查 HTML 的非法字符就提前返回，
+    # 不会再查逐字一致 / 漏 ruby / <br> 数。`--only html` 恰恰允许 AINote 为空，
+    # 这里给闸门塞一份合法的占位 AINote，让 HTML 侧走完整校验（占位那一侧的
+    # 问题本来就会被 only 过滤掉）。
+    probe = rec
+    if only == 'html' and not ainote.strip():
+        probe = dict(rec, AINote='<p><b>中文翻译：</b>占位</p>'
+                                '<p><b>核心词汇：</b>占位</p>')
+    ai_hard, html_hard, _soft = CC.split_hard(probe)
+    hard = ([p for p in (ai_hard if F_NOTE in selected else [])
+                   + (html_hard if F_HTML in selected else [])])
     return rec, ('bad' if hard else 'ok'), hard, info
 
 
@@ -251,7 +273,7 @@ def finalize(card, ainote, html, lex):
 # 写库
 # ============================================================================
 def commit(records, a):
-    """只写 AINote / Sentence HTML；返回回读不一致的 `{noteId: [字段]}`。"""
+    """只写选中字段（`--only`，默认两个都写）；返回回读不一致的 `{noteId: [字段]}`。"""
     if not records:
         print('没有可写入的卡。')
         return {}
@@ -260,23 +282,29 @@ def commit(records, a):
         raise SystemExit('这些卡是草稿（没有真实 noteId），不能写库：%s'
                          % '、'.join(map(str, no_id[:10])))
 
+    selected = target_fields(getattr(a, 'only', 'both'))
     ids = [int(r['noteId']) for r in records]
-    live = AK.note_values(ids, names=[F_NOTE, F_HTML])
+    live = AK.note_values(ids, names=list(selected))
     missing = [i for i in ids if i not in live]
     if missing:
         raise SystemExit('这些 noteId 在 Anki 里不存在：%s'
                          % '、'.join(map(str, missing)))
     clash = [i for i in ids
-             if not a.overwrite and ((live[i].get(F_NOTE) or '').strip()
-                                     or (live[i].get(F_HTML) or '').strip())]
+             if not a.overwrite and any((live[i].get(f) or '').strip() for f in selected)]
     if clash:
         detail = '、'.join('%s(%s)' % (i, '/'.join(
-            [k for k in (F_NOTE, F_HTML) if (live[i].get(k) or '').strip()]))
+            [k for k in selected if (live[i].get(k) or '').strip()]))
             for i in clash[:10])
         raise SystemExit('这些卡的目标字段已有内容，拒绝覆盖（加 --overwrite）：%s' % detail)
 
-    want = {int(r['noteId']): {'AINote': r['AINote'],
-                               'Sentence HTML': r['SentenceHTML']} for r in records}
+    want = {}
+    for r in records:
+        fields = {}
+        if F_NOTE in selected:
+            fields['AINote'] = r['AINote']
+        if F_HTML in selected:
+            fields['Sentence HTML'] = r['SentenceHTML']
+        want[int(r['noteId'])] = fields
     rep = WB.write_fields(want, commit=True, label='cards')
     return rep['bad']
 
@@ -284,8 +312,9 @@ def commit(records, a):
 # ============================================================================
 # 汇报
 # ============================================================================
-def show(rec, status, problems, info, quiet=False):
+def show(rec, status, problems, info, quiet=False, only='both'):
     nid = rec['noteId']
+    selected = target_fields(only)
     print()
     print('=' * 72)
     print('noteId %s' % nid)
@@ -299,10 +328,12 @@ def show(rec, status, problems, info, quiet=False):
     if not quiet:
         print('【Sentence】')
         print(rec['sentence'])
-        print('【AINote】')
-        print(rec['AINote'])
-        print('【Sentence HTML】')
-        print(rec['SentenceHTML'])
+        if F_NOTE in selected:
+            print('【AINote】')
+            print(rec['AINote'])
+        if F_HTML in selected:
+            print('【Sentence HTML】')
+            print(rec['SentenceHTML'])
     if status == 'bad':
         print('【未通过】')
         for p in problems:
@@ -336,7 +367,8 @@ def finish(a, cards, made, records, label, t0):
             bad.append((rec, problems, info))
         show(rec or {'noteId': nid, 'sentence': card['sentence'],
                      'AINote': '', 'SentenceHTML': ''},
-             status, problems if status == 'bad' else [], info, a.quiet)
+             status, problems if status == 'bad' else [], info, a.quiet,
+             getattr(a, 'only', 'both'))
 
     if a.out:
         rows = [records.get(c['noteId'])
@@ -359,13 +391,43 @@ def finish(a, cards, made, records, label, t0):
             print('有 %d 张未通过：只写合格的卡（未通过的不写，修好后重跑）。' % len(bad))
         mism = commit(ok, a)
     elif ok:
-        print('演练：未写库。加 --commit 写这两个字段（已有内容会被拒绝，需 --overwrite）。')
+        target = ('两个字段' if a.only == 'both'
+                  else ('AINote' if a.only == 'ainote' else 'Sentence HTML'))
+        print('演练：未写库。加 --commit 写 %s（已有内容会被拒绝，需 --overwrite）。'
+              % target)
     return 1 if (bad or mism) else 0
 
 
 # ============================================================================
 # gen：本地模型生成
 # ============================================================================
+def gen_html(cards, cfg, a, LLM):
+    """`--only html` 专用：逐张请求，**只要求模型返回了这张卡**。
+
+    不走 `PL.gen_loop`——它按 AINote 判失败，会把已经能用的 HTML 一起丢掉。
+    提示词仍是同一个 `LOCAL_INSTRUCTION`（`gen_request` 内部引用），不新增。
+    返回值与 `gen_loop` 同形：(done, failed, (请求数, prompt_tokens, completion_tokens))。
+    """
+    done, failed = {}, {}
+    req = tp = tc = 0
+    for card in cards:
+        nid = int(card['noteId'])
+        try:
+            got, res = PL.gen_request(cfg, LLM, [card])
+        except Exception as e:
+            failed[nid] = '请求/解析异常：%s: %s' % (type(e).__name__, e)
+            continue
+        req += 1
+        tp += res.prompt_tokens
+        tc += res.completion_tokens
+        v = got.get(nid)
+        if v is None:
+            failed[nid] = '模型没有返回这张卡'
+            continue
+        done[nid] = v
+    return done, failed, (req, tp, tc)
+
+
 def cmd_gen(a):
     t0 = time.time()
     if a.per_request < 1:
@@ -373,13 +435,13 @@ def cmd_gen(a):
     cards, label = select_cards(a)
     print('范围：%s ｜ %d 张' % (label, len(cards)))
 
-    skip = [c for c in cards if filled(c) and not a.overwrite]
+    skip = [c for c in cards if filled(c, a.only) and not a.overwrite]
     skip_ids = {id(c) for c in skip}
     todo = [c for c in cards if id(c) not in skip_ids]
     if skip:
         print('已有内容跳过 %d 张（%s；--overwrite 可重做）'
               % (len(skip), '、'.join(
-                  '%s[%s]' % (c['noteId'], '+'.join(filled_fields(c))) for c in skip[:8])))
+                  '%s[%s]' % (c['noteId'], '+'.join(filled_fields(c, a.only))) for c in skip[:8])))
     if not todo:
         print('没有要生成的卡。')
         return 0
@@ -389,8 +451,12 @@ def cmd_gen(a):
     cfg = LLM.load_config()
     print('本地模型：%s @ %s（每请求 %d 张，重问 %d 轮）'
           % (cfg['model'], cfg['base_url'], a.per_request, a.retries))
-    ns = argparse.Namespace(per_request=a.per_request, retries=a.retries)
-    done, failed, stat = PL.gen_loop(ns, cfg, LLM, todo, 0, tag='')
+    if a.only == 'html':
+        # 只重做 HTML：不能用 gen_loop（它按 AINote 判失败，会丢掉 HTML）。
+        done, failed, stat = gen_html(todo, cfg, a, LLM)
+    else:
+        ns = argparse.Namespace(per_request=a.per_request, retries=a.retries)
+        done, failed, stat = PL.gen_loop(ns, cfg, LLM, todo, 0, tag='')
     print('本地模型结束：%d 次请求，prompt %d + completion %d tokens，耗时 %.0fs'
           % (stat[0], stat[1], stat[2], time.time() - t0))
 
@@ -401,7 +467,8 @@ def cmd_gen(a):
         if got is None:
             made[card['noteId']] = ('bad', [failed.get(card['noteId'], '模型没有返回这张卡')], {})
             continue
-        rec, status, problems, info = finalize(card, got['AINote'], got['SentenceHTML'], lex)
+        rec, status, problems, info = finalize(
+            card, got['AINote'], got['SentenceHTML'], lex, a.only)
         records[card['noteId']] = rec
         made[card['noteId']] = (status, problems, info)
     # 已有内容被跳过的卡不参与 / 也不会进 --out，避免拿旧值误覆盖
@@ -427,7 +494,7 @@ def cmd_write(a):
         raise SystemExit('这些 noteId 在 Anki 里不存在：%s'
                          % '、'.join(map(str, missing)))
     cards = [note_card(notes[i]) for i in ids]
-    todo = [c for c in cards if not filled(c) or a.overwrite]
+    todo = [c for c in cards if not filled(c, a.only) or a.overwrite]
     if len(todo) < len(cards):
         print('已有内容跳过 %d 张（--overwrite 可覆盖）' % (len(cards) - len(todo)))
     if not todo:
@@ -440,7 +507,7 @@ def cmd_write(a):
         row = by_id[card['noteId']]
         rec, status, problems, info = finalize(
             card, text_field(row, 'AINote', 'AI_Note'),
-            text_field(row, 'SentenceHTML', 'Sentence HTML'), lex)
+            text_field(row, 'SentenceHTML', 'Sentence HTML'), lex, a.only)
         records[card['noteId']] = rec
         made[card['noteId']] = (status, problems, info)
     return finish(a, todo, made, records, '文件 %s（%d 张）' % (a.file, len(todo)), t0)
@@ -459,6 +526,8 @@ def add_common(p, commit_help):
     p.add_argument('--lexicon', default=DECK, help='本 deck 读音词典的查询（默认例句 deck）')
     p.add_argument('--no-deck-lexicon', action='store_true',
                    help='不读本 deck 的已有读音（离线 / 提速）')
+    p.add_argument('--only', choices=('both', 'ainote', 'html'), default='both',
+                   help='只生成/写入这个字段（both=两个都做，默认）')
 
 
 def build_parser():
