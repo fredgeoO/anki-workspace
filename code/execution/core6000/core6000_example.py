@@ -415,7 +415,8 @@ def analyze_note(note):
 
     sent_blocks = split_blocks(sent_field)
     n_sent = len(sent_blocks)
-    html_blocks = split_sentence_html(html_field, n_sent) if 1 <= n_sent <= 2 else None
+    html_blocks = (split_sentence_html(html_field, n_sent, sent_blocks)
+                   if 1 <= n_sent <= 2 else None)
     sections, layout, outer_open = parse_sections(ainote)
     known, unknown = section_map(sections)
     flat_note = flatten(ainote)
@@ -1279,14 +1280,14 @@ def parse_response(raw, note_id):
 # 闸门 6-9（判写库前的现场状态）。名字全部保持原样，调用方与测试不用改。
 from core6000_jisho import (  # noqa: E402,F401
     kana_conjugations, target_forms, load_jisho, jisho_cache_path, jisho_fetch,
-    jisho_similarity, word_written_form, pick_jisho)
+    filter_by_max_len, jisho_similarity, word_written_form, pick_jisho)
 from core6000_gates import (  # noqa: E402,F401
     check_sentence_ruby, check_sentence2_ruby, kana_norm, word_reading_in_ruby,
     target_word_warnings, gate_gen)
 from core6000_render import (  # noqa: E402,F401
     render_sentences, render_sentence_html, render_translation, tts_filename,
     render_audio, both, split_merged_body, section_body_html, render_section_item,
-    render_ainote, field_defects, render_card)
+    render_ainote, field_defects, render_card, sentence_html_problems)
 
 # 渲染要的两个「判据」在巨石这边：字段名/触碰清单是流程口径，section_map 属板块解析。
 # 注入走模块属性（单向依赖，不循环）；render 里的默认值只在单独 import 时兜底。
@@ -1319,10 +1320,9 @@ def gate_apply(card, entry, rendered, write=None):
         p.extend(check_sentence2_ruby(card, entry))
     if F_SENT in write and count_blocks(f[F_SENT]) != 2:
         p.append('闸门6：Sentence 渲染后 %d 块（要求 2）' % count_blocks(f[F_SENT]))
-    if F_HTML in write and count_blocks(f[F_HTML], RE_BR1) != 2:
-        # Sentence HTML 的多句分隔是**单个** `<br>`（commit 664299b8，2026-10-30；库里 2065 张
-        # 双句卡全是这个口径）。`Sentence` / `Sentence Translation` 仍是 `<br><br>`。
-        p.append('闸门6：Sentence HTML 渲染后 %d 块（要求 2）' % count_blocks(f[F_HTML], RE_BR1))
+    if F_HTML in write:
+        # 不能按 `<br>` 数块：原句/新句内部可以有字幕换行（详见 sentence_html_problems）。
+        p.extend(sentence_html_problems(card, entry, f[F_HTML]))
     if F_AUDIO in write and len(AN.sounds_of(f[F_AUDIO])) != 2:
         p.append('闸门6：Sentence Audio 有 %d 个 [sound:]（要求 2）'
                  % len(AN.sounds_of(f[F_AUDIO])))
@@ -1382,6 +1382,27 @@ def read_out(note_id):
         return None
     entry = (obj.get('entries') or {}).get(str(note_id))
     return norm_entry(entry) if isinstance(entry, dict) else None
+
+
+def jisho_pick_matches_existing(card, args, entry):
+    """显式 ``--jisho-pick N`` 与已有合格产出是不是同一条 Jisho 句子。
+
+    **手动选句优先**：缓存里已经有一份合格产出时，`gen` 默认会跳过；但如果用户
+    这次明确选了第 N 条候选，而旧产出用的是另一条句子，就必须重新生成，不能让
+    「已有产出」把人的选择压掉。没有 `--jisho-pick`（自动挑选）或卡片已有两句时
+    返回 True（保持原来的跳过口径）。
+    """
+    pick_n = getattr(args, 'jisho_pick', 0) or 0
+    if pick_n <= 0 or card['n_sent'] != 1:
+        return True
+    obj = read_json(gen_paths(card['id'])['out']) or {}
+    src = obj.get('sentence_source')
+    old = flatten((src.get('jp') if isinstance(src, dict) else '')
+                  or (entry or {}).get('new_sentence') or '')
+    cands, _why = jisho_fetch(card, args)
+    if not cands or pick_n > len(cands):
+        return False                     # 让 gen_one 去报「越界 / 零候选」的明确原因
+    return old == flatten(cands[pick_n - 1].get('jp') or '')
 
 
 def pin_sentence_source(entry, pick):
@@ -1477,6 +1498,32 @@ def gen_one(card, system_prompt, cfg, args, scopes=None):
     return None, warn, problems, rows, raw
 
 
+def print_jisho_candidates(card, args):
+    """``--list-jisho`` 用：打印这张卡的 Jisho 候选清单（编号、字数、来源、句子原文）。
+
+    走 ``jisho_fetch``（缓存没有才现抓一页，遵守 crawl-delay），**不调模型、不落 out**。
+    返回 ``(n_listed, n_skipped, n_failed)``。
+    """
+    if card['n_sent'] != 1:
+        print('%s（%d）已有 %d 句 —— 不需要新句，跳过'
+              % (card['word'], card['id'], card['n_sent']))
+        return 0, 1, 0
+    cands, why = jisho_fetch(card, args)
+    if not cands:
+        print('❌ %s（%d）没有可用的 Jisho 候选：%s' % (card['word'], card['id'],
+                                                      why or '未知原因'))
+        return 0, 0, 1
+    print('%s（%d）的 Jisho 候选 %d 条（gen --jisho-pick N 按这个编号挑）：'
+          % (card['word'], card['id'], len(cands)))
+    for i, c in enumerate(cands, 1):
+        jp = c.get('jp') or ''
+        src = c.get('source') or '?'
+        flag = '' if c.get('ruby_ok') else '  ⚠️ 振假名不合格'
+        print('  - %d. [%d字 ｜ %s]%s %s'
+              % (i, len(RE_WS.sub('', jp)), src, flag, one_line(jp, 80)))
+    return len(cands), 0, 0
+
+
 def cmd_gen(args):
     date = dt.date.today().isoformat()
     if getattr(args, 'per_batch', 1) not in (0, 1):
@@ -1488,7 +1535,7 @@ def cmd_gen(args):
     if not cfg['api_key']:
         print('提示：没找到 api key（--api-key / $env:DSH_LOCAL_LLM_API_KEY / %s）。'
               '端点不校验就无所谓。' % LC.LLM_GLOBAL_CONFIG_FILE, file=sys.stderr)
-    system_prompt = load_system_prompt(args.system_prompt)
+    print('本地模型：%s @ %s' % (cfg['model'], cfg['base_url']))
     cards, sel = select_cards(args)
     force = bool(getattr(args, 'force', False))
     work, already, blocked, states = pick_work(cards, sel, force, capabilities(getattr(args, 'system_prompt', None)))
@@ -1496,10 +1543,23 @@ def cmd_gen(args):
     os.makedirs(AUDIO_DIR, exist_ok=True)
     write_json(STATE_FILE, build_state(date, cards, states, sel))
     write_json(plan_path(date), build_plan(date, sel, work, args, cfg))
-    print('本地模型：%s @ %s' % (cfg['model'], cfg['base_url']))
-    print('系统提示词：%s（%d 字）' % (os.path.abspath(args.system_prompt or PROMPT_FILE),
-                                     len(system_prompt)))
     print_pick(cards, work, already, blocked, sel)
+    if getattr(args, 'list_jisho', False):
+        # 只列候选：读缓存（没有才现抓一页），不调模型、不落 out。
+        total = listed = skipped = failed = 0
+        for card in cards:
+            n, sk, fl = print_jisho_candidates(card, args)
+            total += n
+            listed += n > 0
+            skipped += sk
+            failed += fl
+        print()
+        print('--list-jisho 结束：%d 张卡列出 %d 条候选（跳过 %d 张已有新句，失败 %d 张）。'
+              % (len(cards), total, skipped, failed))
+        return 0
+    system_prompt = load_system_prompt(args.system_prompt)
+    print('系统提示词：%s（%d 字）' % (os.path.abspath(args.system_prompt or PROMPT_FILE),
+                                      len(system_prompt)))
     if not work:
         print()
         print('没有待做的卡（都 already_ok 或修不了）；没有调模型。')
@@ -1515,9 +1575,12 @@ def cmd_gen(args):
         if not args.restart:
             entry = read_out(card['id'])
             if entry:
-                print('  ↩︎ [%d/%d] %s 已有合格产出，跳过' % (i, len(work), card['word']))
-                done.append(card['id'])
-                continue
+                if jisho_pick_matches_existing(card, args, entry):
+                    print('  ↩︎ [%d/%d] %s 已有合格产出，跳过' % (i, len(work), card['word']))
+                    done.append(card['id'])
+                    continue
+                print('  ↻ [%d/%d] %s 手动指定的 Jisho 候选与已有产出不同，重新生成'
+                      % (i, len(work), card['word']))
             prev = read_json(paths['out']) or {}
             if (prev.get('gate') or {}).get('problems'):
                 print('  ↻ 上次不合格（%s），本次重试'
@@ -1552,6 +1615,8 @@ def cmd_gen(args):
             continue
         write_json(paths['out'], {'noteId': card['id'], 'date': date, 'model': cfg['model'],
                                   'entries': {str(card['id']): entry},
+                                  'sentence_source': (read_json(paths['in']) or {}).get(
+                                      'sentence_source') or {},
                                   'gate': {'ok': True, 'problems': [], 'warnings': warn}})
         if warn:
             warns_out.append((card['id'], card['word'], warn))
@@ -2141,6 +2206,17 @@ def add_jisho_args(sp):
     sp.add_argument('--jisho-timeout', type=float, default=30.0, help='Jisho HTTP 超时秒数')
     sp.add_argument('--no-dict', action='store_true',
                     help='振假名渲染时不拿 JMdict 否决 Jisho 被截断的读音')
+    sp.add_argument('--list-jisho', action='store_true',
+                    help='只列出选中卡的 Jisho 候选清单（编号、字数、来源、句子原文），'
+                         '不调模型、不落 out；缓存没有的词会现抓一页')
+    sp.add_argument('--jisho-pick', type=int, default=0,
+                    help='用第 N 条 Jisho 候选（1 起，编号与 --list-jisho 一致）；'
+                         '手动选择优先：不再被「与第一句太像」拦下，振假名/含目标词仍校验；'
+                         '越界或不合格明确报错（不退回自动挑选）。默认 0 = 自动挑选')
+    sp.add_argument('--jisho-max-len', type=int, default=None,
+                    help='只保留去空白后 ≤N 字的 Jisho 候选（仍受下限 6 字约束）；'
+                         '影响 --list-jisho 的清单和自动/--jisho-pick 的选句范围。'
+                         '默认 None = 不启用')
     return sp
 
 

@@ -166,11 +166,14 @@ def block_ruby_ok(block):
     return (not block_needs_ruby(block)) or ruby_covers(block)
 
 
-def split_sentence_html(html, n):
+def split_sentence_html(html, n, sentences=None):
     """把 `Sentence HTML` 切成 n 块（逐块去外壳，返回内层 HTML）。
 
     依次试 `<br><br>` / `</p><p>` / 单个 `<br>`，取块数正好等于 n 的那一种；
-    都不等 → None（= 不可用，走模型值）。
+    都不等 → 若给了 ``sentences``（`Sentence` 字段的 n 块正文），按正文边界
+    重新分组：内部带字幕换行 `<br>` 的句子会占多个片段，累计到与第 i 句正文
+    逐字相等为止。这样「原句内部有换行」不会被误当成第三句。
+    仍然切不出 → None（= 不可用，走模型值）。
     """
     s = clean_malformed_ruby(html or '')
     if not flatten(s):
@@ -181,7 +184,31 @@ def split_sentence_html(html, n):
         parts = [x for x in parts if flatten(x)]
         if len(parts) == n:
             return parts
-    return None
+    if not sentences or len(sentences) != n or n < 2:
+        return None
+    # 简单分隔切出的块数多于句数：用已知的每句正文当边界重新分组。
+    parts = [strip_outer_wrappers(x) for x in RE_BR1.split(core)]
+    parts = [x for x in parts if flatten(x)]
+    if len(parts) <= n:
+        return None
+    blocks, idx = [], 0
+    for want in sentences[:-1]:
+        target = flatten(want)
+        if not target:
+            return None
+        acc = []
+        while idx < len(parts):
+            acc.append(parts[idx])
+            idx += 1
+            if flatten('<br>'.join(acc)) == target:
+                break
+        else:
+            return None
+        if flatten('<br>'.join(acc)) != target or idx >= len(parts):
+            return None
+        blocks.append('<br>'.join(acc))
+    blocks.append('<br>'.join(parts[idx:]))
+    return blocks if len(blocks) == n else None
 
 
 def split_blocks(text):

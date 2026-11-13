@@ -82,6 +82,9 @@ $EXE = "$WS\code\execution\core6000"
 | `--refresh-jisho` | 忽略 `data/core6000/jisho/<noteId>.json`，重新抓 Jisho 一页（换掉了缓存才用） |
 | `--jisho-timeout` | Jisho HTTP 超时秒数（默认 30） |
 | `--no-dict` | 振假名渲染时不拿 JMdict 否决 Jisho 被截断的读音（一般不用） |
+| `--list-jisho` | 只列出选中卡的 Jisho 候选清单（编号/字数/来源/句子），不调模型、不落 out；配合 `--jisho-pick` 使用：先 list 看编号，再 pick 指定 |
+| `--jisho-pick N` | 用第 N 条 Jisho 候选（1 起，编号与 `--list-jisho` 一致）；**手动选择优先**：不再被「与第一句太像」拦下，振假名结构 / 真含目标词仍校验；已有合格产出若用的是别的句子会重新生成；越界或不合格会明确报错、**绝不退回自动挑选**。省略（默认 0）= 自动挑选 |
+| `--jisho-max-len N` | 只保留去空白后 ≤N 字的 Jisho 候选（仍受下限 6 字约束）；影响 `--list-jisho` 的清单和自动/`--jisho-pick` 的选句范围。默认不启用 |
 | `--allow-model-sentence` | ★ 降级开关：Jisho 零候选时允许退回模型造句。**默认关；要用先问用户** |
 
 ### 3.3 「只针对我记不住的」入口：直接吃今天/近几天的弱项

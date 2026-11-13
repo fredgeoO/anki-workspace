@@ -49,9 +49,22 @@ def card(word='思い込む', reading='おもいこむ', first='彼はだまさ�
 
 
 def with_candidates(cands, why=''):
-    """把 jisho_fetch 换成固定候选（不联网）。"""
+    """把 jisho_fetch 换成固定候选（不联网）。
+
+    带上 ``apply_max_len=True`` 时，fake 会像真身一样对候选跑一遍
+    ``filter_by_max_len``（--jisho-max-len 的过滤发生在 jisho_fetch 内部）：
+    这样「过滤后零候选 → (None, why 含 max-len)」这条路径才测得到。
+    """
     def fake(card_arg, args):
-        return list(cands), why
+        out = list(cands)
+        if getattr(args, 'apply_max_len', False):
+            n_max = getattr(args, 'jisho_max_len', None)
+            kept = CX.filter_by_max_len(out, n_max)
+            if not kept and out:
+                return [], ('Jisho 有 %d 条候选，--jisho-max-len %s 过滤后无候选'
+                            % (len(out), n_max))
+            return kept, why
+        return out, why
     return fake
 
 
@@ -74,6 +87,21 @@ def main():
     check('纯假名 あまり → 关掉偏好', CX.word_written_form('あまり') == '',
           CX.word_written_form('あまり'))
     check('空词 → 空', CX.word_written_form('') == '')
+
+    print('== 1b. filter_by_max_len：--jisho-max-len 的运行时视图过滤 ==')
+    short = cand('短い文だ。')                       # 5 字（去空白）
+    mid = cand('中くらいの長さの文だ。')             # 11 字
+    longc = cand('とてもとても長い文で、さらに続く。')   # 17 字
+    kept = CX.filter_by_max_len([short, mid, longc], 12)
+    check('≤12 字只留短/中两条', [c['jp'] for c in kept] == ['短い文だ。', '中くらいの長さの文だ。'],
+          [c['jp'] for c in kept])
+    check('全部超长 → 空列表', CX.filter_by_max_len([longc], 5) == [])
+    check('None / 0 / 负数 / 布尔 → 原样返回（不启用）',
+          all(len(CX.filter_by_max_len([mid], n)) == 1 for n in (None, 0, -3, True)))
+    check('非整数（小数/字符串）→ 原样返回',
+          len(CX.filter_by_max_len([mid], 10.5)) == 1
+          and len(CX.filter_by_max_len([mid], '10')) == 1)
+    check('空白不计入字数', len(CX.filter_by_max_len([cand('あ い う え お か き')], 7)) == 1)
 
     print('== 2. pick_jisho：优先写出目标词汉字的那句 ==')
     orig = CX.jisho_fetch
@@ -159,6 +187,133 @@ def main():
         check('照抄时不报警告', warn2 == [], warn2)
         check('没有 pick 时什么都不做',
               CX.pin_sentence_source({}, None) == [])
+
+        print('== 6. --jisho-pick：手动选择优先，越界/不合格仍明确报错 ==')
+        # (a) 命中合格候选 → 返回该条
+        CX.jisho_fetch = with_candidates([
+            cand('彼は、彼女が幸せだと思いこんでいた。'),
+            cand('彼は自分が病人だと思い込んでいる。'),
+        ])
+        pick, why = CX.pick_jisho(card(), Args(jisho_pick=2))
+        check('pick=2 返回第 2 条候选',
+              pick and pick['jp'] == '彼は自分が病人だと思い込んでいる。', (pick, why))
+        check('pick 命中合格候选时 reason 为空', why == '', why)
+
+        # (b) 越界（N > 候选数）→ (None, 含「超出范围」的 why)，不退回自动挑选
+        CX.jisho_fetch = with_candidates([
+            cand('彼は、彼女が幸せだと思いこんでいた。'),
+            cand('彼は自分が病人だと思い込んでいる。'),
+        ])
+        pick, why = CX.pick_jisho(card(), Args(jisho_pick=5))
+        check('pick=5 越界 → None', pick is None, pick)
+        check('越界的 why 里写了「超出范围」', '超出范围' in why, why)
+
+        # (c) 指向的候选不过闸门 → (None, 含「不合格」的 why)，且**不会**退回自动挑选
+        # （第 1 条 ruby_ok=False；若退回自动挑选会选中合格的第 2 条 —— 这里必须 None）
+        CX.jisho_fetch = with_candidates([
+            cand('彼は自分が病人だと思い込んでいる。', ok=False),
+            cand('彼は自分が病人だと思い込んでいる。'),
+        ])
+        pick, why = CX.pick_jisho(card(), Args(jisho_pick=1))
+        check('pick=1 指向不合格候选 → None（不退回自动挑选）', pick is None, pick)
+        check('不合格的 why 里写了「不合格」', '不合格' in why, why)
+
+        # (d) 手动选择优先：自动挑选会因 too-similar 放弃的句子，用户明确点了就采用
+        same = cand('彼はだまされたと思い込んでいるようです。')
+        CX.jisho_fetch = with_candidates([same])
+        pick, why = CX.pick_jisho(card(), Args())
+        check('自动挑选拒绝 too-similar', pick is None and 'too-similar' in why, (pick, why))
+        pick, why = CX.pick_jisho(card(), Args(jisho_pick=1))
+        check('手动 pick 豁免 too-similar（采用用户的句子）',
+              pick is not None and pick['jp'] == same['jp'], (pick, why))
+        check('手动 pick 命中时 reason 为空', why == '', why)
+
+        print('== 6b. jisho_pick_matches_existing：已有产出不能压掉手动选句 ==')
+        card_one = dict(card(), n_sent=1)
+        old_paths = CX.gen_paths
+        old_read = CX.read_json
+        try:
+            CX.gen_paths = lambda nid: {'out': 'memory'}
+            CX.read_json = lambda path: {
+                'gate': {'ok': True},
+                'entries': {'1': {'new_sentence': '彼は自分が病人だと思い込んでいる。'}},
+            }
+            CX.jisho_fetch = with_candidates([
+                cand('彼は、彼女が幸せだと思いこんでいた。'),
+                cand('彼は自分が病人だと思い込んでいる。'),
+            ])
+            entry = {'new_sentence': '彼は自分が病人だと思い込んでいる。'}
+            check('没有 pick → 保持原跳过口径',
+                  CX.jisho_pick_matches_existing(card_one, Args(), entry) is True)
+            check('pick 与旧产出同一条 → 跳过',
+                  CX.jisho_pick_matches_existing(card_one, Args(jisho_pick=2), entry) is True)
+            check('pick 换了一条 → 必须重生成',
+                  CX.jisho_pick_matches_existing(card_one, Args(jisho_pick=1), entry) is False)
+            check('pick 越界 → 交给 gen 报明确原因',
+                  CX.jisho_pick_matches_existing(card_one, Args(jisho_pick=9), entry) is False)
+            check('已有两句的卡不参与 Jisho 选句',
+                  CX.jisho_pick_matches_existing(dict(card(), n_sent=2),
+                                                 Args(jisho_pick=1), entry) is True)
+        finally:
+            CX.gen_paths = old_paths
+            CX.read_json = old_read
+
+        print('== 6c. sentence_html_problems：句内 <br> 不算第三句 ==')
+        card_html = {'n_sent': 1, 'need_ruby2': False,
+                     'sentences': [{'ruby': '(ｱﾘｵｰﾆ)<br>ガキ… <ruby>騎士<rt>きし</rt></ruby>を'}]}
+        entry_html = {'sentence1_ruby': '',
+                      'new_sentence_ruby': '<ruby>貧<rt>まず</rt></ruby>しい<ruby>人<rt>ひと</rt></ruby>を愚弄してはいけない。'}
+        ruby1 = card_html['sentences'][0]['ruby']
+        ruby2 = entry_html['new_sentence_ruby']
+        html = ruby1 + '<br>' + ruby2
+        check('原句内部有 <br> 时仍判为正确的两句',
+              CX.sentence_html_problems(card_html, entry_html, html) == [],
+              CX.sentence_html_problems(card_html, entry_html, html))
+        check('两句之间缺 <br> → 不合格',
+              CX.sentence_html_problems(card_html, entry_html, ruby1 + ruby2) != [])
+        check('第二句被截断 → 不合格',
+              CX.sentence_html_problems(card_html, entry_html,
+                                        ruby1 + '<br>' + ruby2[:-2]) != [])
+        check('重复第二句 → 不合格',
+              CX.sentence_html_problems(card_html, entry_html,
+                                        ruby1 + '<br>' + ruby2 + '<br>' + ruby2) != [])
+
+        print('== 6d. split_sentence_html：按正文边界把句内换行归回原句 ==')
+        s1 = '(ｱﾘｵｰﾆ) ガキ… 騎士を愚弄するとは➡ いい度胸だな｡'
+        s2 = '貧しい人を愚弄してはいけない。'
+        html_two = ('(ｱﾘｵｰﾆ)<br>ガキ… <ruby>騎士<rt>きし</rt></ruby>を'
+                    '<ruby>愚弄<rt>ぐろう</rt></ruby>するとは➡<br>いい'
+                    '<ruby>度胸<rt>どきょう</rt></ruby>だな｡<br>'
+                    '<ruby>貧<rt>まず</rt></ruby>しい<ruby>人<rt>ひと</rt></ruby>を'
+                    '<ruby>愚弄<rt>ぐろう</rt></ruby>してはいけない。')
+        blocks = CX.split_sentence_html(html_two, 2, [s1, s2])
+        check('原句内部两个 <br> 仍切成 2 块（不是 5 块）',
+              blocks is not None and len(blocks) == 2, blocks)
+        check('第一块保留原句内部换行',
+              blocks is not None and blocks[0].count('<br>') == 2, blocks)
+        check('第二块只含新句',
+              blocks is not None and CX.flatten(blocks[1]) == CX.flatten(s2), blocks)
+
+        print('== 7. --jisho-max-len：只在短候选里挑（长候选即使合格也不选） ==')
+        # 短句 ≤10 字，长句 >10 字但同样合格（含目标词、ruby_ok）。
+        short_cand = cand('思い込むのは悪い。')          # 9 字
+        long_cand = cand('彼は、彼女が幸せだと思いこんでいた。')  # 18 字
+        CX.jisho_fetch = with_candidates([long_cand, short_cand])
+        pick, why = CX.pick_jisho(card(), Args(jisho_max_len=12, apply_max_len=True))
+        check('max_len=12 时只从短候选里挑（长候选被滤掉）',
+              pick and pick['jp'] == '思い込むのは悪い。', (pick, why))
+        check('过滤后仍过闸门的 reason 为空', why == '', why)
+
+        # 过滤后零候选 → (None, why 含 max-len 字样)
+        CX.jisho_fetch = with_candidates([long_cand])
+        pick, why = CX.pick_jisho(card(), Args(jisho_max_len=12, apply_max_len=True))
+        check('过滤后零候选 → None', pick is None, pick)
+        check('why 里写了 jisho-max-len', 'jisho-max-len' in why, why)
+
+        # 不设 jisho_max_len 时行为不变（回归：长短都在场，自动挑选按原逻辑走）
+        CX.jisho_fetch = with_candidates([long_cand, short_cand])
+        pick, why = CX.pick_jisho(card(), Args())
+        check('不设 max_len 时两条都参与挑选（回归）', pick is not None, (pick, why))
     finally:
         CX.jisho_fetch = orig
 

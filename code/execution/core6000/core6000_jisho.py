@@ -155,19 +155,42 @@ def _default_jisho_dir():
     return os.path.join(data, 'jisho')
 
 
+def filter_by_max_len(cands, n):
+    """按 ``--jisho-max-len N`` 过滤候选：只留去空白后 ≤N 字的句子。
+
+    ``n`` 不是正整数时原样返回（不启用过滤）。这是**每次运行时的视图**：
+    缓存文件存的是全量候选，过滤绝不写回缓存（否则下次不带该参数会读到被截断的列表）。
+    下限仍由四道闸门的 SENT_MIN 兜底，这里只做上限。
+    """
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        return list(cands)
+    return [c for c in cands if len(RE_WS.sub('', c.get('jp') or '')) <= n]
+
+
 def jisho_fetch(card, args):
     """抓 Jisho 例句候选（含振假名渲染），按 noteId 缓存。
 
     返回 ``(candidates, reason)``：``reason`` 非空表示没抓到（网络/依赖/零候选）。
     Jisho 的 robots.txt 要求 crawl-delay 40s，所以**一张卡只抓一页并落盘**，
     重跑 gen / 重试闸门都读缓存。
+
+    ``--jisho-max-len N``（正整数）在**取回候选之后、编号之前**做 in-place 过滤
+    （``filter_by_max_len``）：``--list-jisho`` 的清单与自动/``--jisho-pick`` 的选句
+    看到的是同一个过滤后的列表，编号天然一致；过滤结果不落缓存。
     """
+    n_max = getattr(args, 'jisho_max_len', None)
     path = _CE().jisho_cache_path(card['id'])
     if not getattr(args, 'refresh_jisho', False):
         cached = read_json(path)
         if isinstance(cached, dict) and cached.get('candidates') is not None \
                 and cached.get('word') == card['word']:
-            return cached['candidates'], ''
+            cands = cached['candidates']
+            kept = filter_by_max_len(cands, n_max)
+            if len(kept) < len(cands):
+                print('提示：%s（%d）--jisho-max-len %d 滤掉 %d/%d 条长候选'
+                      % (card['word'], card['id'], n_max, len(cands) - len(kept), len(cands)),
+                      file=sys.stderr)
+            return kept, ''
     JX, why = _CE().load_jisho()
     if JX is None:
         return [], 'jisho_example 不可用（%s）' % why
@@ -201,7 +224,16 @@ def jisho_fetch(card, args):
     if not out:
         return [], 'Jisho 有 %d 条但过滤后 0 条可用（%s）' % (
             len(page['entries']), ' / '.join('%s %d' % kv for kv in dropped.items()) or '无')
-    return out, ''
+    # 现抓路径：缓存已存全量候选，这里只做运行时视图过滤（不落盘）。
+    kept = filter_by_max_len(out, n_max)
+    if len(kept) < len(out):
+        print('提示：%s（%d）--jisho-max-len %d 滤掉 %d/%d 条长候选'
+              % (card['word'], card['id'], n_max, len(out) - len(kept), len(out)),
+              file=sys.stderr)
+    if not kept:
+        return [], ('Jisho 有 %d 条候选，--jisho-max-len %d 过滤后无候选'
+                    % (len(out), n_max))
+    return kept, ''
 
 
 def jisho_similarity(a, b):
@@ -222,6 +254,36 @@ def word_written_form(word):
     return key if len(key) >= 2 else ''
 
 
+def _pick_reason(c, strict, forms, key, first, manual=False):
+    """四道闸门里第一条不过的原因（全过返回 ''）。
+
+    自动挑选时四道全跑。``manual=True``（用户 ``--jisho-pick N`` 明确点了这条）
+    只跳过**偏好类**的「与第一句太像」：人已经做了选择，不该被相似度阈值压掉；
+    振假名结构 / 真含目标词 / 长度仍照查（这些是「能不能安全写进卡」的硬条件）。
+    长度本身也已被 jisho 抓取阶段按 SENT_MIN–SENT_MAX 过滤过，这里只是兜底。
+    """
+    jp = c['jp']
+    n_chars = len(RE_WS.sub('', jp))
+    if not c.get('ruby_ok'):
+        return 'ruby'
+    if strict:
+        if key not in jp:
+            return 'kana-form'
+    elif not any(f in jp for f in forms):
+        return 'no-target'
+    if not (SENT_MIN <= n_chars <= SENT_MAX):
+        return 'length'
+    if not manual and first and _CE().jisho_similarity(jp, first) >= JISHO_MIN_SIMILARITY:
+        return 'too-similar'
+    return ''
+
+
+def _pick_result(c):
+    return {'jp': c['jp'], 'ruby': c['ruby'], 'en': c.get('en') or '',
+            'source': c.get('source') or '', 'url': c.get('url') or '',
+            'match': c.get('match') or ''}
+
+
 def pick_jisho(card, args):
     """给这张卡挑一条**真实**例句：``{jp, ruby, en, source, url, match}`` 或 ``None``。
 
@@ -229,6 +291,11 @@ def pick_jisho(card, args):
     候选本身已由 jisho_example 按 exact>compound>phrase、句长、语料来源排过序；
     这里先挑「**目标词写法一字不差**出现」的（`思い込む` 卡优先要 `思い込んで`，
     而不是只写成假名的 `思いこんで`），一条都没有才退而接受活用形/假名写法。
+
+    ``--jisho-pick N``（>0）改用第 N 条候选（1 起，编号与 ``--list-jisho`` 一致）：
+    **手动选择优先**——只豁免「与第一句太像」这条偏好闸门，振假名结构 / 真含目标词 /
+    长度仍照查；越界或不合格都**明确报错**（带原因），绝不静默退回自动挑选。
+    默认 0 时行为与自动挑选逐字一致。
     """
     cands, why = _CE().jisho_fetch(card, args)
     if not cands:
@@ -236,30 +303,25 @@ def pick_jisho(card, args):
     first = card['sentences'][0]['jp'] if card['sentences'] else ''
     forms = _CE().target_forms(card)
     key = _CE().word_written_form(card['word'] or '')
+    pick_n = getattr(args, 'jisho_pick', 0) or 0
+    if pick_n > 0:
+        if pick_n > len(cands):
+            return None, ('Jisho 只有 %d 条候选，--jisho-pick %d 超出范围'
+                          % (len(cands), pick_n))
+        c = cands[pick_n - 1]
+        reason = _pick_reason(c, bool(key), forms, key, first, manual=True)
+        if reason:
+            return None, ('--jisho-pick %d 指向的第 %d 条候选不合格（%s）：%s'
+                          % (pick_n, pick_n, reason, one_line(c['jp'], 40)))
+        return _pick_result(c), ''
     for strict in ((True, False) if key else (False,)):
         skipped = []
         for c in cands:
-            jp = c['jp']
-            n_chars = len(RE_WS.sub('', jp))
-            if not c.get('ruby_ok'):
-                skipped.append('ruby')
+            reason = _pick_reason(c, strict, forms, key, first)
+            if reason:
+                skipped.append(reason)
                 continue
-            if strict:
-                if key not in jp:
-                    skipped.append('kana-form')
-                    continue
-            elif not any(f in jp for f in forms):
-                skipped.append('no-target')
-                continue
-            if not (SENT_MIN <= n_chars <= SENT_MAX):
-                skipped.append('length')
-                continue
-            if first and _CE().jisho_similarity(jp, first) >= JISHO_MIN_SIMILARITY:
-                skipped.append('too-similar')
-                continue
-            return {'jp': jp, 'ruby': c['ruby'], 'en': c.get('en') or '',
-                    'source': c.get('source') or '', 'url': c.get('url') or '',
-                    'match': c.get('match') or ''}, ''
+            return _pick_result(c), ''
     seen = {}
     for s in skipped:
         seen[s] = seen.get(s, 0) + 1

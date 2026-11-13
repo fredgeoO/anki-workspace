@@ -30,7 +30,8 @@ for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HER
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from core6000_text2 import (RE_BR1, count_blocks, dedupe, flatten, join_blocks, plain)
+from core6000_text2 import (RE_BR1, count_blocks, dedupe, flatten, join_blocks, one_line,
+                            plain)
 # ② 的词表渲染（gloss_lines）在 core6000_text；与这里同为纯渲染，不碰 Anki。
 from core6000_text import gloss_lines
 
@@ -99,11 +100,11 @@ def render_sentences(card, entry):
     return '%s<br><br>%s' % (first, plain(entry['new_sentence']))
 
 
-def render_sentence_html(card, entry):
-    """`Sentence HTML`：内容永远是「原句 ruby <br> 新句 ruby」，不加任何外壳标签。
+def sentence_html_parts(card, entry):
+    """`Sentence HTML` 的两块振假名：``(原句 ruby, 新句 ruby)``。
 
-    2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳——Sentence HTML 只含例句本身，
-    多句用单个 `<br>` 分隔（不用 `<br><br>`、不用 `<p>` 包裹）。
+    抽出来给渲染与闸门 6 共用：闸门不能只数 `<br>`——原句本身可能带字幕换行
+    （`ガキ…<br>騎士を…`），那些 `<br>` 是**句内换行**，不是两句的分隔符。
     """
     ruby1 = card['sentences'][0]['ruby'] or entry['sentence1_ruby'] or ''
     if card['n_sent'] >= 2:
@@ -116,7 +117,41 @@ def render_sentence_html(card, entry):
             ruby2 = card['sentences'][1]['ruby'] or entry['new_sentence_ruby'] or ''
     else:
         ruby2 = entry['new_sentence_ruby'] or ''
+    return ruby1, ruby2
+
+
+def render_sentence_html(card, entry):
+    """`Sentence HTML`：内容永远是「原句 ruby <br> 新句 ruby」，不加任何外壳标签。
+
+    2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳——Sentence HTML 只含例句本身，
+    多句用单个 `<br>` 分隔（不用 `<br><br>`、不用 `<p>` 包裹）。每句**内部**的
+    `<br>` 原样保留（字幕的换行也是原文），所以整段里可能出现不止一个 `<br>`。
+    """
+    ruby1, ruby2 = sentence_html_parts(card, entry)
     return '%s<br>%s' % (ruby1, ruby2)
+
+
+def sentence_html_problems(card, entry, html):
+    """闸门 6 的 `Sentence HTML` 版：必须是「原句 ruby + <br> + 新句 ruby」。
+
+    不能用 `count_blocks(html, RE_BR1) == 2` 判：原句/新句内部可以有自己的
+    `<br>` 换行（例如字幕把一个句子排成三行），那样数出来会是 4 块，
+    但字段其实是正确的两句。这里按**已知的两块振假名**卡边界：
+    开头必须是原句 ruby、结尾必须是新句 ruby，中间只允许 `<br>`（可重复/带空白）。
+    """
+    ruby1, ruby2 = sentence_html_parts(card, entry)
+    if not ruby1 or not ruby2:
+        return ['闸门6：Sentence HTML 缺一句的振假名（原句=%r，新句=%r）'
+                % (one_line(ruby1, 20), one_line(ruby2, 20))]
+    if not html.startswith(ruby1):
+        return ['闸门6：Sentence HTML 没有从原句的振假名开头（可能被截断/改写）']
+    if not html.endswith(ruby2):
+        return ['闸门6：Sentence HTML 没有以新句的振假名结尾（可能被截断/改写）']
+    middle = html[len(ruby1):len(html) - len(ruby2)]
+    if not re.fullmatch(r'\s*(?:<br\s*/?>\s*)+', middle or ''):
+        return ['闸门6：Sentence HTML 两句之间不是 <br> 分隔（中间是 %r）'
+                % one_line(middle, 20)]
+    return []
 
 
 def render_translation(card, entry):

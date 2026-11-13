@@ -119,7 +119,7 @@ $CE  = "$WS\code\execution\core6000\core6000_example.py"
 | 字段 | 变成 |
 |---|---|
 | `Sentence` | `原句<br><br>新句`（恰好 2 块；**新句逐字来自 Jisho**）|
-| `Sentence HTML` | 两句的振假名（每个汉字都有 ruby），外层包裹沿用原卡（`<div>` / `<p>` / 裸 ruby；新句振假名来自 Jisho，不是模型渲染）|
+| `Sentence HTML` | 两句的振假名（每个汉字都有 ruby），多句用单个 `<br>` 分隔；每句内部的字幕换行 `<br>` 原样保留（新句振假名来自 Jisho，不是模型渲染）|
 | `Sentence Translation` | `原译<br><br>新译` |
 | `AINote` | **沿用原卡版式与板块标签文字**，每个板块变成 `① 原句相关` + `② 新句相关`；① 的正文**逐字沿用卡里已有文本**，不交给模型改写 |
 | `Sentence Audio` | 原有 `[sound:…]` 原样保留 + `[sound:core6000-<noteId>-sentence-2.mp3]` |
@@ -159,7 +159,7 @@ gen 阶段有两套判定，编号不同、别混：
 | 3 | 新句振假名去 `<rt>`、剥标签后与正文逐字一致 |
 | 4 | 新句有汉字就必须有 `<ruby>`，每个 `<ruby>` 都有 `<rt>`，基底不得只含假名（敬语接头辞不包进基底）|
 | 5 | 需要补原句振假名时，同样要过 3/4 |
-| 6 | `Sentence`、`Sentence HTML` 恰好 2 块；`Sentence Audio` 恰好 2 个 `[sound:` |
+| 6 | `Sentence` / `Sentence Translation` 恰好 2 块；`Sentence HTML` 是「原句 ruby + `<br>` + 新句 ruby」（句内换行 `<br>` 不算第三句）；`Sentence Audio` 恰好 2 个 `[sound:` |
 | 7 | `AINote` 含 `中文翻译` + `核心词汇` + `语法要点`，且含 `①` 与 `②` |
 | 8 | 原卡每个板块正文的前 12 字必须仍出现在新 `AINote` 里（防静默丢原文）|
 | 9 | 这次**要写**的字段任何一个渲染后为空 ⇒ 拒绝（不写的字段保持卡上现值）|

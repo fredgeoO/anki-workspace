@@ -14,6 +14,7 @@
 import base64
 import json
 import os
+import random
 import socket
 import ssl
 import struct
@@ -155,15 +156,14 @@ SSML_TMPL = (
 )
 
 
-def synth(text, voice='ja-JP-NanamiNeural', rate='+0%', pitch='+0Hz', volume='+0%',
-          timeout=60):
-    """合成一段文本，返回 mp3 字节。"""
+def _synth_once(text, voice, rate, pitch, volume, timeout):
+    """单次 WebSocket 合成；失败原样抛出（重试交给 ``synth``）。"""
     import html as _html
     # 文本必须做过 XML 转义，否则 & < > 会打断 SSML
     safe = _html.escape(text, quote=False)
     ws = WS(timeout)
-    ws.connect()
     try:
+        ws.connect()
         cfg = json.dumps({'context': {'synthesis': {
             'audio': {'metadataoptions': {'sentenceBoundaryEnabled': 'false',
                                           'wordBoundaryEnabled': 'false'},
@@ -195,6 +195,45 @@ def synth(text, voice='ja-JP-NanamiNeural', rate='+0%', pitch='+0Hz', volume='+0
         return bytes(audio)
     finally:
         ws.close()
+
+
+# 503 / 429 / 连接重置都是 Edge 端的瞬时问题；握手失败也常靠重连自愈。
+_RETRYABLE_EXC = (ConnectionError, TimeoutError, socket.timeout, ssl.SSLError, OSError)
+
+
+def _retryable(exc):
+    """这次失败值不值得重连重试。"""
+    if isinstance(exc, _RETRYABLE_EXC):
+        return True
+    # 例如 'WebSocket 握手失败：HTTP/1.1 503 Service Unavailable'
+    return 'WebSocket 握手失败' in str(exc)
+
+
+def synth(text, voice='ja-JP-NanamiNeural', rate='+0%', pitch='+0Hz', volume='+0%',
+          timeout=60, attempts=4):
+    """合成一段文本，返回 mp3 字节。
+
+    Edge 的 readaloud 端点会偶发 503 / 429 / 握手中断（同一句话隔几秒重试就好）。
+    这里对**瞬时网络/握手错误**做指数退避重试（默认最多 4 次）；参数错误之类
+    的非瞬时异常立即抛出。服务端返回空音频也重试，但最终仍空则返回 ``b''``，
+    保持原来的「空音频由调用方记失败」口径。
+    """
+    attempts = max(1, int(attempts or 1))
+    for n in range(1, attempts + 1):
+        try:
+            data = _synth_once(text, voice, rate, pitch, volume, timeout)
+        except Exception as exc:
+            if n >= attempts or not _retryable(exc):
+                raise
+            delay = min(8.0, 1.0 * (2 ** (n - 1))) * (0.75 + random.random() * 0.5)
+            time.sleep(delay)
+            continue
+        if data:
+            return data
+        if n < attempts:
+            time.sleep(min(8.0, 1.0 * (2 ** (n - 1))) * (0.75 + random.random() * 0.5))
+    # 循环走到这里只会是「多次都返回空音频」：保持原口径，交给调用方记失败。
+    return b''
 
 
 def _ts():

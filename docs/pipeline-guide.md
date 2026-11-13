@@ -757,7 +757,7 @@ $CE = "$WS\code\cli.py core6000"    # 入口；脚本在 code/execution/core6000
 | 3 | `new_sentence_ruby` 去掉 `<rt>` 再剥标签后与 `new_sentence` 逐字一致 |
 | 4 | 新句含汉字 ⇒ 必须有 `<ruby>` 且每个 `<ruby>` 都有 `<rt>`；ruby 基底不得只含假名（敬语接头辞不包进基底）|
 | 5 | `need_sentence1_ruby=true` 时 `sentence1_ruby` 必须同样合规 |
-| 6 | 要写的 `Sentence` / `Sentence HTML` 渲染后恰好 2 块；要写的 `Sentence Audio` 恰好 2 个 `[sound:` |
+| 6 | 要写的 `Sentence` / `Sentence Translation` 渲染后恰好 2 块；要写的 `Sentence HTML` 必须是「原句 ruby + `<br>` + 新句 ruby」（句内字幕换行 `<br>` 不算第三句）；要写的 `Sentence Audio` 恰好 2 个 `[sound:` |
 | 7 | 要写 `AINote` 时，它必须含 `中文翻译`、`核心词汇`、`语法要点`，且含 `①` 与 `②` |
 | 8 | 要写 `AINote` 时，原卡每个板块正文的前 12 字必须仍出现在新 `AINote` 里（防静默丢原文）|
 | 9 | 要写的字段任何一个渲染后为空 ⇒ 拒绝 |

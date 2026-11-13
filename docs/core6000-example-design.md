@@ -57,6 +57,7 @@ Jisho 零候选时**这张卡失败**（不退回造句；`--allow-model-sentenc
 $PY code/execution/core6000/core6000_example.py scan   [TARGET…] [--only SCOPE]
 $PY code/execution/core6000/core6000_example.py gen    TARGET… [--restart] [--per-batch 1]
                                               [--refresh-jisho] [--allow-model-sentence]
+                                               [--list-jisho] [--jisho-pick N] [--jisho-max-len N]
 $PY code/execution/core6000/core6000_example.py tts    TARGET… [--force]
 $PY code/execution/core6000/core6000_example.py apply  TARGET… [--commit]
 $PY code/execution/core6000/core6000_example.py revert --commit [--backup FILE]
@@ -92,6 +93,14 @@ $PY code/execution/core6000/core6000_example.py status
   `--system-prompt PATH`、`--base-url URL`、`--model NAME`、`--api-key KEY`
   （api key 的查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`，见 `code/common/llm_client.py::load_llm_config`）
 * `gen` 默认 `--per-batch 1`（一次一张卡：断点续跑粒度最小）
+* **Jisho 选句旗标（只在 gen 上）**：`--list-jisho` 只列出选中卡的候选清单（编号/字数/来源/句子），
+  不调模型、不落 out；`--jisho-pick N` 用第 N 条候选（1 起，编号与 `--list-jisho` 一致），
+  仍跑全部四道闸门，越界或不合格**明确报错、绝不退回自动挑选**（默认 0 = 自动挑选）；
+  `--jisho-max-len N` 只保留去空白后 ≤N 字的候选（仍受下限 6 字约束），在取回候选之后、
+  编号之前过滤——`--list-jisho` 的清单与自动/`--jisho-pick` 的选句看到的是同一个过滤后的
+  列表，编号天然一致；过滤是每次运行时的视图，**不写进缓存文件**（缓存存全量候选）。
+  用法：先 `gen --note-ids … --list-jisho` 看编号，再 `gen --note-ids … --jisho-pick N` 指定。
+  tts / apply 的 argparse 没有这些参数，插件透传时也只追加到 gen 的 argv。
 * `apply` 直接带 `--commit` 真写（不再先演练）：写前自动落 `backup_<时间戳>.json`、
   写后逐卡回读；不带 `--commit` 的演练路径代码还在，只留作排错
 * `revert` 从 `data/core6000/backup_<批次>.json` 还原那批被改过的字段（只还原被备份的字段）
@@ -263,20 +272,24 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
 
 ```
 Sentence            = 原句 + '<br><br>' + new_sentence
-Sentence HTML       = 按版式渲染（见 §5.2 的 html_wrap）
+Sentence HTML       = 原句 ruby + '<br>' + 新句 ruby（句内原有 <br> 原样保留）
 Sentence Translation= 原译 + '<br><br>' + cn2
 Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId>-sentence-2.mp3]'
 ```
 
-* `Sentence HTML` 的**内容**永远是「原句 ruby `<br><br>` 新句 ruby」；
-  外层包裹沿用该卡原来的形态，机械判定：
-  * 原来是 `<p>…</p><p>…</p>` → 继续用 `<p>` 包裹；
-  * 原来是 `<div class="example">` / `<div style=…>` → 继续用同样的 `<div>`；
-  * 原来是裸 ruby 或空 → 不加包裹，只写「原句 ruby`<br><br>`新句 ruby」。
+* `Sentence HTML` 的**内容**永远是「原句 ruby `<br>` 新句 ruby」；
+  不加外层包裹（2026-10-30 起不再沿用原卡的 `<div>` / `<p>` 外壳）：
+  * 多句用**单个** `<br>` 分隔（与库里已清理的 2000+ 张双句卡同口径）；`Sentence` /
+    `Sentence Translation` 仍用 `<br><br>`。
+  * 每句**内部**的 `<br>` 原样保留：字幕会把一句排成多行（`ガキ…<br>騎士を…`），
+    那些 `<br>` 是句内换行，不是第三句。闸门 6 因此按「原句 ruby + `<br>` + 新句 ruby」
+    的结构判，不能只数 `<br>` 个数。
 * 原句 ruby 的取值优先级：卡里已有的 `Sentence HTML` 分段解析结果 > 模型给的 `sentence1_ruby`。
   只有解析失败才用模型值。**绝不用模型重写已有振假名。**
-  * `Sentence HTML` 的分段（`core6000_render.py`）：按 `<br><br>` / `</p>\s*<p>` 切成块，逐块去包裹取内层 HTML。
-  * 若切不出与原句数量相等的块（例如 2 句但 HTML 只有 1 块）→ 视为不可用，走模型值。
+  * `Sentence HTML` 的分段（`core6000_render.py`）：按 `<br><br>` / `</p>\s*<p>` / 单个 `<br>`
+    依次试，取块数正好等于原句数的那种；**都不等时**再用 `Sentence` 字段的每句正文当边界
+    重新分组（句内换行会占多个 `<br>` 片段，累计到与第 i 句逐字相等为止）。
+  * 若仍切不出与原句数量相等的块（例如 2 句但 HTML 只有 1 块）→ 视为不可用，走模型值。
 * 已有 `Sentence HTML` 里出现 `<ruby>` 嵌套畸形（`<ruby><br>…`）→ 先清掉 base 里的 `<br>` 再分段。
 
 ### 5.2 `AINote` 版式（**沿用原卡版式**）
@@ -376,7 +389,10 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 5b. `need_sentence2_ruby=true` 时 `sentence2_ruby` 必须合规：去 ruby 后与卡上**第二句**逐字一致，
    且每个 `<ruby>` 都有 `<rt>`、基底不得只含假名、ruby 之外不得再有汉字（同 3/4 的口径）。
    这条在 `gen` 与 `apply` 各查一遍（`apply` 那次是防 `out.json` 被手改）。
-6. `Sentence` / `Sentence HTML` 渲染后必须恰好 **2 块**；`Sentence Audio` 恰好 **2 个** `[sound:`。
+6. `Sentence` / `Sentence Translation` 渲染后必须恰好 **2 块**（`<br><br>` 分隔）；
+   `Sentence HTML` 必须是「原句 ruby + `<br>` + 新句 ruby」（开头/结尾以两块已知 ruby 为界，
+   中间只允许 `<br>`）——每句**内部**的字幕换行 `<br>` 不算第三句；`Sentence Audio` 恰好
+   **2 个** `[sound:`。
 7. `AINote` 渲染后必须含 `中文翻译`、`核心词汇`、`语法要点` 三段，且含 `①` 与 `②`。
 8. 原有 `AINote` 的**每个板块正文的非空字符长度**，必须出现在新 AINote 里
    （口径：把新 AINote 去标签、去空白后，要求原正文第一句的前 12 个字符是子串）
@@ -392,11 +408,20 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 `apply` 阶段跑 6–9 + 5b 的复核（渲染后才能判 6–9）。`gen` 另有四条**警告**
 （见 §3.3 第 4 条）：只记进产出的 `gate.warnings`、`meta` 与报告，**不拦卡**。
 
+**手动选句优先（`--jisho-pick N`）**：人明确点了第 N 条候选时，
+1. `gen` 不再拿「已有合格产出」跳过这张卡：若旧产出用的是另一条句子，重新生成
+   （产出里记 `sentence_source`，下次同一条可以继续跳过）；
+2. 「与第一句太像」（`too-similar`）这条**偏好**闸门不再拦手动选中的句子；
+   振假名结构 / 真含目标词 / 长度仍照查——这些决定这张卡能不能安全写进库；
+3. 越界或指向不合格候选时明确报错，**绝不静默退回自动挑选**。
+
 ---
 
 ## 七、TTS
 
 * 复用 `code/tools/edge_tts_min.py::synth()`，纯标准库，`voice='ja-JP-NanamiNeural'`。
+  Edge 端偶发 503 / 429 / 握手中断：`synth()` 对这类瞬时错误做指数退避重试
+  （默认最多 4 次）；仍失败才由 `tts` 记这张卡失败（exit 1），不会让整批静默少音频。
 * 文本 = 新例句**去 ruby、去标签**的纯日语（`strip_ruby_base` 同款口径）。
 * 文件：`output/audio/core6000/core6000-<noteId>-sentence-2.mp3`。
 * `tts` **只合成到本地磁盘，不碰 Anki**（这样 `tts` 可以随时重跑）。
