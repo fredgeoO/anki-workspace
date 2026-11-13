@@ -137,7 +137,7 @@ test('card-fix tab labels translate in both languages', () => {
   assert.equal(t('card.fix.htmlBtn'), '重新生成 Sentence HTML')
   assert.equal(t('card.fix.lookup'), '查卡片')
   assert.equal(t('card.fix.wordInput'), '单词名（词典形）')
-  assert.equal(t('card.fix.none'), '没找到 Word 等于这个单词的例句卡')
+  assert.equal(t('card.fix.none'), '没找到 Word 等于这个单词、且带 Sentence / AINote / Sentence HTML 的卡')
   assert.equal(t('card.fix.commit'), '真写库（--commit，默认勾选）')
   // 阶段 3：AINote 重新生成按钮与 output 折叠区标题。
   assert.equal(t('card.fix.ainoteBtn'), '重新生成 AINote')

@@ -220,28 +220,29 @@ window.__ModuleLoader__.load({
       'cover.textInput': 'Text input',
       'tabs.cardFix': 'Card Fix',
       'card.fix.title': 'Regenerate by word',
-      'card.fix.desc': 'Type one word, tick what to regenerate (Word Audio / Sentence HTML / AINote), then click Regenerate. One card runs immediately; when several cards share the word, tick the ones below and click Regenerate again.',
+      'card.fix.desc': 'Type one word, first tick what to regenerate (Word Audio / Sentence HTML / AINote — all three start unticked), then click Regenerate. Field cards are looked up by the Word field across the whole collection — example cards and all three vocabulary decks (6000 / JLPT / mined) alike: a single writable card runs immediately; when several cards share the word they are all listed below (each with its deck and note type), none ticked — pick the one you mean, then click Regenerate.',
       'card.fix.wordInput': 'Word (dictionary form)',
       'card.fix.run': 'Regenerate',
       'card.fix.lookup': 'Find cards',
       'card.fix.audio': 'Word Audio',
       'card.fix.force': 'Overwrite existing audio',
       'card.fix.audioCandidates': 'Word Audio candidates',
-      'card.fix.fieldCandidates': 'Example card candidates',
-      'card.fix.multiHint': 'Several cards share this word: tick the ones to update, then click Regenerate again.',
+      'card.fix.fieldCandidates': 'Candidate cards (incl. mined vocabulary)',
+      'card.fix.multiHint': 'This word matches several writable cards (each row shows its deck and note type): tick the one to update, then click Regenerate. Nothing is pre-ticked so the wrong card cannot be overwritten.',
+      'card.fix.pickFirst': 'Tick the card to regenerate first (nothing is pre-ticked, so another card cannot be overwritten).',
       'card.fix.noAudio': 'No mined-vocabulary card found for this word.',
-      'card.fix.noFields': 'No example card whose Word matches this word.',
-      'card.fix.needTarget': 'Tick at least one target.',
-      'card.fix.wordTip': 'The word is looked up in the example deck (Word field) and in the mined-vocabulary deck; one input drives both lookups.',
+      'card.fix.noFields': 'No card whose Word matches this word and that carries the Sentence / AINote / Sentence HTML fields (example cards, the 6000 / JLPT / mined-vocabulary decks were all searched).',
+      'card.fix.needTarget': 'Tick what to regenerate first (Word Audio / Sentence HTML / AINote — all start unticked).',
+      'card.fix.wordTip': 'One input drives two lookups: field cards by the Word field across the whole collection (example deck plus the 6000 / JLPT / mined-vocabulary decks), Word Audio cards by the word form.',
       'card.fix.audioTip': 'Regenerate Word Audio with edge-TTS ja-JP-NanamiNeural reading the Transliteration kana. Existing audio is kept unless “Overwrite existing audio” is ticked.',
-      'card.fix.htmlTip': 'Regenerate Sentence HTML (ruby) from the example card’s Sentence; only this field is written.',
-      'card.fix.ainoteTip': 'Regenerate the AINote explanation from the example card’s Sentence; only this field is written.',
+      'card.fix.htmlTip': 'Regenerate Sentence HTML (ruby) from the card’s Sentence; only this field is written.',
+      'card.fix.ainoteTip': 'Regenerate the AINote explanation from the card’s Sentence; only this field is written.',
       'card.fix.commitTip': 'On by default: actually write Anki. Untick to dry-run.',
       'card.fix.forceTip': 'Also regenerate Word Audio when the field already has audio.',
-      'card.fix.runTip': 'Look up cards first; if only one card matches, it regenerates immediately. If several match, tick them and click again.',
+      'card.fix.runTip': 'Look up cards first; a single writable card in the collection regenerates immediately. When several match, tick the one you mean and click again.',
       'card.fix.pickTip': 'Include this card in the regeneration.',
       'card.fix.cards': 'Candidate cards',
-      'card.fix.none': 'No example card whose Word matches this word.',
+      'card.fix.none': 'No card whose Word matches this word and that carries Sentence / AINote / Sentence HTML.',
       'card.fix.sentence': 'Sentence',
       'card.fix.word': 'Word',
       'card.fix.has': 'has content',
@@ -481,28 +482,29 @@ window.__ModuleLoader__.load({
       'cover.textInput': '文本输入',
       'tabs.cardFix': '卡片修正',
       'card.fix.title': '按单词重新生成',
-      'card.fix.desc': '输入一个单词，勾选要重新生成的内容（单词音频 / Sentence HTML / AINote），点「重新生成」。只有一张卡时直接生成；同词多张时在下方勾选要处理的卡，再点一次「重新生成」。',
+      'card.fix.desc': '输入一个单词，先勾选要重新生成的内容（单词音频 / Sentence HTML / AINote，三项默认都不勾），点「重新生成」。字段卡按 Word 在整库查，例句卡与三个词汇卡组（高频 6000 / 考级 / 素材生词）都能改：只有一张可改的卡时直接生成；同词多张时全部列在下方（每张标出牌组与笔记类型）、默认不勾选，先选卡再点「重新生成」。',
       'card.fix.wordInput': '单词名（词典形）',
       'card.fix.run': '重新生成',
       'card.fix.lookup': '查卡片',
       'card.fix.audio': '音频',
       'card.fix.force': '覆盖已有音频',
       'card.fix.audioCandidates': '单词配音候选',
-      'card.fix.fieldCandidates': '例句卡候选',
-      'card.fix.multiHint': '同词有多张卡：勾选要处理的卡，再点一次「重新生成」。',
+      'card.fix.fieldCandidates': '候选卡（含素材生词）',
+      'card.fix.multiHint': '这个词命中多张可改的卡（下方每张都列了牌组与笔记类型）：勾选要改的那一张，再点「重新生成」。默认一张都不勾，避免写错卡。',
+      'card.fix.pickFirst': '先勾选要重新生成的卡（默认不预选，避免覆盖到别的卡）。',
       'card.fix.noAudio': '没有找到这个单词的素材生词卡。',
-      'card.fix.noFields': '没有找到 Word 等于这个单词的例句卡。',
-      'card.fix.needTarget': '至少勾选一项要重新生成的内容。',
-      'card.fix.wordTip': '一个输入框同时查两个地方：例句卡按 Word 字段查，素材生词卡按词形查。',
+      'card.fix.noFields': '没有找到 Word 等于这个单词、且带 Sentence / AINote / Sentence HTML 字段的卡（例句卡、高频 6000 / 考级 / 素材生词 都查过）。',
+      'card.fix.needTarget': '先勾选要重新生成的内容（单词音频 / Sentence HTML / AINote，默认都不勾）。',
+      'card.fix.wordTip': '一个输入框同时查两个地方：字段卡按 Word 字段在整库查（例句 deck + 高频 6000 / 考级 / 素材生词 三个词汇卡组），素材生词卡按词形查。',
       'card.fix.audioTip': '重新生成 Word Audio：edge-TTS ja-JP-NanamiNeural 读 Transliteration 假名。已有音频默认保留，勾选「覆盖已有音频」才重做。',
-      'card.fix.htmlTip': '按例句卡的 Sentence 重新渲染 Sentence HTML（振假名），只写这个字段。',
-      'card.fix.ainoteTip': '按例句卡的 Sentence 重新生成 AINote 讲解，只写这个字段。',
+      'card.fix.htmlTip': '按卡上的 Sentence 重新渲染 Sentence HTML（振假名），只写这个字段。',
+      'card.fix.ainoteTip': '按卡上的 Sentence 重新生成 AINote 讲解，只写这个字段。',
       'card.fix.commitTip': '默认勾选＝真写库；取消勾选只演练，不写 Anki。',
       'card.fix.forceTip': 'Word Audio 字段已有音频时也重新生成。',
-      'card.fix.runTip': '先查卡片；只有一张时直接生成，同词多张时勾选后再点一次。',
+      'card.fix.runTip': '先查卡片；整库只有一张可改的卡时直接生成，同词多张时先勾选要改的那张再点一次。',
       'card.fix.pickTip': '把这张卡纳入本次重新生成。',
       'card.fix.cards': '候选卡片',
-      'card.fix.none': '没找到 Word 等于这个单词的例句卡',
+      'card.fix.none': '没找到 Word 等于这个单词、且带 Sentence / AINote / Sentence HTML 的卡',
       'card.fix.sentence': '例句',
       'card.fix.word': '重点词',
       'card.fix.has': '有内容',
@@ -2408,13 +2410,17 @@ window.__ModuleLoader__.load({
     }
 
     // 卡片修正 tab：一个单词输入 + 目标 checkbox + 一个「重新生成」按钮。
-    // 音频目标查素材生词卡，Sentence HTML / AINote 目标查例句卡。同词多张时
-    // 先列出候选并默认全选，勾选后再点同一个按钮执行；只有一张时直接执行。
+    // 音频目标查素材生词卡，Sentence HTML / AINote 目标按 Word 在**整库**查
+    // （例句卡与词汇卡都算）。同词多张时先列出全部候选：音频默认全选（同 deck
+    // 同词形），字段卡默认一张不勾（避免把别的卡一起覆盖），勾选后再点同一个
+    // 按钮；整库只有一张可改的卡时直接执行。
     function CardFixCard(props) {
       const { t, call, busy, results } = props
       const r = results || {}
       const [wordText, setWordText] = React.useState('')
-      const [targets, setTargets] = React.useState({ audio: true, html: true, ainote: true })
+      // 三个目标默认**都不勾**（用户 2026-11-13 定）：先想清楚要重做哪个字段，
+      // 再动手；一个都没勾时「重新生成」是灰的。默认真写库仍保持 true。
+      const [targets, setTargets] = React.useState({ audio: false, html: false, ainote: false })
       const [commit, setCommit] = React.useState(true)
       const [force, setForce] = React.useState(false)
       const [lookup, setLookup] = React.useState(null)
@@ -2493,14 +2499,18 @@ window.__ModuleLoader__.load({
             word, audio: targets.audio, html: targets.html, ainote: targets.ainote,
           })
           setLookup(found)
+          // 同词命中多张字段卡时**一张都不预选**：预选全部再点一次
+          // 「重新生成」会把每张都覆盖掉（2026-11-13 的 bug 就是这么写错卡的：
+          // 張る 同时挂在例句卡和词汇卡上，一张候选时直接写进了例句卡）。
+          // 音频候选仍全选（同一个 deck、同一个词形，行为不变）。
+          const pickFields = (targets.html || targets.ainote) && found.fields.length > 1
           const allAudio = checkAll(found.audio)
-          const allFields = checkAll(found.fields)
+          const allFields = pickFields ? {} : checkAll(found.fields)
           setAudioChecked(allAudio)
           setFieldChecked(allFields)
           audioIds = idsFrom(found.audio, allAudio)
           fieldIds = idsFrom(found.fields, allFields)
-          const needsChoice = (targets.audio && audioIds.length > 1) ||
-            ((targets.html || targets.ainote) && fieldIds.length > 1)
+          const needsChoice = (targets.audio && audioIds.length > 1) || pickFields
           if (needsChoice) return
           await execute(found, audioIds, fieldIds)
           return
@@ -2513,6 +2523,12 @@ window.__ModuleLoader__.load({
       const current = lookup != null && lookup.key === signature ? lookup : null
       const audioRows = current ? current.audio : []
       const fieldRows = current ? current.fields : []
+      const pickedAudio = audioRows
+        .filter((row) => row.noteId != null && audioChecked[row.noteId]).length
+      const pickedFields = fieldRows
+        .filter((row) => row.noteId != null && fieldChecked[row.noteId]).length
+      // 候选都列出来了却一张没勾：按钮置灰并提示先勾卡，不能静默什么都不做。
+      const nothingPicked = current != null && pickedAudio + pickedFields === 0
       const multi = current != null && (
         (targets.audio && audioRows.length > 1) ||
         ((targets.html || targets.ainote) && fieldRows.length > 1)
@@ -2548,7 +2564,7 @@ window.__ModuleLoader__.load({
               type: 'button',
               className: 'anki-btn',
               title: t('card.fix.runTip'),
-              disabled: anyRunning || word === '' || !hasTarget,
+              disabled: anyRunning || word === '' || !hasTarget || nothingPicked,
               onClick: doRun,
             }, running ? t('common.working') : t('card.fix.run')),
             h('label', { className: 'anki-check', title: t('card.fix.commitTip') },
@@ -2565,6 +2581,9 @@ window.__ModuleLoader__.load({
             : h('div', { className: 'anki-meta' }, t('card.fix.needTarget')),
           multi
             ? h('div', { className: 'anki-meta' }, t('card.fix.multiHint'))
+            : null,
+          nothingPicked
+            ? h('div', { className: 'anki-meta' }, t('card.fix.pickFirst'))
             : null,
           current == null ? null : h('div', { className: 'anki-section' },
             targetHintRows(t, targets, current, audioRows, fieldRows),
@@ -2604,6 +2623,10 @@ window.__ModuleLoader__.load({
                     h('span', { className: 'anki-cand-reading' }, cand.word || '')),
                   h('span', { className: 'anki-cand-word' }, cand.noteId)),
                 h('div', { className: 'anki-fixprev-sentence' }, cand.sentence || ''),
+                // 牌组 + 笔记类型：同一个词在例句 deck 和词汇 deck 各有一张卡时，
+                // 只看 noteId / 例句分不清是哪张（历史 bug 就写错了卡）。
+                h('div', { className: 'anki-meta' },
+                  [cand.deckName, cand.modelName].filter(Boolean).join(' · ')),
                 h('div', { className: 'anki-cand-audio' },
                   h(Tag, {
                     label: 'AINote',

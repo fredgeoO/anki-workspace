@@ -126,31 +126,39 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   - 今日选词 / 词汇覆盖率两份为 `schema: 1`；月度报告是 ankiR
     `anki_report` 的原始 JSON（没有额外 schema 包装）。
 - **卡片修正** tab（原「单词配音」，宽按钮）：**一个单词输入框**驱动三种目标——
-  勾选「单词音频 / Sentence HTML / AINote」后点唯一的「重新生成」按钮。每个
-  checkbox 和按钮都有 mouseover tooltip 说明。
+  勾选「单词音频 / Sentence HTML / AINote」后点唯一的「重新生成」按钮。**三个目标
+  默认都不勾**（用户 2026-11-13 定：先想清楚要重做哪个字段，一个都没勾时按钮是灰的），
+  每个 checkbox 和按钮都有 mouseover tooltip 说明。
   - 单词音频：查素材生词卡，列出 Word Audio / Sentence Audio 现状；同词多张时
     勾选要更新的卡，再点一次「重新生成」。Host 半跑
     `mine_audio.py plan --query "note:<word>"`（人读表格）和
     `anki_api.py find "note:<word>" --json`（机器读 noteId），按索引对齐后把
     noteId 附到候选卡上；apply 阶段直接传真实 noteId，走
     `mine_audio.py apply --query "nid:…" [--commit] [--force]`。
-  - 字段重新生成：按例句卡的 `Word` 字段找卡（`Word:"…"` + 精确过滤），列出
-    Sentence / AINote / Sentence HTML 现状；同词多张时勾选后再点一次。两个字段
-    分别走 `card-fix` + `field:'html'` / `field:'ainote'`，**复用 cards.py 既有
-    提示词**（`LOCAL_INSTRUCTION` + `ruby_engine` 重渲染，不新增提示词），
-    **只写选中字段**、另一字段原值不动。
-  - 只有一张候选卡时第一次点击就直接执行；多张时第一次点击只列候选，勾选后
-    再点同一个按钮。**默认真写**（勾选「真写库」= `--commit`），取消勾选即
-    `commit=false` 演练。生成结果按目标显示，脚本原始输出折叠在「脚本原始输出」里。
+  - 字段重新生成：按 `Word` 字段在**整个收藏**里查卡（`Word:"…"`，再按 `Word`
+    字段精确相等 + 「带 Sentence / AINote / Sentence HTML 三个字段」过滤，见
+    `cardLookupCards`），列出 Sentence / AINote / Sentence HTML 现状，并标出每张卡
+    的**牌组与笔记类型**。**四个 deck 都算**：`2-例句`（Basic）＋ `0-素材生词` /
+    `1-高频日语单词 6000` / `2-考级词汇`（都是 `Japanese Vocabulary`）。一个词常常
+    同时挂在多张卡上（張る → 例句卡「電線を引っ張る」＋ 高频卡「肩が張る」），
+    所有能改的卡都会列出来，由用户选；**命中多张时默认一张都不勾**（旧版会预选
+    全部，点第二次就把每张都覆盖了）。两个字段分别走 `card-fix` + `field:'html'` /
+    `field:'ainote'`，**复用 cards.py 既有提示词**（`LOCAL_INSTRUCTION` +
+    `ruby_engine` 重渲染，不新增提示词），**只写选中字段**、另一字段原值不动。
+  - 整库只有一张可改的卡时第一次点击就直接执行；多张时第一次点击只列候选、
+    默认全不勾，勾选后再点同一个按钮（一张没勾时按钮置灰并提示先勾卡）。**默认真写**
+    （勾选「真写库」= `--commit`），取消勾选即 `commit=false` 演练。生成结果按目标
+    显示，脚本原始输出折叠在「脚本原始输出」里。
 - 面板通过 `POST /anki-workspace/api` 调用 Host 半；该路由只接受
   loopback 同源请求，并拒绝非 JSON Content-Type。除写库/生成动作外还有三个
   只读方法：`browse`（入参 `{ path }`，省略即工作区根）给选择对话框列目录；
   `report`（入参 `{ month? }`）直接读取当月月度报告 JSON，供页面 6 在
   打开时和刷新后显示；`llm-models`（无入参）返回本地模型档位清单。
 - API 方法中与卡片修正相关的两个：`card-lookup`（入参 `{ word }` 或 `{ ids }`，
-  只读；`word` 路径在例句 deck 里用 `Word:"…"` 字段搜索，再按 `Word` 字段精确过滤，经
-  `anki_api.py notes --json` 读回 Sentence / Word / Source / AINote / Sentence HTML
-  现状）；`card-fix`（入参 `{ noteIds, field:
+  只读；`word` 路径在**整个收藏**里按 `Word:"…"` 字段搜索，再由 `cardLookupCards`
+  按词形精确相等 + 三个字段齐备过滤，经 `anki_api.py notes --json --cards` 读回
+  Sentence / Word / AINote / Sentence HTML 以及牌组名 / 笔记类型，供面板区分
+  例句卡与词汇卡）；`card-fix`（入参 `{ noteIds, field:
   'html'|'ainote', commit }`，跑 `cards.py gen --only <field> --overwrite
   [--commit]`，默认真写）。
 

@@ -545,9 +545,10 @@ test('card-fix panel uses one word input, target checkboxes and one regenerate b
   assert.equal(textInputs[0].props.placeholder, 'card.fix.wordInput')
   assert.equal(textInputs[0].props.title, 'card.fix.wordTip')
 
-  // 音频 / HTML / AINote + 真写 / 覆盖音频 都是 checkbox。
+  // 音频 / HTML / AINote + 真写 都是 checkbox（「覆盖已有音频」只在勾了音频时出现，
+  // 三个目标默认都不勾，所以这里至少 4 个）。
   const checks = nodes.filter((node) => node.type === 'input' && node.props.type === 'checkbox')
-  assert.ok(checks.length >= 5)
+  assert.ok(checks.length >= 4)
 
   // mouseover tooltip 挂在输入框、目标 checkbox 和按钮上。
   const titles = nodes
@@ -558,6 +559,24 @@ test('card-fix panel uses one word input, target checkboxes and one regenerate b
   assert.ok(titles.includes('card.fix.ainoteTip'))
   assert.ok(titles.includes('card.fix.runTip'))
   assert.ok(titles.includes('card.fix.commitTip'))
+})
+
+test('card-fix target checkboxes start unticked so nothing regenerates by default', () => {
+  // 用户 2026-11-13 定：音频 / Sentence HTML / AINote 三个目标默认都不勾，
+  // 必须先勾要重做的字段，「重新生成」才可用（避免一点就把整张卡重做）。
+  const tree = components.CardFixCard({ t, call: () => {}, busy: '', results: {} })
+  const nodes = nodesOf(tree)
+  const inputByTitle = (title) => nodes.find(
+    (node) => node.type === 'input' && node.props && node.props.title === title,
+  )
+  for (const tip of ['card.fix.audioTip', 'card.fix.htmlTip', 'card.fix.ainoteTip']) {
+    const input = inputByTitle(tip)
+    assert.ok(input, `${tip} checkbox exists`)
+    assert.equal(input.props.checked, false, `${tip} 默认不勾`)
+  }
+  // 一个目标都没勾 → hasTarget 为 false，按钮禁用（无目标提示只在填了单词后显示）。
+  const run = nodes.find((node) => node.type === 'button' && node.props.title === 'card.fix.runTip')
+  assert.equal(run.props.disabled, true)
 })
 
 test('card-fix panel renders audio and field generation results', () => {

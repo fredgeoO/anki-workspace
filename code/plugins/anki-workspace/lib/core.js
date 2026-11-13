@@ -26,6 +26,15 @@ const MAX_REPORT_BYTES = 2 * 1024 * 1024
 /** Directory listing cap for the panel's path picker (read-only preview). */
 export const MAX_BROWSE_ENTRIES = 500
 
+/** 例句 deck：流水线主战场（见 `docs/anki-library.md`）。 */
+export const DECK_EXAMPLE = '0-日本语学习::2-例句'
+
+/** 素材生词 deck，与 `jp_decks.DECK_MINED` 保持一致。 */
+export const DECK_MINED = '0-日本语学习::0-词汇::0-素材生词'
+
+/** 卡片修正要读写的三个字段：cards.py 拿 Sentence 当骨架写 AINote / Sentence HTML。 */
+export const CARD_FIX_FIELDS = ['Sentence', 'AINote', 'Sentence HTML']
+
 export function tail(text, max = 6000) {
   const s = String(text ?? '')
   if (s.length <= max) return s
@@ -537,6 +546,59 @@ export function buildCardFixArgv(ids, field, commit, outPath) {
     '--only', field, '--out', outPath, '--overwrite']
   if (commit === true) argv.push('--commit')
   return argv
+}
+
+/**
+ * 卡片修正 · 候选整理（纯函数）：`anki_api.py notes --json --cards` 的 rows →
+ * 面板可直接渲染的候选卡，`noteIds` 与 `cards` 一一对应。
+ *
+ * 2026-11-13 的 bug：按单词查卡时只查例句 deck。可一个词常常同时挂在
+ * 例句卡和词汇卡上（張る＝例句卡「電線を引っ張る」＋ 词汇卡「肩が張る」），
+ * 限定 deck 后词汇卡被藏了起来，候选只剩一张，面板就按「只有一张卡」
+ * 的规则直接真写，改到了用户没在看的那张卡。所以查询**不限定 deck**，
+ * 命中多张时全部交给面板，让用户选。
+ *
+ * 保留条件（机械判断，不猜）：
+ *  - `Word` 字段与输入**精确相等**（Anki 的字段搜索会命中包含该词的卡）；
+ *  - `Sentence` 非空，且 `AINote` / `Sentence HTML` 两个字段都存在——这三个
+ *    字段正是 cards.py gen 要读写的东西，缺字段的笔记类型不能拿来做重新生成。
+ * 排序：例句 deck 优先（面板的原始用途），再按牌组名、noteId，保证稳定。
+ */
+export function cardLookupCards(rows, word) {
+  const want = String(word ?? '').trim()
+  const out = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (row == null) continue
+    const f = row.fields ?? {}
+    const cardWord = String(f.Word ?? '').trim()
+    if (want !== '' && cardWord !== want) continue
+    if (String(f.Sentence ?? '').trim() === '') continue
+    if (!CARD_FIX_FIELDS.every((name) => Object.prototype.hasOwnProperty.call(f, name))) continue
+    const decks = []
+    for (const card of Array.isArray(row.cards) ? row.cards : []) {
+      const deck = String(card?.deckName ?? '').trim()
+      if (deck !== '' && !decks.includes(deck)) decks.push(deck)
+    }
+    const ainote = String(f.AINote ?? '')
+    const html = String(f['Sentence HTML'] ?? '')
+    out.push({
+      noteId: Number(row.noteId),
+      word: cardWord,
+      sentence: String(f.Sentence ?? ''),
+      modelName: String(row.modelName ?? ''),
+      deckName: decks.join('、'),
+      isExample: decks.includes(DECK_EXAMPLE),
+      hasAinote: ainote.trim() !== '',
+      hasHtml: html.trim() !== '',
+      ainote,
+      html,
+    })
+  }
+  const byDeck = (a, b) => (a.deckName < b.deckName ? -1 : (a.deckName > b.deckName ? 1 : 0))
+  out.sort((a, b) => (Number(b.isExample) - Number(a.isExample))
+    || byDeck(a, b)
+    || a.noteId - b.noteId)
+  return out
 }
 
 function readCollected(reader) {
@@ -1236,28 +1298,23 @@ export function createRuntime(ctx, config = {}) {
    * We never talk to Anki directly here — `mine_audio.py` owns the read/write
    * gate, the backup, and the post-write verify.
    */
-  // The mined-vocabulary deck, hard-coded to match `jp_decks.DECK_MINED` — the
-  // single source of truth in the workspace. An unqualified quoted search hits
-  // every deck (example cards etc.), so we restrict the plan to this deck;
-  // `nid:` queries in the apply phase don't need the restriction.
-  const DECK_MINED = '0-日本语学习::0-词汇::0-素材生词'
-
-  // 例句卡牌组：`Sentence` / `Sentence HTML` / `AINote` 三个字段只在例句卡上，
-  // 按单词名找「重新生成字段」的目标卡时只需要看这个 deck。
-  const DECK_EXAMPLE = '0-日本语学习::2-例句'
+  // DECK_MINED / DECK_EXAMPLE 提到模块作用域（导出，供 `cardLookupCards` 判断
+  // 例句卡排序）。素材生词 plan 仍然限定在这个 deck：不带 deck 的引号搜索会
+  // 连例句卡一起命中；apply 阶段的 `nid:` 查询不需要限定。
 
   // Per-word cache so the apply phase can resolve candidateIndices without
   // re-running the plan. Keyed by the trimmed word form.
   const wordAudioPlanCache = {}
 
   /**
-   * 卡片修正 · 读取（只读）：按**单词名**找到例句卡，或按 noteId 直接回读。
+   * 卡片修正 · 读取（只读）：按**单词名**找到能重新生成字段的卡，或按 noteId 直接回读。
    *
-   * 面板的主输入是单词名（`Word` 字段）：直接用 `Word:"…"` 字段搜索限定在例句
-   * deck，再按 `Word` 字段**精确相等**过滤——Anki 的字段搜索可能命中词形包含
-   * 该词的卡，不精确过滤会让用户改错卡。
-   * 同一单词命中多张时全部返回，由面板让用户选。
-   * 走 `code/common/anki_api.py notes --query/--ids --json`，Host 不直连 AnkiConnect。
+   * 面板的主输入是单词名（`Word` 字段）：`Word:"…"` 在**整个收藏**里查，再由
+   * `cardLookupCards` 按 Word 字段**精确相等** + 三个字段齐备过滤。以前这里把
+   * 查询限定在例句 deck，同词的词汇卡（「張る」→ 词汇卡「肩が張る」）被藏起来，
+   * 候选只剩例句卡一张，面板就按「只有一张卡」直接真写，改到了错的卡。
+   * 现在命中多张时全部返回（带牌组 / 笔记类型），由面板让用户选。
+   * 走 `code/common/anki_api.py notes --query/--ids --json --cards`，Host 不直连 AnkiConnect。
    */
   async function cardLookup(args, agent, signal) {
     const word = typeof args?.word === 'string' ? args.word.trim() : ''
@@ -1271,10 +1328,11 @@ export function createRuntime(ctx, config = {}) {
     const root = await resolveRoot(agent)
     // 注意：`anki_api.py notes --fields` 会按空白再切一次，
     // `Sentence HTML` 这种带空格的字段名会被切成 `Sentence` + `HTML`。
-    // 这里不传 --fields，拿全字段再按名字取。
-    const base = ['code/common/anki_api.py', 'notes', '--json']
+    // 这里不传 --fields，拿全字段再按名字取。`--cards` 只读牌组名（只读，供
+    // 面板区分例句卡 / 词汇卡），不写任何东西。
+    const base = ['code/common/anki_api.py', 'notes', '--json', '--cards']
     const argv = word !== ''
-      ? [...base, '--query', `Word:"${word}" deck:"${DECK_EXAMPLE}"`, '--limit', '50']
+      ? [...base, '--query', `Word:"${word}"`, '--limit', '50']
       : [...base, '--ids', ids.join(',')]
     const r = await run(root, argv, { timeoutMs: 60_000, signal })
     const out = tail(combineOutput(r.stdout, r.stderr), 8000)
@@ -1283,25 +1341,18 @@ export function createRuntime(ctx, config = {}) {
       const v = String(s ?? '')
       return v.length > 4000 ? `${v.slice(0, 4000)}…` : v
     }
-    const cards = []
-    if (Array.isArray(parsed)) {
-      for (const row of parsed) {
-        const f = row?.fields ?? {}
-        const cardWord = String(f.Word ?? '')
-        // 按单词名查时只保留 Word 字段精确相等的卡；noteId 路径不过滤。
-        if (word !== '' && cardWord.trim() !== word) continue
-        const ainote = String(f.AINote ?? '')
-        const html = String(f['Sentence HTML'] ?? '')
-        cards.push({
-          noteId: Number(row?.noteId),
-          sentence: String(f.Sentence ?? ''),
-          word: cardWord,
-          source: String(f.Source ?? ''),
-          hasAinote: ainote.trim() !== '',
-          hasHtml: html.trim() !== '',
-          ainote: clip(ainote),
-          html: clip(html),
-        })
+    const cards = cardLookupCards(parsed, word).map((card) => ({
+      ...card,
+      ainote: clip(card.ainote),
+      html: clip(card.html),
+    }))
+    const decksOf = () => [...new Set(cards.map((c) => c.deckName).filter(Boolean))]
+    let note = ''
+    if (word !== '') {
+      if (cards.length === 0) {
+        note = `全库里没有 Word 字段等于「${word}」、且带 Sentence / AINote / Sentence HTML 的卡。`
+      } else if (cards.length > 1) {
+        note = `「${word}」命中 ${cards.length} 张卡（${decksOf().join('、')}），勾选要改的那张再点「重新生成」。`
       }
     }
     return {
@@ -1314,11 +1365,7 @@ export function createRuntime(ctx, config = {}) {
       timedOut: r.timedOut,
       durationMs: r.durationMs,
       output: out,
-      note: word !== '' && cards.length === 0
-        ? `例句 deck 里没有 Word 字段等于「${word}」的卡。`
-        : (word !== '' && cards.length > 1
-          ? `「${word}」命中 ${cards.length} 张例句卡，选一张再生成。`
-          : ''),
+      note,
     }
   }
 

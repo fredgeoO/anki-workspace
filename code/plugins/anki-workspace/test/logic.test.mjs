@@ -6,6 +6,7 @@ import {
   buildCardFixArgv,
   buildCoverArgs,
   buildTodayNewArgs,
+  cardLookupCards,
   crumbsFor,
   extractJson,
   isInside,
@@ -310,6 +311,118 @@ test('buildCardFixArgv pins the fixed cards.py gen command', () => {
     '--only', 'ainote', '--out', 'temp/cardfix_ainote_2.json',
     '--overwrite',
   ])
+})
+
+test('cardLookupCards keeps every writable card of the word, not just the example deck', () => {
+  // 2026-11-13 的真实场景：張る 同时挂在例句卡（Basic）和词汇卡（Japanese Vocabulary）上。
+  // 旧实现把查询限定在例句 deck，词汇卡被藏起来 → 候选只剩一张 → 面板按
+  // 「只有一张卡」直接真写，改到了用户没在看的那张卡。
+  const rows = [
+    {
+      noteId: 1621392101953,
+      modelName: 'Japanese Vocabulary',
+      tags: ['jp-core::4k'],
+      fields: {
+        Word: '張る',
+        Sentence: '疲れて肩が張っています。',
+        'Sentence HTML': '<ruby>肩<rt>かた</rt></ruby>',
+        AINote: '<p>讲解</p>',
+        Meaning: '拉紧',
+      },
+      cards: [{ cardId: 1621392102018, deckName: '0-日本语学习::0-词汇::1-高频日语单词 6000' }],
+    },
+    {
+      noteId: 1792114947226,
+      modelName: 'Basic',
+      tags: ['动画::来自新世界'],
+      fields: {
+        Word: '張る',
+        Sentence: 'ここから茅輪の郷まで 電線を引っ張るのは 無理な話だよ',
+        'Sentence HTML': '',
+        AINote: '',
+      },
+      cards: [
+        { cardId: 1792114947226, deckName: '0-日本语学习::2-例句' },
+        { cardId: 1792114947227, deckName: '0-日本语学习::2-例句::默认' },
+      ],
+    },
+  ]
+  const cards = cardLookupCards(rows, '張る')
+  // 例句 deck 优先，其余按牌组名；两张卡都在，面板才有的选。
+  assert.deepEqual(cards.map((c) => c.noteId), [1792114947226, 1621392101953])
+  assert.equal(cards[0].isExample, true)
+  assert.equal(cards[1].isExample, false)
+  assert.equal(cards[1].deckName, '0-日本语学习::0-词汇::1-高频日语单词 6000')
+  assert.equal(cards[1].modelName, 'Japanese Vocabulary')
+  assert.equal(cards[1].hasAinote, true)
+  // 同一张卡在多个子牌组里：牌组名去重后顿号连接，不能漏掉。
+  assert.equal(cards[0].deckName, '0-日本语学习::2-例句、0-日本语学习::2-例句::默认')
+  assert.equal(cards[0].hasAinote, false)
+  assert.equal(cards[0].hasHtml, false)
+  // 原文（未截断）交给调用方 clip。
+  assert.equal(cards[1].ainote, '<p>讲解</p>')
+})
+
+test('cardLookupCards includes mined-vocabulary cards (素材生词) for the same word', () => {
+  // 用户 2026-11-13 追加：除例句卡外，三个词汇卡组都要能改——尤其
+  // `0-素材生词`（mine.py 建的卡，同样是 Japanese Vocabulary 笔记类型）。
+  const rows = [
+    {
+      noteId: 1790891591425,
+      modelName: 'Japanese Vocabulary',
+      fields: {
+        Word: 'ゴンドラ',
+        Sentence: 'ゴンドラはゆっくりと上がっていく。',
+        'Sentence HTML': '<ruby>…</ruby>',
+        AINote: '<p>讲解</p>',
+      },
+      cards: [{ cardId: 1790891591500, deckName: '0-日本语学习::0-词汇::0-素材生词' }],
+    },
+    {
+      noteId: 1792114947226,
+      modelName: 'Basic',
+      fields: {
+        Word: 'ゴンドラ',
+        Sentence: 'ここから茅輪の郷まで 電線を引っ張るのは 無理な話だよ',
+        'Sentence HTML': '',
+        AINote: '',
+      },
+      cards: [{ cardId: 1792114947226, deckName: '0-日本语学习::2-例句' }],
+    },
+  ]
+  const cards = cardLookupCards(rows, 'ゴンドラ')
+  assert.deepEqual(cards.map((c) => c.noteId), [1792114947226, 1790891591425])
+  const mined = cards[1]
+  assert.equal(mined.deckName, '0-日本语学习::0-词汇::0-素材生词')
+  assert.equal(mined.modelName, 'Japanese Vocabulary')
+  assert.equal(mined.isExample, false)
+  assert.equal(mined.hasAinote, true)
+  assert.equal(mined.hasHtml, true)
+})
+
+test('cardLookupCards drops cards that cannot be regenerated or are not the exact word', () => {
+  const template = {
+    modelName: 'Basic',
+    cards: [{ deckName: '0-日本语学习::2-例句' }],
+    fields: { Word: '張る', Sentence: '句子', 'Sentence HTML': '', AINote: '' },
+  }
+  const rows = [
+    { ...template, noteId: 1 },
+    // 字段搜索会命中「包含该词」的卡：必须按 Word 精确相等过滤。
+    { ...template, noteId: 2, fields: { ...template.fields, Word: '張る予定' } },
+    // 没有 Sentence 就没有骨架，cards.py 没法重新生成。
+    { ...template, noteId: 3, fields: { ...template.fields, Sentence: '   ' } },
+    // 缺 AINote 字段的笔记类型不能写入（不能凭空调出新字段）。
+    { ...template, noteId: 4, fields: { Word: '張る', Sentence: '句子', 'Sentence HTML': '' } },
+    // 没有牌组信息（--cards 失败 / 卡片在牌组外）也保留，只是没有 deckName。
+    { ...template, noteId: 5, cards: [] },
+  ]
+  assert.deepEqual(cardLookupCards(rows, '張る').map((c) => c.noteId), [1, 5])
+  assert.equal(cardLookupCards(rows, '張る')[1].deckName, '')
+  // noteId 回读路径（word 为空）：不过滤词形，但三个字段仍要齐备。
+  assert.deepEqual(cardLookupCards(rows, '').map((c) => c.noteId), [1, 2, 5])
+  assert.deepEqual(cardLookupCards(null, '張る'), [])
+  assert.deepEqual(cardLookupCards([null, 'junk'], '張る'), [])
 })
 
 test('parseWordAudioCandidates reads mine_audio.py plan table rows', () => {
