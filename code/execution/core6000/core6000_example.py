@@ -62,10 +62,10 @@ Jisho 零候选时**不退回模型造句**（这张卡记为失败；要退回�
     missing-sentence  Sentence 只有 1 块 → 从 **Jisho** 取第 2 句（真实语料，不是造句）
     missing-ruby      Sentence HTML 有汉字但没有振假名 / 为空 → 模型补振假名
                       （已有 2 句的卡：第 1 句走 `sentence1_ruby`，第 2 句缺/坏振假名走 `sentence2_ruby`）
-    not-merged        已有 2 句但 AINote 里没有 ①② 合并 → 契约 §5.3 要求**① 也由模型产出**
-                      （响应里额外给 core1/grammar1/conjugation1/context1）
-                      ⚠️ 当前 `core6000_example_prompt.md` 只让模型输出 10 个键、没有这四个，
-                      所以这个范围会被**提前拦下**并在报告里写明原因（要跑它先给提示词加那一节）
+    not-merged        已有 2 句但 AINote 里没有 ①② 合并 → **① 也由模型产出**
+                      （提示词已要求 core1/grammar1/conjugation1/context1；显式
+                      `--only not-merged` 才跑。卡片修正的 AINote 重写
+                      （`note_regen.py`）复用同一份提示词与 `render_ainote`。）
 
 没有目标选择器时：`gen/tts/apply` 直接拒绝并打印选择器清单（不默认全库；要全库必须显式 `--all`，
 或用 `--only SCOPE --limit N` 限定规模）。只有 `scan`（体检）和 `status`（看进度）能不带选择器跑。

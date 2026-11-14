@@ -30,7 +30,7 @@
 | `common/immersion_api.py` | ImmersionKit 只读客户端（搜索/媒体/缓存），不碰 Anki |
 | `common/check_*.py` | 闸门：卡片结构、生词、读音、专名。退出码即结论 |
 | `common/local_llm.py` | 本地模型客户端**转发层**；实现正本在全局技能 `~/.dsh/skills/local-llm/scripts/local_llm.py` |
-| `execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `activate.py` `today_new.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` `reposition.py`；系列子夹见下两行 |
+| `execution/` | 各阶段：`episode.py` `pipeline.py` `mine.py` `mine_audio.py` `cards.py` `note_regen.py`（卡片修正 · AINote ①②） `activate.py` `today_new.py` `ainote_enrich.py` `proper.py` `immersionkit.py` `filter_subtitle.py` `reposition.py`；系列子夹见下两行 |
 | `execution/core6000/` | core6000 系列：`core6000_example.py`（入口 `cli.py core6000`）、`core6000_meaning.py`（入口 `cli.py meaning`）+ `core6000_text.py` `core6000_text2.py` `core6000_jisho.py` `core6000_gates.py` `core6000_render.py` + `core6000_example_prompt.md` |
 | `execution/lesson/` | 每日讲义系列（入口仍是 `today_new.py`）：`lesson_text.py` `lesson_check.py` `lesson_paths.py` `lesson_render.py` + `lesson_local_prompt.md` |
 | `execution/card_rules.md` | 讲解 / 振假名规则正本；改提示词先看它 |

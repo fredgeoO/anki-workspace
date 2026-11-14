@@ -141,7 +141,7 @@ def target_word_warnings(card, entry):
     return out
 
 
-def gate_gen(card, entry, scopes=None):
+def gate_gen(card, entry, scopes=None, require_ruby=True):
     """闸门 1-5（契约 §6）。返回 (问题列表, 警告列表)。
 
     注意闸门 1/2 只对**模型造的新句**有意义：原卡已有两条例句时，`new_sentence` 只是
@@ -150,10 +150,14 @@ def gate_gen(card, entry, scopes=None):
     拿闸门 1 去卡它属于误伤。
 
     `scopes` = 本次 `--only` 选定的范围。`core1/grammar1/conjugation1/context1` 这四个键
-    是**契约 §5.3 的 not-merged 扩展**（那个范围里 ① 也要模型产出，且默认不参与）：
-    只有真的在跑 not-merged 时才是硬要求。默认范围里处理一张 `unmerged` 的卡时，
-    渲染的 ① 用的是**卡里原有的板块正文**（`section_body_html` 的 `orig`），这四个键
-    根本不参与渲染 —— 所以这里按范围判，而不是按卡判（`scopes=None` = 不知道范围，从严）。
+    是**契约 §5.3 的 not-merged 扩展**（那个范围里 ① 也要模型产出）：
+    跑 not-merged 时是硬要求；补第二句时，只有原卡缺该板块（`section_missing`）才要求，
+    因为渲染会优先用卡里原有的 ① 正文（`section_body_html` 的 `orig`）。
+    `scopes=None` = 不知道范围，从严（同 not-merged）。
+
+    `require_ruby=False`：只重写 AINote、不写 `Sentence HTML` 的入口（`note_regen.py`）
+    用。ruby 闸门 3/4/5/5b 保护的是要写进库的振假名，AINote 一个 ruby 字段都不写，
+    所以这些闸门不适用；`new_sentence` 与卡上第二句的一致性仍照查（只记警告）。
     """
     p, warn = [], []
     jp = plain(entry['new_sentence'])
@@ -178,33 +182,40 @@ def gate_gen(card, entry, scopes=None):
             else:
                 warn.append('sentence2_mismatch：② 讲的和卡上第二句不是同一句'
                             '（卡上第二句「%s」）' % one_line(want, 40))
-    # 3/4 ruby 一致性
-    if not ruby:
-        p.append('闸门3：new_sentence_ruby 是空的')
-    else:
-        p.extend(_CE().check_sentence_ruby(jp, ruby, 'new_sentence_ruby'))
-    # 5 句①振假名（需要时）
-    if card['need_ruby1'] and card['sentences']:
-        s1 = card['sentences'][0]['jp']
-        if not entry['sentence1_ruby']:
-            p.append('闸门5：need_sentence1_ruby=true 但 sentence1_ruby 是空的')
+    if require_ruby:
+        # 3/4 ruby 一致性
+        if not ruby:
+            p.append('闸门3：new_sentence_ruby 是空的')
         else:
-            p.extend(_CE().check_sentence_ruby(s1, entry['sentence1_ruby'], 'sentence1_ruby'))
-    # 5b 句②振假名（已有两条例句、且第二句缺/坏振假名时）
-    if card['n_sent'] >= 2 and card['need_ruby2']:
-        p.extend(_CE().check_sentence2_ruby(card, entry))
+            p.extend(_CE().check_sentence_ruby(jp, ruby, 'new_sentence_ruby'))
+        # 5 句①振假名（需要时）
+        if card['need_ruby1'] and card['sentences']:
+            s1 = card['sentences'][0]['jp']
+            if not entry['sentence1_ruby']:
+                p.append('闸门5：need_sentence1_ruby=true 但 sentence1_ruby 是空的')
+            else:
+                p.extend(_CE().check_sentence_ruby(s1, entry['sentence1_ruby'], 'sentence1_ruby'))
+        # 5b 句②振假名（已有两条例句、且第二句缺/坏振假名时）
+        if card['n_sent'] >= 2 and card['need_ruby2']:
+            p.extend(_CE().check_sentence2_ruby(card, entry))
     # ② 讲解必须齐（否则渲染出来的 ② 是空的）
     for key, name in (('cn2', '新句中文 cn2'), ('grammar2', '语法要点 grammar2'),
                       ('conjugation2', '动词变形解析 conjugation2'),
                       ('context2', '语境与表达风格 context2'), ('contrast', '两句对比 contrast')):
         if not entry[key]:
             p.append('%s 是空的' % name)
-    if card['unmerged'] and (scopes is None or SCOPE_MERGE in scopes):
-        for key in ('core1', 'grammar1', 'conjugation1', 'context1'):
-            if not entry[key]:
-                p.append('not-merged 范围缺 %s' % key)
-    if not card['sentences'][0]['cn'] and not entry['cn1']:
-        p.append('cn1 是空的（原卡没有中文翻译时必须给）')
+    merge = card.get('unmerged') and (scopes is None or SCOPE_MERGE in scopes)
+    missing = set(card.get('section_missing') or [])
+    for key, canon in (('core1', '核心词汇'), ('grammar1', '语法要点'),
+                       ('conjugation1', '动词变形解析'), ('context1', '语境与表达风格')):
+        if (merge or canon in missing) and not entry[key]:
+            p.append('%s 是空的（① 的「%s」板块）' % (key, canon))
+    # cn1 只在渲染**真的会用到**时才要求：原卡没有 ① 译文 / 原卡缺「中文翻译」板块 /
+    # not-merged 重写。原卡已有 ① 译文时渲染走 `orig or cn1`，cn1 不参与，不必为它重问。
+    need_cn1 = (card.get('unmerged') or '中文翻译' in missing
+                or not card['sentences'][0]['cn'])
+    if need_cn1 and not entry['cn1']:
+        p.append('cn1 是空的（第一句的中文翻译必须给：照抄或翻译）')
     # 便宜检查（警告，不拦卡）：目标词读音是否和 reading 一致 / ② 有没有给义项行
     warn.extend(_CE().target_word_warnings(card, entry))
     return p, warn

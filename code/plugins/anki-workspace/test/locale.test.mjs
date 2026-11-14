@@ -140,7 +140,7 @@ test('card-fix tab labels translate in both languages', () => {
   assert.equal(t('card.fix.none'), '没找到 Word 等于这个单词、且带 Sentence / AINote / Sentence HTML 的卡')
   assert.equal(t('card.fix.commit'), '真写库（--commit，默认勾选）')
   // 阶段 3：AINote 重新生成按钮与 output 折叠区标题。
-  assert.equal(t('card.fix.ainoteBtn'), '重新生成 AINote')
+  assert.equal(t('card.fix.ainoteBtn'), '重新生成 AINote（①②）')
   assert.equal(t('card.fix.output'), '脚本原始输出')
   // 统一输入 + checkbox + 单按钮 + tooltip。
   assert.equal(t('card.fix.run'), '重新生成')
@@ -150,6 +150,7 @@ test('card-fix tab labels translate in both languages', () => {
   assert.match(t('card.fix.audioTip'), /Word Audio/)
   assert.match(t('card.fix.htmlTip'), /Sentence HTML/)
   assert.match(t('card.fix.ainoteTip'), /AINote/)
+  assert.match(t('card.fix.ainoteTip'), /①②/)
   assert.match(t('card.fix.commitTip'), /真写库/)
   assert.match(t('card.fix.runTip'), /只有一张/)
 })

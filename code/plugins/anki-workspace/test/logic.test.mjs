@@ -320,7 +320,7 @@ test('normalizeNoteIds handles commas, spaces, full-width commas, dupes and junk
   assert.deepEqual(normalizeNoteIds([123, '456', 123]), [123, 456])
 })
 
-test('buildCardFixArgv pins the fixed cards.py gen command', () => {
+test('buildCardFixArgv: html → cards.py, ainote → note_regen.py (①② 同一套讲解)', () => {
   // commit=true：带 --overwrite 与 --commit（默认真写口径）。
   const write = buildCardFixArgv([123, 456], 'html', true, 'temp/cardfix_html_1.json')
   assert.deepEqual(write, [
@@ -328,16 +328,22 @@ test('buildCardFixArgv pins the fixed cards.py gen command', () => {
     '--only', 'html', '--out', 'temp/cardfix_html_1.json',
     '--overwrite', '--commit',
   ])
-  // commit=false（演练）：只去掉 --commit；--overwrite 必须保留，否则已有内容的卡
-  // 会被 cards.py 直接跳过，演练拿不到任何可预览结果。
+  // AINote 不再走 cards.py 的 LOCAL_INSTRUCTION，而是「增加例句」同一套
+  // core6000 提示词 + ①② 渲染（note_regen.py）。commit=false（演练）：只去掉
+  // --commit；--overwrite 必须保留，否则已有内容的卡会被直接跳过、演练没结果。
   const dry = buildCardFixArgv([123], 'ainote', false, 'temp/cardfix_ainote_2.json')
   assert.equal(dry.includes('--commit'), false)
   assert.equal(dry.includes('--overwrite'), true)
   assert.deepEqual(dry, [
-    'code/execution/cards.py', 'gen', '--note-id', '123',
-    '--only', 'ainote', '--out', 'temp/cardfix_ainote_2.json',
+    'code/execution/note_regen.py', 'gen', '--note-id', '123',
+    '--out', 'temp/cardfix_ainote_2.json',
     '--overwrite',
   ])
+  // 真写：同一个入口 + --commit，不再带 cards.py 的 --only。
+  const ainoteWrite = buildCardFixArgv([123], 'ainote', true, 'temp/cardfix_ainote_3.json')
+  assert.equal(ainoteWrite.includes('code/execution/note_regen.py'), true)
+  assert.equal(ainoteWrite.includes('--only'), false)
+  assert.equal(ainoteWrite.includes('--commit'), true)
 })
 
 test('cardLookupCards keeps every writable card of the word, not just the example deck', () => {

@@ -8,8 +8,8 @@
 
 * 阶段二 / 按张生成：pipeline.py 的 LOCAL_INSTRUCTION
   （cards.py gen 与 pipeline.py gen 共用，输出 AINote HTML + SentenceHTML）
-* core6000 补第二条例句：code/execution/core6000/core6000_example_prompt.md
-  （输出 11 个结构化键，由脚本合成 ①② 两段）
+* core6000 补第二条例句 / 重写整张卡：code/execution/core6000/core6000_example_prompt.md
+  （输出 15 个结构化键：②/通用 11 个 + ① 的 4 个，由脚本合成 ①② 两段）
 
 装载器是 code/common/card_prompt.py。**改讲解/振假名规则只改本文件**，两个入口自动同步。
 -->

@@ -146,6 +146,7 @@ Anki 浏览器正开着看那张卡时，写入可能不刷新——切走再切
 | 常规：让本地模型生成 | `cards.py gen …`（默认演练） |
 | 本地模型不可用 / 要更强的模型 / 我先自己写 | 按上面的规范写 `[{noteId, AINote, SentenceHTML}]`，再 `cards.py write --file …` |
 | 卡上已有内容，只是想修 HTML / 错读 | 不是本技能：`ruby_engine.py apply`（见 `jp-anki-check-ruby`） |
+| 词汇卡的 AINote 要写成 `① 句 / ② 句`（插件【卡片修正】的 AINote 目标） | **不是本技能**：`note_regen.py gen --note-id …`（与【增加例句】同一份 core6000 提示词 + `render_ainote`，只写 AINote；不是 `cards.py` 的五段式） |
 | 整集批量 | 也不是本技能：`cli.py episode` / `pipeline.py` 是批量调用方，它们复用的还是这里的方法 |
 
 `write` 路径同样会做确定性 repair 与闸门，`Sentence` 也仍然以 **Anki 里的值为准**，
@@ -179,8 +180,10 @@ Anki 浏览器正开着看那张卡时，写入可能不刷新——切走再切
 ## 七、相关文件（改规则时只改这些地方）
 
 - 规范正文：`docs/jp-card-agent-instruction.md`
-- 提示词正本：`code/execution/pipeline.py` 的 `LOCAL_INSTRUCTION`（**只此一份**）
+- 提示词正本：`code/execution/pipeline.py` 的 `LOCAL_INSTRUCTION`（**cards.py 这条路只此一份**）
 - 生成 / 写入入口：`code/execution/cards.py`
+- ①② 讲解（词汇卡 / 卡片修正的 AINote）：`code/execution/note_regen.py`，提示词
+  `core6000_example_prompt.md` + `code/execution/card_rules.md`（与【增加例句】共用）
 - 确定性振假名：`code/common/ruby_engine.py`
 - 结构闸门：`code/common/check_cards.py`
 

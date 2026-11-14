@@ -120,9 +120,11 @@ $EXE = "$WS\code\execution\core6000"
 |---|---|
 | `missing-sentence` | `Sentence` 只有 1 块 → 从 **Jisho** 取第 2 句（真实语料，不是造句） |
 | `missing-ruby` | `Sentence HTML` 有汉字但没有振假名 / 为空 → 模型补振假名（`missing-ruby` 不涉及造句，句子本来就在卡上） |
-| `not-merged` | 已有 2 句但 AINote 里没有 ①② 合并 → 契约 §5.3 要求**① 也由模型产出** |
+| `not-merged` | 已有 2 句但 AINote 里没有 ①② 合并 → **① 也由模型产出**（提示词已给 `core1`/`grammar1`/`conjugation1`/`context1`）；显式给了才跑 |
 
-> ⚠️ 当前 `core6000_example_prompt.md` 只让模型输出 10 个键、没有这四个，所以这个范围会被**提前拦下**并在报告里写明原因（要跑它先给提示词加那一节）。
+> `not-merged` 只重写 `AINote`，`Sentence` / `Sentence HTML` / 译文 / 音频不动；默认范围仍不含它
+> （已有两句、AINote 已合并的卡必须是 no-op）。插件【卡片修正】的 AINote 目标复用同一份
+> 提示词与 `render_ainote`，入口是 `code/execution/note_regen.py`（按卡上现有两句重写，不抓 Jisho）。
 
 ## 五、规范与契约文档
 

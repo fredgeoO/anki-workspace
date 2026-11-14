@@ -557,14 +557,19 @@ export function normalizeNoteIds(value) {
 }
 
 /**
- * 卡片修正（阶段 2/3）的固定命令：复用 cards.py 的既有生成方法（LOCAL_INSTRUCTION
- * + ruby_engine），`--only` 只生成/写入选中字段，`--out` 落一份 JSON 供面板读回。
- * **无论演练还是真写都加 `--overwrite`**：这个动作的语义就是重做已存在的字段，
- * 不加会在演练时被「已有内容跳过」直接跳过、面板拿不到任何结果。
+ * 卡片修正（阶段 2/3）的固定命令。两个字段各走**同一套讲解逻辑**下最合适的入口：
+ * - `field='ainote'` → `note_regen.py`：按卡上现有的 ①/② 两句，套用「增加例句」
+ *   的 core6000 提示词 + `render_ainote`（① 句 + ② 句），只写 AINote；
+ * - `field='html'`   → `cards.py gen --only html`：沿用 ruby_engine 确定性重渲染。
+ * `--out` 落一份 JSON 供面板读回。**无论演练还是真写都加 `--overwrite`**：这个动作的
+ * 语义就是重做已存在的字段，不加会在演练时被「已有内容跳过」直接跳过、面板拿不到结果。
  */
 export function buildCardFixArgv(ids, field, commit, outPath) {
-  const argv = ['code/execution/cards.py', 'gen', '--note-id', ids.join(','),
-    '--only', field, '--out', outPath, '--overwrite']
+  const argv = field === 'ainote'
+    ? ['code/execution/note_regen.py', 'gen', '--note-id', ids.join(','),
+      '--out', outPath, '--overwrite']
+    : ['code/execution/cards.py', 'gen', '--note-id', ids.join(','),
+      '--only', 'html', '--out', outPath, '--overwrite']
   if (commit === true) argv.push('--commit')
   return argv
 }
@@ -1423,9 +1428,11 @@ export function createRuntime(ctx, config = {}) {
 
   /**
    * 卡片修正 · 生成/写库：按卡上 Sentence 重新生成选中字段（html | ainote）。
-   * 只经 `code/execution/cards.py gen --only <field>`——复用既有提示词与
-   * ruby_engine 重渲染，Host 不直连 AnkiConnect、不新增提示词。
-   * 默认真写（commit !== false）；commit=false 演练（只去掉 --commit）。
+   * - html：`cards.py gen --only html`（ruby_engine 确定性重渲染）；
+   * - ainote：`note_regen.py gen`（与「增加例句」同一份 core6000 提示词 /
+   *   `render_ainote`，把卡上 ①/② 两句写成 ①② 讲解），只写 AINote。
+   * Host 不直连 AnkiConnect、不新增提示词。默认真写（commit !== false）；
+   * commit=false 演练（只去掉 --commit）。
    */
   async function cardFix(args, agent, signal) {
     const field = args?.field
@@ -1479,7 +1486,9 @@ export function createRuntime(ctx, config = {}) {
       output: out,
       note: commit
         ? (r.exitCode === 0
-          ? '默认真写：cards.py gen --commit 已写入选中字段并回读（另一字段不动）。'
+          ? (field === 'ainote'
+            ? '默认真写：note_regen.py 已按卡上 ①② 两句重写 AINote 并回读（其它字段不动）。'
+            : '默认真写：cards.py gen --commit 已写入 Sentence HTML 并回读（AINote 不动）。')
           : '真写失败，看 output 定位（未通过的卡不会写）。')
         : '演练（commit=false）：未加 --commit，没有写 Anki。',
     }

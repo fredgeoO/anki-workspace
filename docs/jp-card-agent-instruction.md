@@ -147,7 +147,7 @@ deck:0-日本语学习::2-例句 AINote:_*
 | 入口 | 外壳（规则正本在此展开） | 模型输出 |
 |---|---|---|
 | 阶段二 / 按张：`pipeline.py` 的 `LOCAL_INSTRUCTION`（`cards.py gen` 直接复用） | `code/common/card_prompt.py` 里的 pipeline 外壳 | `{"cards":[{"noteId":…,"AINote":…,"SentenceHTML":…}]}` |
-| core6000 补第二条例句：`core6000_example.py gen` | `code/execution/core6000/core6000_example_prompt.md`（`{{RULES}}` 处展开正本） | `{"entries":{…}}` 的 11 个结构化键，由脚本合成 ①② |
+| core6000 补第二条例句 / 重写整张卡：`core6000_example.py gen`、`note_regen.py gen` | `code/execution/core6000/core6000_example_prompt.md`（`{{RULES}}` 处展开正本） | `{"entries":{…}}` 的 15 个结构化键（②/通用 11 + ① 4），由脚本合成 ①② |
 
 **改讲解/振假名规则只改 `card_rules.md`**：两个入口加载时自动带上，不要把规则再抄回外壳或本文。
 

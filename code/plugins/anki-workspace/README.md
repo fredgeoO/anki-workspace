@@ -20,7 +20,7 @@
 | `anki_vocab_cover` | `python code/cli.py vocab cover … --json` | 只读 |
 | `anki_study_report` | `python code/cli.py r report --json --out …` | 只读 Anki；每月写一份报告文件 |
 | `anki_word_audio` | `mine_audio.py plan/apply --query …` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
-| `anki_card_fix` | `cards.py gen --note-id … --only <field> [--commit]` | **默认真写**（`gen --overwrite --commit`）；显式 `commit=false` 才演练 |
+| `anki_card_fix` | `note_regen.py gen`（AINote ①②）/ `cards.py gen --only html` | **默认真写**（`--overwrite --commit`）；显式 `commit=false` 才演练 |
 | `anki_llm_models` | `python code/cli.py local-llm-models` | 只读（列端点模型 + profiles，不含 api_key） |
 
 `anki_season_new` 给一季字幕目录（一个目录 = 一季）提取 **550–800 个该学的新词**：
@@ -40,9 +40,14 @@
 同词多卡时由调用方先 plan 再选 noteId。Sentence Audio 已有原声则保留不动。
 
 `anki_card_fix` 按 noteId 给例句卡重新生成 `Sentence HTML` 或 `AINote` 中的一个字段
-（`field: 'html' | 'ainote'`）：复用 `cards.py gen --only <field> --overwrite` 的既有
-提示词与 `ruby_engine` 重渲染，**只写选中的那个字段**，另一字段原值不动。默认真写
-（`--commit`），显式 `commit=false` 才演练；写后回读校验。
+（`field: 'html' | 'ainote'`），**只写选中的那个字段**，另一字段原值不动：
+
+- `field='ainote'` → `note_regen.py gen`：与「增加例句」**同一份提示词 / 渲染器 / 闸门**
+  （`core6000_example_prompt.md` + `render_ainote`），把卡上现有的 ①/② 两句写成
+  `① 句 + ② 句` 的讲解；不抓 Jisho、不加新句。
+- `field='html'` → `cards.py gen --only html`：沿用 `ruby_engine` 确定性重渲染。
+
+默认真写（`--commit`），显式 `commit=false` 才演练；写后回读校验。
 
 ## 本地模型选择（llmModel / llmProfile）
 
@@ -163,8 +168,10 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
     同时挂在多张卡上（張る → 例句卡「電線を引っ張る」＋ 高频卡「肩が張る」），
     所有能改的卡都会列出来，由用户选；**命中多张时默认一张都不勾**（旧版会预选
     全部，点第二次就把每张都覆盖了）。两个字段分别走 `card-fix` + `field:'html'` /
-    `field:'ainote'`，**复用 cards.py 既有提示词**（`LOCAL_INSTRUCTION` +
-    `ruby_engine` 重渲染，不新增提示词），**只写选中字段**、另一字段原值不动。
+    `field:'ainote'`，**只写选中字段**、另一字段原值不动：
+    AINote 走 `note_regen.py`（与「增加例句」同一份 core6000 提示词 + `render_ainote`，
+    按卡上现有 ①② 两句重写讲解）；Sentence HTML 走 `cards.py gen --only html`
+    （`ruby_engine` 确定性重渲染）。两处都不新增提示词。
   - 整库只有一张可改的卡时第一次点击就直接执行；多张时第一次点击只列候选、
     默认全不勾，勾选后再点同一个按钮（一张没勾时按钮置灰并提示先勾卡）。**默认真写**
     （勾选「真写库」= `--commit`），取消勾选即 `commit=false` 演练。生成结果按目标
@@ -181,8 +188,8 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   按词形精确相等 + 三个字段齐备过滤，经 `anki_api.py notes --json --cards` 读回
   Sentence / Word / AINote / Sentence HTML 以及牌组名 / 笔记类型，供面板区分
   例句卡与词汇卡）；`card-fix`（入参 `{ noteIds, field:
-  'html'|'ainote', commit }`，跑 `cards.py gen --only <field> --overwrite
-  [--commit]`，默认真写）。
+  'html'|'ainote', commit }`：`ainote` 跑 `note_regen.py gen`，`html` 跑
+  `cards.py gen --only html`，都带 `--overwrite [--commit]`，默认真写）。
 
 ## 配置
 
@@ -231,6 +238,7 @@ node --test --test-isolation=none code\plugins\anki-workspace\test\logic.test.mj
 node --test --test-isolation=none code\plugins\anki-workspace\test\render.test.mjs
 node --test --test-isolation=none code\plugins\anki-workspace\test\locale.test.mjs
 python code\tests\test_cards_only.py
+python code\tests\test_note_regen.py
 python code\tests\test_season_new_words.py
 ```
 

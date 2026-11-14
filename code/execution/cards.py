@@ -13,6 +13,9 @@
 2. 生成：本地模型（OpenAI Responses API），讲解/振假名规则正本 =
    `code/execution/card_rules.md`（pipeline 与 core6000 共用；这里直接用
    `pipeline.LOCAL_INSTRUCTION`，改规则只改正本）。
+   注意：**插件【卡片修正】的 AINote 目标不走这里**——词汇卡要写成「① 句 / ② 句」，
+   走 `note_regen.py`（同一份 core6000 提示词 + `render_ainote`）；`cards.py` 的
+   AINote 五段式仍用于单句例句卡 / 批量 pipeline。
 3. **`Sentence HTML` 不信模型**：`ruby_engine` 拿原始 `Sentence` 当骨架重渲染。
    逐字一致是构造出来的，缺的读音按「人工例外表 → 字幕注音 → 本 deck → Sudachi」补。
    模型给的读法只在没有更权威来源时保留（`repair(mode='fix')`）。

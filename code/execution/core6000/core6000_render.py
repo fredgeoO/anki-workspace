@@ -30,8 +30,8 @@ for _p in (os.path.join(os.path.dirname(os.path.dirname(_HERE)), 'common'), _HER
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from core6000_text2 import (RE_BR1, count_blocks, dedupe, flatten, join_blocks, one_line,
-                            plain)
+from core6000_text2 import (RE_BR1, RE_KANA_ONLY, count_blocks, dedupe, flatten,
+                            join_blocks, one_line, plain)
 # ② 的词表渲染（gloss_lines）在 core6000_text；与这里同为纯渲染，不碰 Anki。
 from core6000_text import gloss_lines
 
@@ -211,7 +211,10 @@ def section_body_html(canon, card, entry, known):
     ①/②，这里要把旧 ② 丢掉再重新拼，否则 `--force` 会把 ①② 套两层。
     """
     sec = known.get(canon)
-    orig = _CE().split_merged_body(sec['body'])[0] if sec else ''
+    # unmerged（已有 2 句但 AINote 还没有 ①②）时原卡正文**无法可靠切分**：
+    # ① 也由模型产出（契约 §5.3 的 core1/grammar1/…），不拿旧正文冒充 ①。
+    orig = '' if card.get('unmerged') else (
+        _CE().split_merged_body(sec['body'])[0] if sec else '')
     if canon == '中文翻译':
         return _CE().both(orig or entry['cn1'], entry['cn2'])
     if canon == '核心词汇':
@@ -241,6 +244,21 @@ def render_section_item(layout, label_html, body):
     return '<p><b>%s</b><br>%s</p>' % (label_html, body)
 
 
+KANA_RUBY = re.compile(r'<ruby>([^<>]*)<rt>[^<>]*</rt></ruby>', re.I)
+
+
+def strip_kana_ruby(html):
+    """去掉「纯假名被包了 ruby」的注音（`<ruby>ボール<rt>ボール</rt></ruby>`）。
+
+    模型偶尔给片假名/平假名也标 ruby；规则正本明说纯假名不注音。这是确定性修正，
+    不重问模型（改一个字都不该丢整份讲解）。
+    """
+    def repl(m):
+        base = (m.group(1) or '').strip()
+        return base if base and RE_KANA_ONLY.match(base) else m.group(0)
+    return KANA_RUBY.sub(repl, html or '')
+
+
 def render_ainote(card, entry):
     """`AINote`：沿用原卡版式，每个板块 ①（原文）+ ②（新句）。"""
     known, _unknown = _CE().section_map(card['sections'])
@@ -261,7 +279,7 @@ def render_ainote(card, entry):
         body = _CE().section_body_html(canon, card, entry, known)
         if body:
             items.append(_CE().render_section_item(card['layout'], canon, body))
-    return (card.get('outer_open') or '<div>') + ''.join(items) + '</div>'
+    return strip_kana_ruby((card.get('outer_open') or '<div>') + ''.join(items) + '</div>')
 
 
 def field_defects(card, current=None):
@@ -276,24 +294,30 @@ def field_defects(card, current=None):
     | `Sentence` | 两条例句（`<br><br>`） | 写（补第 2 块） | **不写**（第 2 块是卡上既有的） |
     | `Sentence HTML` | 每句的汉字都有合规振假名 | 写（新句的振假名） | 有句子缺/坏振假名才写 |
     | `Sentence Translation` | 两条例句的中文 | 写（补新句译文） | **不写**（同上） |
-    | `AINote` | 每板块 `① 原句` + `② 新句` | 写（补 ②） | **不写**（①② 合并是 `not-merged` 范围，未实现，见 §5.3） |
+    | `AINote` | 每板块 `① 原句` + `② 新句` | 写（补 ②） | `not-merged` 才写（① 由模型产出）；已合并的**不写** |
     | `Sentence Audio` | 两条 `[sound:]` | 写（加新句 TTS） | **不写**（脚本造不出那条音频；缺音频的卡由 `audio-count` 拦下） |
 
-    **已有 2 条例句的卡，那 4 个字段的目标状态就是「卡上现值」**：第二句不是这次新造的，
-    是卡里既有的数据，`Sentence` / `Sentence Translation` / `AINote` / `Sentence Audio`
-    对它没有新东西可写。所以这类卡**只补振假名**，其余 4 个字段一个字都不动 ——
-    它们里面的 ①② 讲解、`<ul><li>` 排版都是原作者的版式，脚本不该重排；
+    **已有 2 条例句、且 AINote 已经是 ①② 的卡，那 4 个字段的目标状态就是「卡上现值」**：
+    第二句不是这次新造的，是卡里既有的数据，`Sentence` / `Sentence Translation` /
+    `AINote` / `Sentence Audio` 对它没有新东西可写。所以这类卡**只补振假名**，其余 4 个
+    字段一个字都不动 —— 它们里面的 ①② 讲解、`<ul><li>` 排版都是原作者的版式，脚本不该重排；
     这也和「已有 2 句的卡重跑必须是 no-op」是同一件事（契约 §3.1）。
     那 4 个字段**另有**的缺陷（`audio-count` / `translation-empty` / `not-merged`）
-    由 §6 的 `blocked` 路径报给人，不由「重渲染一遍」来假装修好。
+    由 §6 的 `blocked` 路径报给人；`not-merged` 在显式 `--only not-merged` 时写 AINote
+    （① 也由模型产出，见 §5.3），不由「重渲染一遍」来假装修好。
     """
     if card['n_sent'] > 2:               # 3 句以上：闸门 6 会拦，渲染会截断 → 一个字段都别写
         return []
     if card['n_sent'] < 2:
         return list(_ce().TOUCH_FIELDS)        # 1 句 → 2 句：五个字段都还没到目标状态
+    out = []
+    if card.get('unmerged') and card['n_sent'] == 2:
+        # not-merged：① 由模型产出，重写 AINote（含 ①②）。只有显式 --only not-merged
+        # 的卡会走到这里（默认范围把 unmerged 卡判 blocked）。
+        out.append(_ce().F_NOTE)
     if card['need_ruby1'] or card['need_ruby2']:
-        return [_ce().F_HTML]
-    return []
+        out.append(_ce().F_HTML)
+    return out
 
 
 def render_card(card, entry, current=None):

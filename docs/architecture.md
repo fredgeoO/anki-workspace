@@ -28,7 +28,7 @@
 | 目录 | 脚本 |
 |---|---|
 | `code/`（根） | `cli.py` —— 统一入口（`python code/cli.py <组> <子命令>`；薄分发器 + `vocab reorder-jiten` preset） |
-| `code/execution/`（顶层） | `filter_subtitle.py`（入库前的字幕前置筛选）、`pipeline.py`（阶段 0-2）、`cards.py`（**按张**生成 AINote + Sentence HTML：单卡/数张也能跑，不依赖批次）、`activate.py`（阶段 3，**2026-10-12 已退场**，见 [deprecated.md §6](deprecated.md)；新卡 `due` 交给 Anki 插件 `jiten_reorder`）、`mine.py`（阶段 4）、`proper.py`（**专有名词收集**：字幕 → `3-专有词汇`，含 `model/scan/split/gen/verify/write/audio/add`，**不进学习队列**，见 [proper-noun-使用说明](proper-noun-使用说明.md)）、`mine_audio.py`（阶段 5）、`today_new.py`（每日讲义：取 tag `今天学习生词` → 切批 → 合并讲解；没有 tag 不生成；整形/判定/渲染在 `lesson/` 子夹，见下一行）、`ainote_enrich.py`（**高频**：加强某张词汇卡的 AINote 讲解 + 补「语感」，本地模型生成 6 节、只写 AINote、写前备份）、`immersionkit.py`（**按词表**从 ImmersionKit 抓对白例句：选词 → 选句 → 本地模型讲解 → 剧照/原声落地 → 例句卡 + 素材生词卡，默认全程演练） |
+| `code/execution/`（顶层） | `filter_subtitle.py`（入库前的字幕前置筛选）、`pipeline.py`（阶段 0-2）、`cards.py`（**按张**生成 AINote + Sentence HTML：单卡/数张也能跑，不依赖批次）、`note_regen.py`（**卡片修正 · AINote ①②**：按卡上现有两句、用 core6000 同一份提示词 + `render_ainote` 重写 AINote，只写这一个字段）、`activate.py`（阶段 3，**2026-10-12 已退场**，见 [deprecated.md §6](deprecated.md)；新卡 `due` 交给 Anki 插件 `jiten_reorder`）、`mine.py`（阶段 4）、`proper.py`（**专有名词收集**：字幕 → `3-专有词汇`，含 `model/scan/split/gen/verify/write/audio/add`，**不进学习队列**，见 [proper-noun-使用说明](proper-noun-使用说明.md)）、`mine_audio.py`（阶段 5）、`today_new.py`（每日讲义：取 tag `今天学习生词` → 切批 → 合并讲解；没有 tag 不生成；整形/判定/渲染在 `lesson/` 子夹，见下一行）、`ainote_enrich.py`（**高频**：加强某张词汇卡的 AINote 讲解 + 补「语感」，本地模型生成 6 节、只写 AINote、写前备份）、`immersionkit.py`（**按词表**从 ImmersionKit 抓对白例句：选词 → 选句 → 本地模型讲解 → 剧照/原声落地 → 例句卡 + 素材生词卡，默认全程演练） |
 | `code/execution/core6000/` | core6000 系列（issue #12 收进一个文件夹）：`core6000_example.py`（**按需**补例句②：给用户点名的 core6000 词补第二条例句 + 振假名 + 合并讲解 + edge-TTS 配音；入口 `cli.py core6000`）、`core6000_meaning.py`（义项改写，入口 `cli.py meaning`），加按能力抽出的 `core6000_text.py` / `core6000_text2.py` / `core6000_jisho.py` / `core6000_gates.py` / `core6000_render.py` 与模型侧规范 `core6000_example_prompt.md` |
 | `code/execution/lesson/` | 每日讲义系列（issue #12；入口仍是顶层 `today_new.py`）：`lesson_text.py`（teach 整形 / 接续清洗 / Markdown 渲染）、`lesson_check.py`（机械判定：词形/读音/词性、内容问题、渲染后闸门）、`lesson_paths.py`（落盘路径与原子写，`today_new` 与 `lesson_render` 共用）、`lesson_render.py`（manifest + 模型产出 → Markdown，不碰 Anki / LLM）与教学规范 `lesson_local_prompt.md` |
 | `code/tools/` | `doctor.py`（**开工体检**：三件自审 + 废弃符号 + 快照卫生 + 文档状态行 + preflight）、`edge_tts_min.py`（纯标准库 TTS 客户端）、`check_audio.py`（音频自检）、`fix_word_audio.py`（**单词音频读错修复**：`Transliteration` + `Word Audio` 同名覆盖，带 ruby 比对/旧值断言，见 pipeline-guide §8.6）、`audit_mine_outputs.py`（独立复核）、`proper_extract.py`（**专有名词抽取的原子能力**：一段文字 + 背景 → 专名清单，Anki 无关、可单跑、`--no-model` 只跑预扫）、`review_shortlist.py`（判弃块复核短名单）、`backup_anki.py`（备份：工作区 + 收藏库 + 媒体 + 插件 → G: 盘，含校验与 manifest，见 [docs/backup-sop.md](backup-sop.md)）、`temp_clean.py`（`cli.py temp`：一次性文件区 `temp/` 的查看 / 清空，先打印清单再删） |
@@ -56,6 +56,7 @@
 
 **组 → 脚本**：`daily`=`today_new.py`、`pipeline`=`pipeline.py`、`cards`=`cards.py`
 （按张生成 AINote + Sentence HTML，原子入口：`cards.py gen/write`）、
+`note-regen`=`note_regen.py`（卡片修正 · 按卡上 ①② 两句只重写 AINote）、
 `activate`=`activate.py`
 （只给 `vocab reorder-jiten` 与历史批次 `revert` 用）、`mine`=`mine.py`、`audio`=`mine_audio.py`、
 `core6000`=`core6000_example.py`、`ainote`=`ainote_enrich.py`（加强某张卡的 AINote 讲解 + 语感）、

@@ -84,11 +84,12 @@ $PY code/execution/core6000/core6000_example.py status
 * `--only SCOPE`，可重复或逗号分隔，**实现默认是 `missing-sentence`、`missing-ruby`**（不是 `all`）：
   * `missing-sentence` —— `Sentence` 只有 1 块（从 **Jisho** 取真实新句，不是造句）
   * `missing-ruby` —— `Sentence HTML` 有汉字但没振假名 / 为空
-  * `not-merged` —— 已有 2 句，但 AINote 里没有 ①② 合并（需要模型重写 ①，见 §5.3；**默认不参与**）
+  * `not-merged` —— 已有 2 句，但 AINote 里没有 ①② 合并（① 也由模型产出，见 §5.3；**默认不参与**）
   * `all` = 上面三项的并集
-* **为什么默认不是 `all`**：`not-merged` 默认关闭（提示词还不支持 ①，见 §5.3），
-  而**已经有两句话的卡必须是 no-op** —— 不能因为「AINote 里没有 ①②」就再补一遍句子。
-  所以默认只做「真的缺句 / 缺振假名」这两类；要三项并集请显式 `--only all`。
+* **为什么默认不是 `all`**：`not-merged` 会**重写 AINote**（模型产出 ①，见 §5.3），
+  而**已经有两句话、AINote 也已合并的卡必须是 no-op** —— 不能因为「AINote 里没有 ①②」
+  就再补一遍句子或重写讲解。所以默认只做「真的缺句 / 缺振假名」这两类；
+  要三项并集请显式 `--only all`。
 * 全局可覆盖项（都带默认值，默认值就是工作区的正确值）：
   `--system-prompt PATH`、`--base-url URL`、`--model NAME`、`--api-key KEY`
   （api key 的查找顺序：`--api-key` → `$env:DSH_LOCAL_LLM_API_KEY` → `~/.dsh/local-llm.json`，见 `code/common/llm_client.py::load_llm_config`）
@@ -230,7 +231,7 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
       "new_sentence_ruby": "ここは<ruby>初心者<rt>しょしんしゃ</rt></ruby>が<ruby>練習<rt>れんしゅう</rt></ruby>するのに<ruby>適当<rt>てきとう</rt></ruby>な<ruby>場所<rt>ばしょ</rt></ruby>だ。",
       "sentence1_ruby": "",
       "sentence2_ruby": "",
-      "cn1": "",
+      "cn1": "我找不到这个问题的合适答案。",
       "cn2": "这里是适合初学者练习的地方。",
       "new_word_gloss": [
         {"w": "適当", "r": "てきとう", "pos": "な形容词", "mean": "合适的（本句用的就是这个义项）"},
@@ -241,7 +242,11 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
       "grammar2": "・「～のに適当な」：…",
       "conjugation2": "目标词「適当」是な形容词，以「適当な」作定语，本句没有词形变化。…",
       "context2": "普通体口语，评价某处的条件合适。",
-      "contrast": "①是礼貌体的客观陈述——找不到「合适的」答案；②是普通体的评价——这里做练习「合适」。义项相同，差在语体、句型与语气。"
+      "contrast": "①是礼貌体的客观陈述——找不到「合适的」答案；②是普通体的评价——这里做练习「合适」。义项相同，差在语体、句型与语气。",
+      "core1": "<ruby>質問<rt>しつもん</rt></ruby>（名词）：问题。<br><ruby>適当<rt>てきとう</rt></ruby>な（な形容词）：合适的。<br><ruby>答<rt>こた</rt></ruby>え（名词）：答案。",
+      "grammar1": "・「～が見つかりません」：表示「找不到……」。<br>・「適当な」：な形容词作定语修饰「答え」。",
+      "conjugation1": "「見つかりません」：見つかる（五段）→ 見つかり（連用形）＋ません（礼貌否定）。",
+      "context1": "礼貌体（です・ます），客观陈述「找不到合适答案」的状态。"
     }
   }
 }
@@ -252,7 +257,13 @@ user = 下面这个 JSON（`<noteId>_in.json` 的 `payload` 字段，原样发�
   不然 ② 的义项行会和卡上 `Meaning` 自相矛盾。
 
 * `word` 必须是**目标词本身**在 `new_sentence` 里出现（机械闸门 §6）。
-* `cn1` 只在原卡没有中文翻译时才需要（此时填原句翻译）；否则留空字符串。
+* `cn1` **提示词要求必须给**：`existing_sentences[0].cn` 有内容就照抄（可轻微顺句，不改意思），
+  没有就翻译。渲染时若原卡已有 ① 译文则优先用原卡（`orig or cn1`），`cn1` 不会覆盖它；
+  闸门也只在渲染真的会用到它时才硬拦（原卡缺 ① 译文 / 缺「中文翻译」板块 / `not-merged`）。
+* `core1` / `grammar1` / `conjugation1` / `context1`：**①（第一句）的四个板块**，与 ②
+  同一套口径。原卡已有该板块时渲染优先用原卡（`orig or core1`）；原卡缺板块
+  （闸门 `section_missing`）或 `not-merged` 重写时用模型值。`core1` 的目标词行优先。
+* 提示词固定输出 **15 个键**（②/通用 11 个 + ① 4 个）；模型多给/少给都会被闸门打回。
 * `sentence1_ruby` 只在 `need_sentence1_ruby=true` 时必填；否则留空字符串。
 * `sentence2_ruby` 只在 `need_sentence2_ruby=true` 时必填（原卡已有两条例句、且第二句缺/坏振假名）：
   它与该句的 `new_sentence_ruby` 内容相同，去 ruby 后必须与卡上第二句**逐字一致**（闸门 5b）。
@@ -326,21 +337,34 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 * **清洗原卡正文**：删掉 `<p>/<b>/<strong>/<h3>/<h4>/<ul>/<li>/<div>` 等外壳标签，
   保留 `<ruby>`、`<br>`、正文文字。原卡正文里的 `1.` `2.` 序号行保留（属于内容）。
 
-### 5.3 `not-merged` 范围（已有 2 句、AINote 未合并）—— **当前未启用**
+### 5.3 `not-merged` 范围（已有 2 句、AINote 未合并）—— **已启用**
 
-该范围下 ① 和 ② **都要求由模型产出**（原 AINote 无法可靠切分），
-响应里要额外给 `core1` / `grammar1` / `conjugation1` / `context1`；而
-`code/execution/core6000/core6000_example_prompt.md` 现在只要求模型输出 10 个键，**没有这四个键**。
-所以脚本在真正调模型之前先检测提示词（`capabilities()`：文件正文里是否出现这四个键名），
-一旦这个范围被显式打开（`--only not-merged`），命中的卡会被**整卡拦下**并写进报告，
-原因写明「缺 ①、做不了」——状态表里是 `blocked`，既不调模型也不写库。
-**绝不让模型在拿不到 ① 的情况下凭空编一份 ①**：那会把原卡已有的讲解丢掉，
-直接违反「原句信息一个字都不丢」的核心原则。
+2026-11-14 起，提示词固定要求模型同时输出 `core1` / `grammar1` / `conjugation1` /
+`context1`（① 的四个板块），所以 `capabilities()['merge']` 为真，显式
+`--only not-merged` 的卡不再被提前拦下。
 
-**要真正启用这个范围**，只需给 `core6000_example_prompt.md` 加一节，
-要求模型在响应里同时输出 `core1` / `grammar1` / `conjugation1` / `context1`（① 的四个板块）。
-脚本侧的闸门（`unmerged` 卡必须给齐这四个键）与渲染分支（`both(原卡正文 or entry['core1'], ②)`）
-都已就位，`capabilities()` 会自动放行。启用后一次别跑太多，先人工看 3 张确认 ① 没退化。
+该范围下 ① 和 ② **都要求由模型产出**（原 AINote 无法可靠切分）：
+`core6000_render.section_body_html` 在 `unmerged` 时**不拿原卡正文冒充 ①**，
+而是用 `entry['core1']` 等；`gate_apply` 也跳过闸门 8（不再要求旧板块原文出现在新 AINote 里）。
+`field_defects` 对 `unmerged` 的 2 句卡返回 `AINote`，所以 `--only not-merged`
+只重写讲解，`Sentence` / `Sentence HTML` / `Sentence Translation` / `Sentence Audio` 不动。
+
+启用后一次别跑太多，先人工看 3 张确认 ① 没退化；默认范围仍**不含** `not-merged`
+（已有 2 句的卡必须是 no-op，见 §3.1）。
+
+### 5.3b `note_regen.py`（卡片修正 · 只重写 AINote）
+
+插件【卡片修正】的 AINote 目标走 `code/execution/note_regen.py`，与「增加例句」**同一份提示词
+/ 渲染器 / 闸门**，区别只在句子来源：
+
+* 句子 = **卡上现有的 ①/②**（`<br><br>` 分块；或单个 `<br>` 两侧都以句末标点结尾的旧卡）；
+  不抓 Jisho、不造新句。
+* payload 的 `existing_note` 为空、合成卡 `sections=[]` / `unmerged=true`，所以 ① 与 ②
+  都由模型产出，旧 AINote 不会被当成 ① 复用。
+* `gate_gen(..., require_ruby=False)`：只写 AINote、不写 `Sentence HTML`，ruby 闸门不适用；
+  句②一致性仍照查（只记警告）。
+* 只写 `AINote` 一个字段（`writeback.write_fields` 备份 + 回读）；默认演练、`--overwrite`
+  才覆盖旧讲解。只有一句的卡明确报错，提示先用「增加例句」补第二句。
 
 ### 5.4 只写「真的坏了」的字段（`field_defects`）
 
@@ -353,15 +377,16 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 | `Sentence` | 两条例句（`<br><br>`） | 写（补第 2 块） | **不写** |
 | `Sentence HTML` | 每句的汉字都有合规振假名 | 写（新句振假名） | 有句子缺/坏振假名才写 |
 | `Sentence Translation` | 两条例句的中文 | 写（补新句译文） | **不写** |
-| `AINote` | 每板块 `① 原句` + `② 新句` | 写（补 ②） | **不写** |
+| `AINote` | 每板块 `① 原句` + `② 新句` | 写（补 ②） | `not-merged` 才写（① 由模型产出）；已合并的**不写** |
 | `Sentence Audio` | 两条 `[sound:]` | 写（加新句 TTS） | **不写** |
 
-* **已有 ≥2 条例句时，那 4 个字段的目标状态就是「卡上现值」**：第二句不是这次新造的，
-  `Sentence` / `Sentence Translation` / `AINote` / `Sentence Audio` 对它没有新内容可写，
-  所以只补振假名，其余 4 个字段**逐字不动**（原有 ①② 讲解、`<ul><li>` 排版都是原作者的版式）。
-  这和「已有 2 句的卡重跑必须是 no-op」（§3.1）是同一件事。
+* **已有 ≥2 条例句、且 AINote 已合并时，那 4 个字段的目标状态就是「卡上现值」**：第二句
+  不是这次新造的，`Sentence` / `Sentence Translation` / `AINote` / `Sentence Audio` 对它
+  没有新内容可写，所以只补振假名，其余 4 个字段**逐字不动**（原有 ①② 讲解、`<ul><li>`
+  排版都是原作者的版式）。这和「已有 2 句的卡重跑必须是 no-op」（§3.1）是同一件事。
 * 那 4 个字段**另有**的缺陷（`audio-count` / `translation-empty` / `not-merged`）由 §6 的
-  `blocked` 路径报给人，**不靠重渲染来假装修好**。
+  `blocked` 路径报给人，**不靠重渲染来假装修好**；`not-merged` 在显式
+  `--only not-merged` 时写 `AINote`（§5.3）。
 * `n_sent > 2`（3 句以上）一个字段都不写（闸门 6 会拦；渲染只会截断）。
 * 由此派生：
   * `apply` 只打印**要写字段**的前后对照，并列出「不写的字段（保持卡上现值，逐字不动）」；
@@ -396,7 +421,8 @@ Sentence Audio      = 原有 [sound:...] 原样保留 + '[sound:core6000-<noteId
 7. `AINote` 渲染后必须含 `中文翻译`、`核心词汇`、`语法要点` 三段，且含 `①` 与 `②`。
 8. 原有 `AINote` 的**每个板块正文的非空字符长度**，必须出现在新 AINote 里
    （口径：把新 AINote 去标签、去空白后，要求原正文第一句的前 12 个字符是子串）
-   —— 防模型/渲染静默丢原文。
+   —— 防模型/渲染静默丢原文。**`unmerged` 卡不查这条**：那个范围本来就要把
+   无法可靠切分的旧讲解重写成 ①，不可能保住旧正文。
 9. 渲染后**要写的**字段任何一个为空 ⇒ 拒绝（不写的字段保持卡上现值）。
 
 **闸门是字段级的**（§5.4）：闸门 6/9 只查 `write` 里的字段，闸门 7/8（AINote 的板块与

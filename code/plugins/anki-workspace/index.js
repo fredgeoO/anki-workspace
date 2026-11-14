@@ -512,17 +512,17 @@ function makeTools(runtime) {
     },
     {
       name: 'anki_card_fix',
-      description: '按卡上现有 Sentence 重新生成选中的单个字段：field=html 重渲染 Sentence HTML（振假名），'
-        + 'field=ainote 重写 AINote（讲解）。复用 cards.py 的既有提示词（LOCAL_INSTRUCTION）与 ruby_engine '
-        + '确定性重渲染，不新增提示词；只写选中字段，另一个字段一律不动。默认真写（--commit，写后回读），'
-        + '显式 commit=false 才演练。走 code/execution/cards.py gen --only，Host 不直连 AnkiConnect。',
+      description: '按卡上现有 Sentence 重新生成选中的单个字段：field=html 重渲染 Sentence HTML（振假名，cards.py）；'
+        + 'field=ainote 用【增加例句】同一套 core6000 提示词 + ①② 渲染器，把卡上现有两句话写成「① 句 / ② 句」讲解'
+        + '（note_regen.py）。只写选中字段，另一个字段一律不动；不新增提示词。默认真写（--commit，写后回读），'
+        + '显式 commit=false 才演练。Host 不直连 AnkiConnect。',
       parameters: {
         type: 'object',
         additionalProperties: false,
         required: ['noteIds', 'field'],
         properties: {
           noteIds: { type: 'string', description: '要修的 noteId，逗号/空格分隔（如 "1791727898061,1791727898062"）' },
-          field: { type: 'string', enum: ['html', 'ainote'], description: 'html=重新生成 Sentence HTML；ainote=重新生成 AINote（只写这一个字段）' },
+          field: { type: 'string', enum: ['html', 'ainote'], description: 'html=重新生成 Sentence HTML；ainote=按卡上 ①② 两句、用【增加例句】同一套提示词重写 AINote（只写这一个字段）' },
           commit: { type: 'boolean', description: '默认真写（省略=true，含 --overwrite 覆盖旧值）；显式 false 才演练不写库' },
           llmModel: { type: 'string', description: '本次用端点上的哪个模型 id（覆盖插件默认；空=默认）。档位见 anki_llm_models' },
           llmProfile: { type: 'string', description: '本次用 local-llm.json 里哪个 profile（ninfer/strata…）；换端点走这个而不是 llmModel' },
@@ -531,7 +531,7 @@ function makeTools(runtime) {
       output: { schema: OUT_SCHEMA, render: (_a, v) => renderCardFix(v) },
       timeoutMs: 20 * 60_000,
       isConcurrencySafe: () => false,
-      presentCall: execCall('Regenerate card field (cards.py --only)'),
+      presentCall: execCall('Regenerate card field (AINote ①② / HTML)'),
       execute: (args, exec) => runtime.cardFix(args, exec.agent, exec.signal),
     },
     {

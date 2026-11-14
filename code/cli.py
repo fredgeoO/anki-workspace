@@ -24,6 +24,7 @@
     python code/cli.py pipeline triage --query "tag:待标记"
     python code/cli.py cards gen --note-id 123      # 单卡/数张：AINote + Sentence HTML（默认演练）
     python code/cli.py cards write --file fix.json --commit
+    python code/cli.py note-regen gen --note-id 123 # 按卡上 ①② 两句重写 AINote（默认演练）
     python code/cli.py activate apply --plan <路径> --commit   # 仅全局重排/历史回退用
     python code/cli.py mine scan --tag "动画::<作品名>::<季>::第NN集"
     python code/cli.py mine write --commit
@@ -85,6 +86,7 @@ GROUPS = {
     'daily':     os.path.join(EXEC, 'today_new.py'),
     'pipeline':  os.path.join(EXEC, 'pipeline.py'),
     'cards':     os.path.join(EXEC, 'cards.py'),
+    'note-regen': os.path.join(EXEC, 'note_regen.py'),
     'activate':  os.path.join(EXEC, 'activate.py'),
     'mine':      os.path.join(EXEC, 'mine.py'),
     'proper':    os.path.join(EXEC, 'proper.py'),
