@@ -114,8 +114,13 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
 - 「今日选词」「增加例句」卡里各有一个**本地模型下拉**（两个 tab 共享同一个
   选择）：默认项 = 跟随配置/端点 pin；分组列出 `profiles` 与端点模型。清单由
   Host 半的 `llm-models` API 提供（只读，见上节）。
-- **增加例句** tab 有 Jisho 候选例句选择区：填词 → 点「列 Jisho 候选」（走
-  `jisho-list`，即 `core6000 gen --list-jisho`，只读、不调模型）→ 面板列出该词的
+- 「获取当前单词」按钮（**增加例句 + 卡片修正**两个 tab 的单词输入框旁各一个）：
+  经 Host 半 `current-word` API → `anki_api.py gui-current-word --json`（唯一入口，
+  Host 不直连 8765）调 AnkiConnect `guiCurrentCard`，把**复习界面正在显示的卡片**的
+  `Word` 字段填进输入框（没有 Word 字段退回 `Transliteration`）。不在复习模式时
+  按钮下方提示「先在复习界面打开一张卡」；填进卡片修正的输入框会同时清掉旧候选。
+  纯只读，不碰调度列。
+- **增加例句** tab 有 Jisho 候选例句选择区：填词 → 点「列 Jisho 候选」（走 `jisho-list`，即 `core6000 gen --list-jisho`，只读、不调模型）→ 面板列出该词的
   Jisho 真实例句（编号 / 字数 / 来源 Tatoeba·Jreibun / 句子原文，振假名不合格的
   会标 ⚠️）→ 点某条选中（或不选 = 自动挑选）→ 点「跑三步」时把选中编号作为
   `jishoPick` 透传给 `add-example`，按这条句子生成音频 + AINote 讲解并覆写卡片资料
@@ -183,13 +188,20 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   打开时和刷新后显示；`llm-models`（无入参）返回本地模型档位清单。
   `season-new`（入参同 `anki_season_new`：`input` + 五个筛选值 + `tag` +
   `commit`）跑每季生词提取；**默认只出清单**，`commit: true` 才写季标签。
-- API 方法中与卡片修正相关的两个：`card-lookup`（入参 `{ word }` 或 `{ ids }`，
-  只读；`word` 路径在**整个收藏**里按 `Word:"…"` 字段搜索，再由 `cardLookupCards`
+- API 方法中与卡片修正相关的两个：`card-lookup`（入参 `{ word }` 或 `{ ids }`，只读；`word` 路径在**整个收藏**里按 `Word:"…"` 字段搜索，再由 `cardLookupCards`
   按词形精确相等 + 三个字段齐备过滤，经 `anki_api.py notes --json --cards` 读回
   Sentence / Word / AINote / Sentence HTML 以及牌组名 / 笔记类型，供面板区分
   例句卡与词汇卡）；`card-fix`（入参 `{ noteIds, field:
   'html'|'ainote', commit }`：`ainote` 跑 `note_regen.py gen`，`html` 跑
   `cards.py gen --only html`，都带 `--overwrite [--commit]`，默认真写）。
+- 只读方法 `current-word`（无入参）：走 `anki_api.py gui-current-word --json` →
+  AnkiConnect `guiCurrentCard`，返回 `{ found, word, deckName, template }`，供
+  「获取当前单词」按钮填两个单词输入框；不在复习模式 `found:false`、退出码仍 0。
+  **解析必须认扁平字段**（`currentWordFromCli`）：CLI 打的就是
+  `{found,word,deckName,template}`，**没有 `raw` 键**。曾经 Host 只读 `parsed.raw`，
+  于是无论 Anki 是否在复习界面都恒为 `found:false`（2026-11-14 修）。CLI 同时把
+  `raw`（原始 `guiCurrentCard` 返回）附在 JSON 里，所以 Host 半没热更、仍读
+  `parsed.raw` 的旧版也能取到词——CLI 每次新起进程，改它不需要重启。
 
 ## 配置
 

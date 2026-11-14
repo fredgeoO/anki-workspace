@@ -153,4 +153,10 @@ test('card-fix tab labels translate in both languages', () => {
   assert.match(t('card.fix.ainoteTip'), /①②/)
   assert.match(t('card.fix.commitTip'), /真写库/)
   assert.match(t('card.fix.runTip'), /只有一张/)
+  // 「获取当前单词」按钮（增加例句 + 卡片修正两个输入框共用）。
+  assert.equal(t('currentWord.btn'), '获取当前单词')
+  assert.match(t('currentWord.tip'), /Word 字段/)
+  assert.match(t('currentWord.none'), /复习界面/)
+  // Host 半比面板旧时的明确提示（而不是笼统的 unknown method）。
+  assert.match(t('panel.stale'), /重装|重启/)
 })

@@ -1376,6 +1376,45 @@ def cmd_exec(args):
     return 0
 
 
+def cmd_gui_current_word(args):
+    """只读：AnkiConnect guiCurrentCard → 当前复习卡的 Word 字段。
+
+    不在复习模式（guiCurrentCard 返回 null）→ found=false，退出码仍为 0；
+    卡片没有 Word 字段时退回 Transliteration（读音）。供 Web 面板
+    「获取当前单词」按钮经唯一入口调用，Host 不直连 8765。
+    """
+    raw = call('guiCurrentCard')
+
+    def field_text(name):
+        if not isinstance(raw, dict):
+            return ''
+        value = (raw.get('fields') or {}).get(name)
+        if isinstance(value, dict):
+            value = value.get('value')
+        return str(value or '').strip()
+
+    word = field_text('Word') or field_text('Transliteration')
+    out = {
+        'found': raw is not None,
+        'word': word,
+        'deckName': str((raw or {}).get('deckName') or ''),
+        'template': str((raw or {}).get('template') or ''),
+        # 原样附上 guiCurrentCard 的返回：面板 Host 的热更不一定跟得上 CLI，
+        # 旧版 Host 读的就是 raw（新版读上面的扁平字段），附上它两边都能取到词。
+        'raw': raw,
+    }
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+    else:
+        if not out['found']:
+            print('不在复习模式（guiCurrentCard 返回 null）')
+        elif word:
+            print('%s ｜ %s' % (word, out['deckName']))
+        else:
+            print('当前复习卡的字段里没有 Word / Transliteration ｜ %s' % out['deckName'])
+    return 0
+
+
 def cmd_audit(args):
     blocking, pending, other = _audit_hits()
     print('== Anki 访问自审 ==')
@@ -1446,6 +1485,11 @@ def main(argv=None):
     p.add_argument('action')
     p.add_argument('--params', help="JSON 参数，例如 '{\"query\":\"deck:*\"}'")
     p.set_defaults(func=cmd_exec)
+
+    p = sub.add_parser('gui-current-word',
+                       help='只读：当前复习卡的 Word 字段（guiCurrentCard）')
+    p.add_argument('--json', action='store_true')
+    p.set_defaults(func=cmd_gui_current_word)
 
     p = sub.add_parser('audit', help='扫全仓重复的 Anki 客户端（防回退）')
     p.add_argument('--strict', action='store_true', help='第二期待办也算失败')

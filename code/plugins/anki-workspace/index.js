@@ -656,6 +656,9 @@ function createApiHandler(runtime) {
         case 'browse':
           value = await runtime.browse(args, undefined)
           break
+        case 'current-word':
+          value = await runtime.currentWord(undefined, undefined)
+          break
         case 'study-report':
           value = await runtime.studyReport(args, undefined, undefined)
           break

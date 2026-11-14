@@ -9,6 +9,8 @@ import {
   buildTodayNewArgs,
   cardLookupCards,
   crumbsFor,
+  currentWordFromCli,
+  currentWordFromGuiCard,
   extractJson,
   isInside,
   monthKey,
@@ -491,4 +493,72 @@ test('parseWordAudioCandidates reads mine_audio.py plan table rows', () => {
   // Rows for unrelated words are still parsed (alignment with find's noteIds);
   // header / separator / summary lines never leak in as candidates.
   assert.equal(parseWordAudioCandidates(sample, 'ケンカ').length, 3)
+})
+
+test('currentWordFromGuiCard reads the Word field of the reviewing card', () => {
+  // Shape verified live against AnkiConnect v6 (2026-11-14): fields are
+  // {value, order} objects and deckName/template sit at the top level.
+  const raw = {
+    deckName: '0-日本语学习::0-词汇::4-今天词汇',
+    template: 'Word -> Meaning',
+    fields: {
+      Word: { value: '持ち物', order: 3 },
+      Transliteration: { value: 'もちもの', order: 7 },
+    },
+  }
+  assert.deepEqual(currentWordFromGuiCard(raw), {
+    found: true, word: '持ち物', deckName: '0-日本语学习::0-词汇::4-今天词汇', template: 'Word -> Meaning',
+  })
+})
+
+test('currentWordFromGuiCard falls back to Transliteration and tolerates junk', () => {
+  const kanaOnly = { fields: { Transliteration: { value: 'キャンプ' } } }
+  assert.deepEqual(currentWordFromGuiCard(kanaOnly), { found: true, word: 'キャンプ', deckName: '', template: '' })
+  // Plain-string field values (older shape) still work.
+  assert.equal(currentWordFromGuiCard({ fields: { Word: '張る' } }).word, '張る')
+  // Not in review mode → found:false, empty word.
+  for (const junk of [null, undefined]) {
+    assert.deepEqual(currentWordFromGuiCard(junk), { found: false, word: '', deckName: '' })
+  }
+  // In review but no Word/Transliteration field at all.
+  const noWord = currentWordFromGuiCard({ deckName: 'x', fields: { Meaning: { value: '…' } } })
+  assert.equal(noWord.found, true)
+  assert.equal(noWord.word, '')
+})
+
+test('currentWordFromCli reads the flat JSON that anki_api.py actually prints', () => {
+  // 回归：Host 曾经只读 parsed.raw，而 CLI 打的是扁平结构（没有 raw 键），
+  // 于是「明明在复习界面也永远 found:false」。这里钉死真实形状。
+  const actual = {
+    found: true,
+    word: '遭難',
+    deckName: '0-日本语学习::0-词汇::4-今天词汇',
+    template: 'Word -> Meaning',
+  }
+  assert.deepEqual(currentWordFromCli(actual), {
+    found: true, word: '遭難', deckName: '0-日本语学习::0-词汇::4-今天词汇', template: 'Word -> Meaning',
+  })
+
+  // 不在复习界面：CLI 打 found:false + 空字符串。
+  assert.deepEqual(
+    currentWordFromCli({ found: false, word: '', deckName: '', template: '' }),
+    { found: false, word: '', deckName: '', template: '' },
+  )
+
+  // 复习界面但卡上没有 Word 字段：found 仍为 true、word 为空（面板走提示行）。
+  const noWord = currentWordFromCli({ found: true, word: '', deckName: 'x', template: '' })
+  assert.equal(noWord.found, true)
+  assert.equal(noWord.word, '')
+
+  // 兼容包一层 raw（或直接透传 guiCurrentCard）的旧/未来形状。
+  const wrapped = currentWordFromCli({
+    raw: { deckName: 'd', template: 't', fields: { Word: { value: '持ち物' } } },
+  })
+  assert.equal(wrapped.word, '持ち物')
+  assert.equal(wrapped.found, true)
+
+  // 空/垃圾输入不炸。
+  for (const junk of [null, undefined]) {
+    assert.deepEqual(currentWordFromCli(junk), { found: false, word: '', deckName: '', template: '' })
+  }
 })

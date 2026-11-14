@@ -590,6 +590,9 @@ test('card-fix panel uses one word input, target checkboxes and one regenerate b
   assert.equal(textInputs.length, 1)
   assert.equal(textInputs[0].props.placeholder, 'card.fix.wordInput')
   assert.equal(textInputs[0].props.title, 'card.fix.wordTip')
+  // 「获取当前单词」是按钮，不是输入框。
+  const currentWordBtn = nodes.find((node) => node.type === 'button' && node.props.title === 'currentWord.tip')
+  assert.ok(currentWordBtn)
 
   // 音频 / HTML / AINote + 真写 都是 checkbox（「覆盖已有音频」只在勾了音频时出现，
   // 三个目标默认都不勾，所以这里至少 4 个）。
@@ -623,6 +626,58 @@ test('card-fix target checkboxes start unticked so nothing regenerates by defaul
   // 一个目标都没勾 → hasTarget 为 false，按钮禁用（无目标提示只在填了单词后显示）。
   const run = nodes.find((node) => node.type === 'button' && node.props.title === 'card.fix.runTip')
   assert.equal(run.props.disabled, true)
+})
+
+test('add-example card has a get-current-word button next to the words input', () => {
+  const tree = components.AddExampleCard({
+    t, call: () => {}, busy: '', result: null, results: {}, tabbed: true,
+    llmModels: null, llmChoice: '', setLlmChoice: () => {},
+  })
+  const nodes = nodesOf(tree)
+  const wordsInput = nodes.find((node) => node.type === 'input' && node.props.placeholder === 'card.addExample.words')
+  assert.ok(wordsInput, 'words input exists')
+  const btn = nodes.find((node) => node.type === 'button' && node.props.title === 'currentWord.tip')
+  assert.ok(btn, 'get-current-word button next to the words input')
+  assert.match(textOf(btn), /currentWord\.btn/)
+})
+
+test('card-fix panel has a get-current-word button next to the word input', () => {
+  const tree = components.CardFixCard({ t, call: () => {}, busy: '', results: {} })
+  const nodes = nodesOf(tree)
+  const btn = nodes.find((node) => node.type === 'button' && node.props.title === 'currentWord.tip')
+  assert.ok(btn, 'get-current-word button next to the fix word input')
+  assert.match(textOf(btn), /currentWord\.btn/)
+})
+
+test('get-current-word fills the word on success and throws when not in review mode', async () => {
+  // 静默失败是用户实际踩到的坑：请求成功但 found=false 时必须报错，不能什么都不发生。
+  const click = (value, onWord) => {
+    const tree = components.CurrentWordButton({
+      t,
+      call: () => Promise.resolve(value),
+      busy: '',
+      scope: 'add-example',
+      onWord,
+    })
+    const btn = nodesOf(tree).find((node) => node.type === 'button' && node.props.title === 'currentWord.tip')
+    return btn.props.onClick()
+  }
+
+  // 拿到词 → 填进输入框（onWord）。
+  let filled = null
+  await click({ found: true, word: '遭難' }, (word) => { filled = word })
+  assert.equal(filled, '遭難')
+
+  // found=false（不在复习界面）→ onClick 返回的 promise 必须被接住（不弹控制台），
+  // 错误文案经 call 进面板错误条；不填框。
+  filled = 'STALE'
+  await click({ found: false, word: '' }, (word) => { filled = word })
+  assert.equal(filled, 'STALE', 'found=false 不该调用 onWord')
+
+  // found=true 但卡上没有 Word 字段 → 不填也不 reject（走 currentWordNote 提示行）。
+  filled = 'STALE'
+  await click({ found: true, word: '' }, (word) => { filled = word })
+  assert.equal(filled, 'STALE', '没有 Word 字段不该调用 onWord')
 })
 
 test('card-fix panel renders audio and field generation results', () => {

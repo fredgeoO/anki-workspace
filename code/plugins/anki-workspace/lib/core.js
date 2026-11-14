@@ -35,6 +35,55 @@ export const DECK_MINED = '0-日本语学习::0-词汇::0-素材生词'
 /** 卡片修正要读写的三个字段：cards.py 拿 Sentence 当骨架写 AINote / Sentence HTML。 */
 export const CARD_FIX_FIELDS = ['Sentence', 'AINote', 'Sentence HTML']
 
+/** 「获取当前单词」按钮读的字段：面板两个单词输入框都填 Word。 */
+export const CURRENT_WORD_FIELD = 'Word'
+
+/**
+ * AnkiConnect `guiCurrentCard` 的原始返回 → 面板用的精简形状（纯函数，可离线测）。
+ * null / 不在复习模式 → found:false；否则取 fields.Word.value（退化时取 Transliteration）。
+ */
+export function currentWordFromGuiCard(raw) {
+  if (raw === null || raw === undefined || typeof raw !== 'object') {
+    return { found: false, word: '', deckName: '' }
+  }
+  const fieldText = (name) => {
+    const value = raw?.fields?.[name]
+    if (value == null) return ''
+    return String(typeof value === 'object' ? (value.value ?? '') : value).trim()
+  }
+  let word = fieldText(CURRENT_WORD_FIELD)
+  if (word === '') word = fieldText('Transliteration')
+  return {
+    found: true,
+    word,
+    deckName: String(raw?.deckName ?? '').trim(),
+    template: String(raw?.template ?? '').trim(),
+  }
+}
+
+/**
+ * `anki_api.py gui-current-word --json` 的返回 → 面板形状。
+ *
+ * CLI 打的是**扁平**结构（found/word/deckName/template，没有 raw 键）；
+ * 只有担心版本漂移时才需要回退到原始 guiCurrentCard 形状（fields.Word…）。
+ * 曾经这里只读 `parsed.raw`，于是 CLI 明明有词也永远被当成「没有当前卡」。
+ */
+export function currentWordFromCli(parsed) {
+  if (parsed === null || parsed === undefined || typeof parsed !== 'object') {
+    return { found: false, word: '', deckName: '', template: '' }
+  }
+  if (typeof parsed.found === 'boolean') {
+    return {
+      found: parsed.found,
+      word: String(parsed.word ?? '').trim(),
+      deckName: String(parsed.deckName ?? '').trim(),
+      template: String(parsed.template ?? '').trim(),
+    }
+  }
+  // 兼容：万一某版 CLI 改成包一层 raw（或直接透传 guiCurrentCard）。
+  return currentWordFromGuiCard(parsed.raw ?? parsed)
+}
+
 export function tail(text, max = 6000) {
   const s = String(text ?? '')
   if (s.length <= max) return s
@@ -1319,6 +1368,26 @@ export function createRuntime(ctx, config = {}) {
   }
 
   /**
+   * 「获取当前单词」按钮（只读）：经工作区唯一入口 `anki_api.py` 调 AnkiConnect
+   * `guiCurrentCard`，取当前复习卡的 Word 字段。不在复习模式返回 found:false；
+   * 卡片没有 Word 字段时退回 Transliteration（读音）。Host 不直连 8765。
+   */
+  async function currentWord(agent, signal) {
+    const root = await resolveRoot(agent)
+    const r = await run(root, ['code/common/anki_api.py', 'gui-current-word', '--json'],
+      { timeoutMs: 10_000, signal })
+    if (r.exitCode !== 0) {
+      return { ok: false, root, error: tail(combineOutput(r.stdout, r.stderr), 500) || `exit ${r.exitCode}` }
+    }
+    const parsed = extractJson(r.stdout)
+    if (!parsed || typeof parsed !== 'object') {
+      return { ok: false, root, error: 'guiCurrentCard 输出里没有可解析的 JSON' }
+    }
+    const value = currentWordFromCli(parsed)
+    return { ...value, ok: true, root, durationMs: r.durationMs }
+  }
+
+  /**
    * Read-only list of local-model choices for the panel's model dropdown and
    * the Agent: endpoint models (/v1/models + active /props) plus the profiles
    * declared in local-llm.json. Never includes the api_key — the Python side
@@ -1656,6 +1725,7 @@ export function createRuntime(ctx, config = {}) {
     studyReport,
     reportData,
     browse,
+    currentWord,
     llmModels,
     wordAudio,
     cardLookup,

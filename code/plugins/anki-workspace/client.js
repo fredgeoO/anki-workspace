@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
       'panel.refresh': 'Refresh',
       'panel.lastUpdated': 'Updated',
       'panel.error': 'Request failed',
+      'panel.stale': 'The running plugin is older than this panel (the Host has no such method). Re-install the @local/anki-workspace bundle or restart Harness, then reload this page.',
       'status.anki': 'AnkiConnect',
       'status.online': 'Online',
       'status.offline': 'Offline',
@@ -57,6 +58,10 @@ window.__ModuleLoader__.load({
       'card.addExample.pickHint': 'Pick one (or none = auto-pick), then run the chain to overwrite the card.',
       'card.addExample.rubyWarn': 'ruby check failed',
       'card.addExample.none': 'No Jisho candidates listed (the word may already have a second sentence, or Jisho has no usable example).',
+      'currentWord.btn': 'Get current word',
+      'currentWord.tip': 'Read the Word field of the card Anki is showing right now (guiCurrentCard) and fill it into this input. Anki must be in review mode.',
+      'currentWord.none': 'Anki has no card on screen — it only counts as "on screen" in the reviewer (Browse / stats / editor windows don\'t). Switch Anki to the reviewer, then click again. Losing Windows focus to this panel does NOT break it.',
+      'currentWord.noword': 'The current card has no Word field.',
       'llm.label': 'Local model',
       'llm.default': 'Default (config / endpoint pin)',
       'llm.groupProfiles': 'Profiles (pin off: use this profile\'s model)',
@@ -296,6 +301,7 @@ window.__ModuleLoader__.load({
       'panel.refresh': '刷新',
       'panel.lastUpdated': '更新于',
       'panel.error': '请求失败',
+      'panel.stale': '正在运行的插件比这个面板旧（Host 端没有这个方法）。请在插件管理器重装 @local/anki-workspace 或重启 Harness，然后刷新本页。',
       'status.anki': 'AnkiConnect',
       'status.online': '在线',
       'status.offline': '离线',
@@ -334,6 +340,10 @@ window.__ModuleLoader__.load({
       'card.addExample.pickHint': '选一条（或不选 = 自动挑选），再跑三步覆写卡片资料。',
       'card.addExample.rubyWarn': '振假名不合格',
       'card.addExample.none': '没有列出任何 Jisho 候选（该词可能已有第二句，或 Jisho 无可用例句）。',
+      'currentWord.btn': '获取当前单词',
+      'currentWord.tip': '读取 Anki 复习界面正在显示的卡片的 Word 字段（guiCurrentCard），填进这个输入框。需要 Anki 处于复习模式。',
+      'currentWord.none': 'Anki 当前界面没有卡：只有「复习界面」正在显示的卡才算，浏览列表 / 统计页 / 编辑弹窗都不算。把 Anki 切到复习窗口再点一次即可——注意：焦点被这个面板抢走不影响取词，不用一直盯着 Anki。',
+      'currentWord.noword': '当前复习卡的字段里没有 Word。',
       'llm.label': '本地模型',
       'llm.default': '默认（配置 / 跟随端点）',
       'llm.groupProfiles': '档位 profile（选定即用该档 model，不再跟随端点）',
@@ -756,6 +766,9 @@ window.__ModuleLoader__.load({
 .anki-report-row .anki-bar{height:7px}
 .anki-report-row b{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;color:var(--dsw-alias-label-primary)}
 @media (max-width:720px){.anki-form-grid{grid-template-columns:minmax(0,1fr)}}
+.anki-wordrow{display:flex;align-items:center;gap:8px}
+.anki-wordrow .anki-input{flex:1;min-width:0}
+.anki-wordrow .anki-btn{padding:6px 10px;font-size:12px}
 .anki-tab-wide{padding-left:20px;padding-right:20px}
 .anki-fixgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
 .anki-fixgrid > .anki-card{min-width:0}
@@ -1828,8 +1841,37 @@ window.__ModuleLoader__.load({
       return {}
     }
 
+    // 「获取当前单词」按钮：读 Anki 复习界面正在显示的卡片的 Word 字段填进输入框。
+    // busyKey 用 'current-word:<scope>'，两个 tab 各自转圈、互不影响。
+    function CurrentWordButton(props) {
+      const { t, call, busy, scope, onWord } = props
+      const running = busy === 'current-word:' + scope
+      const doFetch = () => call('current-word', 'current-word', {}, 'current-word:' + scope).then((value) => {
+        if (value == null) return
+        if (!value.found) throw new Error(t('currentWord.none'))
+        if (value.word) onWord(value.word)
+      }).catch(() => {})
+      // call() 已把请求失败写进面板错误条；这里 catch 只防 unhandled rejection
+      // （React 的 onClick 不消费返回的 promise，否则错误弹控制台、红条不出现）。
+      return h('button', {
+        type: 'button',
+        className: 'anki-btn',
+        title: t('currentWord.tip'),
+        disabled: running || busy !== '',
+        onClick: doFetch,
+      }, running ? t('common.working') : t('currentWord.btn'))
+    }
+
+    // 获取当前单词后的提示行：不在复习模式 / 卡上没有 Word 字段时说明原因。
+    function currentWordNote(t, results, scope) {
+      const value = results && results['current-word:' + scope]
+      if (value == null || value.found !== true) return null
+      if (value.word) return null
+      return h('div', { className: 'anki-meta' }, t('currentWord.noword'))
+    }
+
     function AddExampleCard(props) {
-      const { t, call, busy, result, tabbed, llmModels, llmChoice, setLlmChoice } = props
+      const { t, call, busy, result, results, tabbed, llmModels, llmChoice, setLlmChoice } = props
       const [words, setWords] = React.useState('')
       const [noteIds, setNoteIds] = React.useState('')
       const [limit, setLimit] = React.useState('')
@@ -1862,13 +1904,18 @@ window.__ModuleLoader__.load({
         h('p', null, t('card.addExample.desc')),
         h('div', { className: 'anki-card-body' },
           h('div', { className: 'anki-form-grid' },
-            h('input', {
-              className: 'anki-input',
-              placeholder: t('card.addExample.words'),
-              value: words,
-              onChange: (event) => setWords(event.target.value),
-              onKeyDown: (event) => { if (event.key === 'Enter') doList() },
-            }),
+            h('div', { className: 'anki-wordrow' },
+              h('input', {
+                className: 'anki-input',
+                placeholder: t('card.addExample.words'),
+                value: words,
+                onChange: (event) => setWords(event.target.value),
+                onKeyDown: (event) => { if (event.key === 'Enter') doList() },
+              }),
+              h(CurrentWordButton, {
+                t, call, busy, scope: 'add-example', onWord: setWords,
+              }),
+            ),
             h('input', {
               className: 'anki-input',
               placeholder: t('card.addExample.noteIds'),
@@ -1892,6 +1939,7 @@ window.__ModuleLoader__.load({
           ),
           h(LlmModelSelect, { t, data: llmModels, value: llmChoice || '', onChange: setLlmChoice }),
           // —— Jisho 候选例句选择区 ——
+          currentWordNote(t, results, 'add-example'),
           h('div', { className: 'anki-section' },
             h('div', { className: 'anki-row between' },
               h('h5', null, t('card.addExample.candidates')),
@@ -2689,6 +2737,8 @@ window.__ModuleLoader__.load({
         setTargets((prev) => Object.assign({}, prev, { [name]: !prev[name] }))
         setLookup(null)
       }
+      // 「获取当前单词」填词后同样清掉旧候选，避免拿上一个词的卡片列表去执行。
+      const pickWord = (value) => { setWordText(value); setLookup(null) }
       const toggleId = (setter, id) => {
         setter((prev) => {
           const next = Object.assign({}, prev)
@@ -2791,14 +2841,20 @@ window.__ModuleLoader__.load({
         h('h3', null, t('card.fix.title')),
         h('p', null, t('card.fix.desc')),
         h('div', { className: 'anki-card-body' },
-          h('input', {
-            className: 'anki-input',
-            placeholder: t('card.fix.wordInput'),
-            title: t('card.fix.wordTip'),
-            value: wordText,
-            onChange: (event) => { setWordText(event.target.value); setLookup(null) },
-            onKeyDown: (event) => { if (event.key === 'Enter') doRun() },
-          }),
+          h('div', { className: 'anki-wordrow' },
+            h('input', {
+              className: 'anki-input',
+              placeholder: t('card.fix.wordInput'),
+              title: t('card.fix.wordTip'),
+              value: wordText,
+              onChange: (event) => { setWordText(event.target.value); setLookup(null) },
+              onKeyDown: (event) => { if (event.key === 'Enter') doRun() },
+            }),
+            h(CurrentWordButton, {
+              t, call, busy, scope: 'card-fix', onWord: pickWord,
+            }),
+          ),
+          currentWordNote(t, results, 'card-fix'),
           h('div', { className: 'anki-fixactions' },
             h('label', { className: 'anki-check', title: t('card.fix.audioTip') },
               h('input', { type: 'checkbox', title: t('card.fix.audioTip'), checked: targets.audio, onChange: () => toggleTarget('audio') }),
@@ -3030,7 +3086,17 @@ window.__ModuleLoader__.load({
         setBusy(busyKey || name)
         setError(null)
         try {
-          const value = await rpc(method, args)
+          let value
+          try {
+            value = await rpc(method, args)
+          } catch (cause) {
+            // A route that doesn't exist means the running Host half is older
+            // than this panel: say so instead of blaming Anki.
+            if (/unknown method/i.test(String(cause && cause.message ? cause.message : cause))) {
+              throw new Error(t('panel.stale'))
+            }
+            throw cause
+          }
           // Write the cache before React state: a sidebar switch can unmount
           // this panel while the tool is still running, and the next open must
           // still see the finished result.
@@ -3093,6 +3159,7 @@ window.__ModuleLoader__.load({
             call,
             busy,
             result: results['add-example'],
+            results,
             tabbed: true,
             llmModels,
             llmChoice,
@@ -3237,6 +3304,8 @@ window.__ModuleLoader__.load({
         StatusCorner: StatusCorner,
         TabBar: TabBar,
         WordAudioCard: WordAudioCard,
+        AddExampleCard: AddExampleCard,
+        CurrentWordButton: CurrentWordButton,
         CardFixCard: CardFixCard,
         FieldFixCard: FieldFixCard,
         CardFixResult: CardFixResult,
