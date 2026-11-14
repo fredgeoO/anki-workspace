@@ -402,6 +402,8 @@ export async function listWorkspaceDirectory(root, arg) {
  *                   这正是「人明确指定」的口径。
  *  - `llmProfile` → `--profile <name>`：用 local-llm.json 里 profiles 的那一档；
  *                   脚本 help 推荐换档位走这个（端点/窗口一起切）。
+ *                   **同样关 pin**（2026-11-14 修复）：点了档位就用该档的 model，
+ *                   不再被「端点当前在服务的模型」覆盖——旧行为下选 profile 毫无效果。
  * 两者都给时 Python 侧 model 覆盖 profile 的 model，pin 关闭。空值 = 不注入，
  * 维持现状（profile 默认 + pin_active）。
  */
@@ -496,6 +498,25 @@ export function buildTodayNewArgs(args) {
   // 默认真写（commit !== false）：用户 2026-11-10 定的规矩「默认直接 commit，点名演练才演练」。
   // 只有显式 commit === false 才退回演练（不加 --commit）。
   const write = args?.commit !== false
+  if (write) argv.push('--commit')
+  return { argv, commit: write }
+}
+
+export function buildSeasonNewArgs(args) {
+  const input = typeof args?.input === 'string' ? args.input.trim() : ''
+  if (input === '') return { error: '需要 input（一季的字幕目录）' }
+  const argv = ['code/cli.py', 'season-new', input, '--json']
+  const num = (v) => Number.isInteger(v) && v >= 0
+  if (num(args.jitenMax)) argv.push('--jiten-max', String(args.jitenMax))
+  if (num(args.workJitenMin)) argv.push('--work-jiten-min', String(args.workJitenMin))
+  if (num(args.workJitenMax)) argv.push('--work-jiten-max', String(args.workJitenMax))
+  if (num(args.workMinCount)) argv.push('--work-min-count', String(args.workMinCount))
+  if (num(args.minWords)) argv.push('--min-words', String(args.minWords))
+  if (num(args.maxWords)) argv.push('--max-words', String(args.maxWords))
+  if (args.includeNames === true) argv.push('--include-names')
+  if (typeof args.tag === 'string' && args.tag.trim() !== '') argv.push('--tag', args.tag.trim())
+  // 默认只出清单（不写库）；只有显式 commit === true 才打季标签。
+  const write = args?.commit === true
   if (write) argv.push('--commit')
   return { argv, commit: write }
 }
@@ -1170,6 +1191,37 @@ export function createRuntime(ctx, config = {}) {
     }
   }
 
+  async function seasonNew(args, agent, signal) {
+    const built = buildSeasonNewArgs(args)
+    if (built.error !== undefined) return { ok: false, error: built.error }
+    const root = await resolveRoot(agent)
+    const r = await run(root, built.argv, { timeoutMs: 30 * 60_000, signal })
+    const parsed = extractJson(r.stdout)
+    let parseError = null
+    if (parsed === null) {
+      parseError = r.exitCode === 0 ? '输出里没有可解析的 JSON' : null
+    }
+    const ok = r.exitCode === 0 && parsed !== null && parsed.ok !== false
+    return {
+      ok,
+      root,
+      commit: built.commit,
+      exitCode: r.exitCode,
+      signal: r.signal,
+      timedOut: r.timedOut,
+      durationMs: r.durationMs,
+      truncated: r.lossy === true,
+      result: parsed,
+      parseError,
+      output: tail(parsed === null
+        ? combineOutput(r.stdout, r.stderr)
+        : r.stderr, 12_000),
+      note: built.commit
+        ? '已按每季口径提取并真写季标签（写后回读）。'
+        : '默认真写关闭：只出清单，没有改标签（勾选「写入季标签」才写库）。',
+    }
+  }
+
   async function vocabCover(args, agent, signal) {
     if (args?.text === undefined && args?.paths === undefined) {
       return { ok: false, error: '需要 text 或 paths' }
@@ -1590,6 +1642,7 @@ export function createRuntime(ctx, config = {}) {
     addExample,
     jishoList,
     todayNew,
+    seasonNew,
     vocabCover,
     studyReport,
     reportData,

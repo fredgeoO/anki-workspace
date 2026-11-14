@@ -227,6 +227,52 @@ test('today-new result handles a committed run and a failed run', () => {
   assert.match(failedText, /result\.failed/)
 })
 
+const seasonValue = {
+  ok: true,
+  commit: false,
+  exitCode: 0,
+  result: {
+    schema: 1,
+    tool: 'season-new',
+    source: 'subtitles/Yuru Camp',
+    generated_at: '2026-11-13T21:00:00',
+    window: { episodes: 12, labels: [] },
+    params: {
+      jitenMax: 12000, workJitenMin: 12001, workJitenMax: 24000,
+      workMinCount: 3, minWords: 550, maxWords: 800,
+    },
+    meta: {
+      common_total: 544, work_total: 29, picked: 573,
+      work_jiten_max: 24000, work_min_count: 3,
+      relaxed: [{ why: '总数不足 550，作品层出现次数放宽到 >=2', from: 3, to: 2 }],
+    },
+    counts: { episodes: 12, candidates: 840, common: 544, work: 29, picked: 573, notes: 685 },
+    tag: '本季生词::Yuru_Camp',
+    picked: [{
+      word: '鍋', reading: 'なべ', jiten: 5246, occurrences: 20, episodes: 8,
+      layer: 'common', notes: [1], first: { text: 'たき火で沸かすと鍋が' },
+    }],
+    plan: { old: 0, keep: 0, remove: 0, add: 573 },
+    write: { committed: false, verified: null, removed: 0, added: 0, tagged: 0 },
+    artifacts: {
+      report_md: 'output/daily/season_new_Yuru_Camp.md',
+      season_json: 'data/daily_new/season/Yuru_Camp.json',
+    },
+  },
+}
+
+test('season-new result renders layers, counts, relaxed note and artifacts', () => {
+  const text = textOf(components.SeasonNewResult({ t, value: seasonValue }))
+  assert.match(text, /鍋/)
+  assert.match(text, /なべ/)
+  assert.match(text, /JAR 5,246/)
+  assert.match(text, /card\.seasonNew\.commonLayer/)
+  assert.match(text, /放宽到 >=2/)
+  assert.match(text, /season_new_Yuru_Camp\.md/)
+  assert.match(text, /本季生词::Yuru_Camp/)
+  assert.match(text, /result\.dryRun/)
+})
+
 test('vocab cover result renders hero metrics, table, oov and screen words', () => {
   const tree = components.CoverResult({ t, value: coverValue })
   const text = textOf(tree)

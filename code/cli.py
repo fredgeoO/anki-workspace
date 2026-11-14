@@ -19,6 +19,7 @@
     python code/cli.py daily plan                   # 按 tag 取今天要讲的词
     python code/cli.py daily gen                    # 生成讲义（直连本地模型；没有 tag 就跳过）
     python code/cli.py today-new "字幕.srt" --n 30  # 今日 N 个生词（默认演练，--commit 真写）
+    python code/cli.py season-new "subtitles/<作品>"  # 每季生词清单（默认不写库，--commit 才打季标签）
     python code/cli.py pipeline prepare             # 阶段 0-2
     python code/cli.py pipeline triage --query "tag:待标记"
     python code/cli.py cards gen --note-id 123      # 单卡/数张：AINote + Sentence HTML（默认演练）
@@ -98,6 +99,7 @@ GROUPS = {
     'backup':    os.path.join(WSP.TOOLS, 'backup_anki.py'),
     'tagfreq':   os.path.join(WSP.TOOLS, 'tag_freq_stop.py'),
     'today-new': os.path.join(WSP.TOOLS, 'today_new_words.py'),
+    'season-new': os.path.join(WSP.TOOLS, 'season_new_words.py'),
     'sense-repair': os.path.join(WSP.TOOLS, 'sense_repair.py'),
     'rank':      os.path.join(WSP.TOOLS, 'rank_gate.py'),
     'unranked':  os.path.join(WSP.TOOLS, 'unranked.py'),

@@ -34,11 +34,11 @@
 | `execution/core6000/` | core6000 系列：`core6000_example.py`（入口 `cli.py core6000`）、`core6000_meaning.py`（入口 `cli.py meaning`）+ `core6000_text.py` `core6000_text2.py` `core6000_jisho.py` `core6000_gates.py` `core6000_render.py` + `core6000_example_prompt.md` |
 | `execution/lesson/` | 每日讲义系列（入口仍是 `today_new.py`）：`lesson_text.py` `lesson_check.py` `lesson_paths.py` `lesson_render.py` + `lesson_local_prompt.md` |
 | `execution/card_rules.md` | 讲解 / 振假名规则正本；改提示词先看它 |
-| `tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `rank_gate.py` `unranked.py` `proper_extract.py` `jisho_example.py` 等可复用能力 |
+| `tools/` | `doctor.py` `temp_clean.py` `edge_tts_min.py` `check_audio.py` `backup_anki.py` `subtitle_tag.py` `today_new_words.py` `season_new_words.py` `rank_gate.py` `unranked.py` `proper_extract.py` `jisho_example.py` 等可复用能力 |
 | `analysis/` | 弱项与词汇分析（`today_weak.py`、`vocab_cover/`）；ankiR 报告入口 `ankir.py` + `ankir_bridge.R`（只读，见技能 `jp-anki-r-analysis`） |
 | `oneshot/` | 一次性探针/迁移：不维护，**不要照抄**；用完的挪 `archive/` |
 | `tests/` | 回归测试，直接跑单个文件：`& $PY code\tests\test_llm_out.py` |
-| `plugins/anki-workspace/` | DSH 插件（desktop profile）：六个 Agent 工具 + 每轮 `<anki-workspace>` 上下文 + Web 面板；不直接读写 Anki，动作落回 `cli.py` / `anki_api.py` |
+| `plugins/anki-workspace/` | DSH 插件（desktop profile）：十一个 Agent 工具 + 每轮 `<anki-workspace>` 上下文 + Web 面板；不直接读写 Anki，动作落回 `cli.py` / `anki_api.py` |
 
 ## 2. 加新代码
 

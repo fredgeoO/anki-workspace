@@ -5,6 +5,7 @@ import {
   buildAddExampleCalls,
   buildCardFixArgv,
   buildCoverArgs,
+  buildSeasonNewArgs,
   buildTodayNewArgs,
   cardLookupCards,
   crumbsFor,
@@ -97,6 +98,32 @@ test('today-new commits by default and only dry-runs when explicitly told not to
   assert.equal(fast.argv.includes('--no-sense-check'), true)
   assert.equal(fast.argv.includes('--no-sense-repair'), true)
   assert.deepEqual(buildTodayNewArgs({}), { error: '需要 input（字幕文件或作品目录）' })
+})
+
+test('season-new is read-only by default and only writes the season tag on request', () => {
+  const dry = buildSeasonNewArgs({ input: 'subtitles/Yuru Camp' })
+  assert.deepEqual(dry.argv, ['code/cli.py', 'season-new', 'subtitles/Yuru Camp', '--json'])
+  assert.equal(dry.commit, false)
+
+  const full = buildSeasonNewArgs({
+    input: ' subtitles/X ',
+    jitenMax: 12000, workJitenMax: 24000, workMinCount: 3,
+    minWords: 550, maxWords: 800, includeNames: true,
+    tag: '本季生词::X', commit: true,
+  })
+  assert.deepEqual(full.argv, [
+    'code/cli.py', 'season-new', 'subtitles/X', '--json',
+    '--jiten-max', '12000', '--work-jiten-max', '24000', '--work-min-count', '3',
+    '--min-words', '550', '--max-words', '800', '--include-names',
+    '--tag', '本季生词::X', '--commit',
+  ])
+  assert.equal(full.commit, true)
+
+  assert.deepEqual(buildSeasonNewArgs({}), { error: '需要 input（一季的字幕目录）' })
+  // 非整数 / 负数不落进 argv（0 是合法值）。
+  const bad = buildSeasonNewArgs({ input: 'x', jitenMax: -1, maxWords: 1.5 })
+  assert.equal(bad.argv.includes('--jiten-max'), false)
+  assert.equal(bad.argv.includes('--max-words'), false)
 })
 
 test('local model choice injects --model / --profile and defaults stay clean', () => {

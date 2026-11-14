@@ -53,19 +53,23 @@ class LLMError(RuntimeError):
     pass
 
 
-def llm_pin_enabled(file_cfg, cli_model=None):
+def llm_pin_enabled(file_cfg, cli_model=None, cli_profile=None):
     """这次要不要把 model 对齐到端点**当前在服务**的那个（卡片任务：沿用当时在用的模型）。
 
     与全局技能 `local_llm.pin_active` 同一套口径：**配置文件里写了 `pin_active` 才算数**
     （正本 `~/.dsh/local-llm.json` 已写 true → 开；没写就不对齐，保持原行为）
     + 环境变量 `DSH_LOCAL_LLM_PIN=0` 关掉；显式给了 `--model` / `$env:DSH_LOCAL_LLM_MODEL`
-    也不对齐（那是人在明确指定）。本脚本不 import 技能模块，所以这里复刻判定，
-    **改口径要两边一起改**。
+    也不对齐（那是人在明确指定）。**显式 `--profile` / `$env:DSH_LOCAL_LLM_PROFILE` 同样不
+    对齐**：面板/工具点了档位，用户要的就是那一档的 model/base_url；继续 pin 会把
+    选择覆盖成端点当前模型——「选模型不生效」就是这么来的（2026-11-14 修复）。
+    本脚本不 import 技能模块，所以这里复刻判定，**改口径要两边一起改**。
     """
     env = os.environ.get('DSH_LOCAL_LLM_PIN')
     if env is not None and env.strip().lower() in ('0', 'false', 'no', 'off'):
         return False
     if cli_model or os.environ.get('DSH_LOCAL_LLM_MODEL'):
+        return False
+    if cli_profile:
         return False
     try:
         return bool(file_cfg.get('pin_active', False))
@@ -111,6 +115,11 @@ def load_llm_config(args):
     **卡片类任务的口径：沿用端点当时在用的本地模型，不切换**（配置文件里
     `pin_active: true`，没写这一项就不对齐）。profile 名只是「我以为在用谁」，服务换了它不会自己跟着换；
     这里发请求前问一次 `/props`，把 model 对齐到事实。显式 `--model` / `_MODEL` 时以显式为准。
+
+    **人点名的档位**（显式 `--profile` / `$env:DSH_LOCAL_LLM_PROFILE`）同样**关 pin**：
+    面板/工具选了某个 profile，用户要的就是那个 profile 的 model/base_url；若继续对齐
+    `/props`，端点在跑谁就用谁——「选模型不生效」就是这么来的（2026-11-14 修复）。
+    **只有什么都不指定**时才是「沿用端点当前在用的模型」。
     """
     file_cfg = {}
     for path in (LLM_GLOBAL_CONFIG_FILE, LLM_CONFIG_FILE):
@@ -122,6 +131,9 @@ def load_llm_config(args):
                 file_cfg.update(json.load(fh) or {})
         except (OSError, json.JSONDecodeError) as e:
             print('警告：读不出 %s（%s），忽略它。' % (path, e), file=sys.stderr)
+
+    # 人显式指定的档位先记下来（pick / pin 都拿它当「以显式为准」的依据）
+    cli_profile = getattr(args, 'profile', None) or os.environ.get('DSH_LOCAL_LLM_PROFILE')
 
     def pick(cli, envs, key, default):
         if cli:
@@ -135,14 +147,24 @@ def load_llm_config(args):
 
     # profile 与全局技能 local-llm.py 对齐：DSH_LOCAL_LLM_PROFILE / 文件里的 "profile"
     profs = file_cfg.get('profiles')
-    prof_name = (getattr(args, 'profile', None) or os.environ.get('DSH_LOCAL_LLM_PROFILE')
-                 or (file_cfg.get('profile') if isinstance(profs, dict) else ''))
+    prof_name = (cli_profile or (file_cfg.get('profile') if isinstance(profs, dict) else ''))
+    # 人点名的档位（面板下拉 / --profile / DSH_LOCAL_LLM_PROFILE）必须真的存在于 profiles：
+    # 拼错的名字绝不静默滑回「顶层默认 + pin」——那正是「选了档位却没任何效果」的来源之一。
+    if cli_profile and not (isinstance(profs, dict) and isinstance(profs.get(cli_profile), dict)):
+        known = sorted((profs or {}).keys()) if isinstance(profs, dict) else []
+        raise LLMError('没有名为 %r 的本地模型档位（local-llm.json profiles：%s）。'
+                       '请核对名字，或先在配置里加这一档。'
+                       % (cli_profile, '、'.join(known) or '（无）'))
     if prof_name and isinstance(profs, dict) and isinstance(profs.get(prof_name), dict):
         file_cfg.update({k: v for k, v in profs[prof_name].items()
                          if not str(k).startswith('_')})
 
     declared = pick(getattr(args, 'model', None), ['DSH_LOCAL_LLM_MODEL'],
                     'model', LLM_DEFAULT_MODEL)
+    # 空档位（如 ninfer: {}）= 声明「跟随端点当前在用的模型」，profile 本身没写 model。
+    # 上面已对显式档位关 pin；这种档位没有可钉的 id，退回 /props 对齐（与旧版行为一致）。
+    empty_profile = bool(cli_profile) and prof_name and isinstance(profs, dict) \
+        and not (profs.get(prof_name) or {}).get('model')
     cfg = {
         'base_url': pick(getattr(args, 'base_url', None), ['DSH_LOCAL_LLM_BASE_URL'],
                          'base_url', LLM_DEFAULT_BASE).rstrip('/'),
@@ -151,11 +173,12 @@ def load_llm_config(args):
         'declared_model': declared,
         'profile': prof_name or '',
     }
-    if llm_pin_enabled(file_cfg, getattr(args, 'model', None)):
+    if llm_pin_enabled(file_cfg, getattr(args, 'model', None), cli_profile) or empty_profile:
         alias = llm_active_model(cfg['base_url'], cfg['api_key'])
         if alias and alias != declared:
-            print('📌 沿用端点当前在用的模型：%s（配置里写的是 %s，profile=%s）——不切换'
-                  % (alias, declared, prof_name or '（顶层默认）'), file=sys.stderr)
+            why = ('档位 %s 没写 model' % prof_name) if (empty_profile and prof_name) \
+                else '配置里写的是 %s，profile=%s' % (declared, prof_name or '（顶层默认）')
+            print('📌 沿用端点当前在用的模型：%s（%s）——不切换' % (alias, why), file=sys.stderr)
             cfg['model'] = alias
             window = llm_window_for(cfg['base_url'], alias, cfg['api_key'])
             if window:
@@ -516,6 +539,14 @@ def _selfcheck():
     ck('usage_row 认 Responses 字段',
        row['prompt_tokens'] == 3 and row['completion_tokens'] == 4 and row['total_tokens'] == 7,
        repr(row))
+
+    # 档位选择 vs pin（2026-11-14「选模型不生效」的回归口径）：
+    # 显式 --model / --profile 都关 pin；什么都不指定才对齐端点。
+    pinned = {'pin_active': True}
+    ck('pin 默认开（无显式档位）', llm_pin_enabled(pinned) is True)
+    ck('显式 --model 关 pin', llm_pin_enabled(pinned, cli_model='m') is False)
+    ck('显式 --profile 关 pin', llm_pin_enabled(pinned, cli_profile='strata') is False)
+    ck('pin_active 没写就不对齐', llm_pin_enabled({}) is False)
     return bad
 
 

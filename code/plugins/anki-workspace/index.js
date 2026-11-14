@@ -135,6 +135,60 @@ function renderTodayNew(value) {
   return textBlock(lines.join('\n'))
 }
 
+function renderSeasonNew(value) {
+  const lines = [
+    `season-new：${value?.ok === true ? '成功' : '失败'}（${value?.commit === true ? '已写季标签' : '只出清单，未写库'}）`,
+  ]
+  if (value?.root) lines.push(`工作区：${value.root}`)
+  if (value?.timedOut === true) lines.push('状态：超时')
+  if (value?.exitCode !== undefined) lines.push(`exit：${value.exitCode}`)
+  const r = value?.result
+  if (r !== null && r !== undefined) {
+    const c = r.counts ?? {}
+    const p = r.params ?? {}
+    const m = r.meta ?? {}
+    lines.push(`来源：${r.source ?? '?'}${r.window ? `；窗口 ${r.window.episodes ?? '?'} 集` : ''}`)
+    lines.push(`口径：通用层 Jiten ≤ ${p.jitenMax ?? '?'}；作品层 ${p.workJitenMin ?? '?'}–${m.workJitenMax ?? p.workJitenMax ?? '?'} 且出现 ≥ ${m.workMinCount ?? p.workMinCount ?? '?'}；目标 ${p.minWords ?? '?'}–${p.maxWords ?? '?'}`)
+    lines.push(`收录：${c.picked ?? '?'} 个词 / ${c.notes ?? '?'} 张笔记（通用层 ${c.common ?? '?'} + 作品层 ${c.work ?? '?'}）`)
+    if (Array.isArray(m.relaxed) && m.relaxed.length > 0) {
+      for (const row of m.relaxed) lines.push(`放宽：${row.why}`)
+    }
+    if (r.tag) lines.push(`季标签：${r.tag}`)
+    if (r.plan) {
+      lines.push(`标签差集：旧 ${r.plan.old ?? '?'} / 保留 ${r.plan.keep ?? '?'} / 摘除 ${r.plan.remove ?? '?'} / 新增 ${r.plan.add ?? '?'}`)
+    }
+    if (r.write?.committed === true) {
+      lines.push(`写入：${r.write.verified === true ? '回读通过' : '回读失败'}（摘除 ${r.write.removed ?? '?'} / 新增 ${r.write.added ?? '?'} / 当前 ${r.write.tagged ?? '?'}）`)
+    }
+    const picked = Array.isArray(r.picked) ? r.picked : []
+    if (picked.length > 0) {
+      lines.push('清单（前 40 个）：')
+      for (const w of picked.slice(0, 40)) {
+        const bits = [
+          `${w.word}${w.reading ? `（${w.reading}）` : ''}`,
+          `JAR ${w.jiten ?? '—'}`,
+          `${w.occurrences ?? '?'} 次`,
+          w.layer === 'work' ? '作品层' : '通用层',
+        ]
+        lines.push(`- ${bits.join(' · ')}`)
+      }
+      if (picked.length > 40) lines.push(`…共 ${picked.length} 个`)
+    }
+    if (r.artifacts) {
+      lines.push(`产物：${r.artifacts.report_md ?? '?'}；${r.artifacts.season_json ?? '?'}`)
+    }
+    if (value?.commit !== true) {
+      lines.push('提示：本次只出清单；要写季标签，用 commit=true 或在面板勾选「写入季标签」。')
+    }
+  }
+  if (value?.parseError) lines.push('', `JSON 解析失败：${value.parseError}`)
+  if (value?.note) lines.push(value.note)
+  if (value?.output && (value?.parseError || r == null || value?.ok !== true)) {
+    lines.push('', tail(value.output, 4000))
+  }
+  return textBlock(lines.join('\n'))
+}
+
 function renderCover(value) {
   const lines = [`vocab cover：${value?.ok === true ? '成功' : '失败'}（exit ${value?.exitCode ?? '?'}）`]
   if (value?.root) lines.push(`工作区：${value.root}`)
@@ -375,6 +429,32 @@ function makeTools(runtime) {
       execute: (args, exec) => runtime.todayNew(args, exec.agent, exec.signal),
     },
     {
+      name: 'anki_season_new',
+      description: '每季生词提取（season-new）：选一季字幕目录，按「先收 Jiten≤12000 且本季出现的未学通用词，再补 Jiten 12001–24000 且本季出现≥3 次的作品高频词」筛出默认 550–800 个词；默认只出清单（不写 Anki），commit=true 才给这些词打季标签「本季生词::<目录名>」。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['input'],
+        properties: {
+          input: { type: 'string', description: '一季的字幕目录（相对路径按工作区根解析）' },
+          jitenMax: { type: 'integer', description: '通用层 Jiten 上限（默认 12000）' },
+          workJitenMin: { type: 'integer', description: '作品层 Jiten 下限（默认 12001）' },
+          workJitenMax: { type: 'integer', description: '作品层 Jiten 上限（默认 24000）' },
+          workMinCount: { type: 'integer', description: '作品层要求本季出现次数（默认 3）' },
+          minWords: { type: 'integer', description: '每季目标下限（默认 550；候选不足不硬凑）' },
+          maxWords: { type: 'integer', description: '每季目标上限（默认 800）' },
+          includeNames: { type: 'boolean', description: '保留人名/专有名词（默认过滤）' },
+          tag: { type: 'string', description: '季标签名（默认 本季生词::<目录名>）' },
+          commit: { type: 'boolean', description: '默认 false：只出清单不写库；true 才写季标签' },
+        },
+      },
+      output: { schema: OUT_SCHEMA, render: (_a, v) => renderSeasonNew(v) },
+      timeoutMs: 30 * 60_000,
+      isConcurrencySafe: () => false,
+      presentCall: execCall('Extract season new words'),
+      execute: (args, exec) => runtime.seasonNew(args, exec.agent, exec.signal),
+    },
+    {
       name: 'anki_vocab_cover',
       description: '给任意日文文本或字幕算词汇覆盖率（vocab cover --json）：卡组覆盖、卡组外新词、待激活词、可懂度。只读，不写 Anki。text 与 paths 至少给一个。',
       parameters: {
@@ -566,6 +646,9 @@ function createApiHandler(runtime) {
           break
         case 'today-new':
           value = await runtime.todayNew(args, undefined, undefined)
+          break
+        case 'season-new':
+          value = await runtime.seasonNew(args, undefined, undefined)
           break
         case 'vocab-cover':
           value = await runtime.vocabCover(args, undefined, undefined)

@@ -1,13 +1,13 @@
 # @local/anki-workspace
 
 把 anki-workspace 的常用能力装进 DeepSeek Harness（desktop profile）：
-十个 Agent 工具、一条动态上下文注入，以及一个 Web 控制面板。
+十一个 Agent 工具、一条动态上下文注入，以及一个 Web 控制面板。
 
 插件本身**不直接读写 Anki**：所有动作都通过工作区既有入口
 （`code/cli.py`、`code/common/anki_api.py`）执行，因此沿用它们原有的
 `--commit`、备份与回读闸门。
 
-## 十项能力
+## 十一项能力
 
 | 工具 | 对应命令 | 写库 |
 |---|---|---|
@@ -16,11 +16,20 @@
 | `anki_add_example` | `core6000 gen` → `tts` → `apply` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
 | `anki_jisho_list` | `core6000 gen --list-jisho` | 只读（列 Jisho 候选例句，不调模型不写库） |
 | `anki_today_new` | `python code/cli.py today-new <input> --json` | **默认真写**（`--commit`）；显式 `commit=false` 才演练 |
+| `anki_season_new` | `python code/cli.py season-new <目录> --json` | **默认只出清单**；`commit=true` 才写季标签 |
 | `anki_vocab_cover` | `python code/cli.py vocab cover … --json` | 只读 |
 | `anki_study_report` | `python code/cli.py r report --json --out …` | 只读 Anki；每月写一份报告文件 |
 | `anki_word_audio` | `mine_audio.py plan/apply --query …` | **默认真写**（`apply --commit`）；显式 `commit=false` 才演练 |
 | `anki_card_fix` | `cards.py gen --note-id … --only <field> [--commit]` | **默认真写**（`gen --overwrite --commit`）；显式 `commit=false` 才演练 |
 | `anki_llm_models` | `python code/cli.py local-llm-models` | 只读（列端点模型 + profiles，不含 api_key） |
+
+`anki_season_new` 给一季字幕目录（一个目录 = 一季）提取 **550–800 个该学的新词**：
+先收 Jiten 动漫名次 ≤ 12000 且本季出现、还没学的通用词，再补 12001–24000 且本季
+出现 ≥3 次的作品高频词。数量按候选自然落在区间内（**不硬性规定**）；候选不足时
+逐级放宽（次数 3→2→1、Jiten 上限 24000→30000），放宽过程进报告。默认**只出清单**
+（`output/daily/season_new_<目录名>.md` + `data/daily_new/season/<目录名>.json`），
+勾选「写入季标签」或 `commit=true` 才给入选词打 `本季生词::<目录名>`（写前备份、
+写后回读，`--revert --commit` 可退）。不碰调度列、不改字段。
 
 `anki_study_report` 默认每月一次：`output/reports/ankir/monthly-YYYY-MM.json`
 已存在时直接跳过；`force=true` 才重建。
@@ -46,6 +55,10 @@
    - `llmModel` → `--model <id>`：钉住端点 `/v1/models` 里的某个模型 id。Python 侧
      （`code/common/llm_client.py`）把显式 model 视为「人明确指定」，会**关掉 pin**
      （不再对齐 `/props` 当前在服务的模型）。
+   - **显式 `--profile` 同样关 pin**（2026-11-14 修复）：点了档位就用该档的
+     model/base_url。旧行为是 profile 只换 base_url、model 仍被 pin 对齐到端点当前
+     模型——面板选了档位等于没选。拼错的档位名现在**直接报错**，不再静默滑回默认。
+     空档位（如 `ninfer: {}`）语义仍是「跟随端点当前在用的模型」，行为不变。
 2. **插件 Config 默认**：`llmProfile` / `llmModel`（见下表），经环境变量
    `DSH_LOCAL_LLM_PROFILE` / `DSH_LOCAL_LLM_MODEL` 注入所有子进程，兜底生效。
 3. **留空** = 什么都不注入：跟随 `local-llm.json` 的 `profile` + `pin_active`，
@@ -86,6 +99,13 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
     （结果缓存在 Client 模块内；生成过程中切走，完成后也会写进缓存；刷新整个
     页面才清空）。
 - 写库动作都有「真写」勾选框，默认真写（取消勾选才演练）。
+- **今日选词** tab 底部还有「每季生词（选目录）」区：选一个字幕目录（= 一季），
+  用 checkbox / textbox 调筛选条件，默认值来自 2026-11-13 的实测结论——
+  通用层 Jiten ≤ `12000`、作品层 Jiten ≤ `24000`、作品层最少出现 `3` 次、
+  每季下限 `550` / 上限 `800`；另有「保留专有名词」「写入季标签」两个勾选和标签名
+  输入（空 = `本季生词::<目录名>`）。点「提取每季生词」出清单；**默认不写库**，
+  勾选「写入季标签」才写。结果区显示通用层/作品层 KPI、前 20 个词（可展开）、
+  放宽记录、标签差集与清单路径。
 - 「今日选词」「增加例句」卡里各有一个**本地模型下拉**（两个 tab 共享同一个
   选择）：默认项 = 跟随配置/端点 pin；分组列出 `profiles` 与端点模型。清单由
   Host 半的 `llm-models` API 提供（只读，见上节）。
@@ -154,6 +174,8 @@ doctor：提示（exit 2；通过 6 / 提示 8 / 阻塞 0）；✓ 可开工…
   只读方法：`browse`（入参 `{ path }`，省略即工作区根）给选择对话框列目录；
   `report`（入参 `{ month? }`）直接读取当月月度报告 JSON，供页面 6 在
   打开时和刷新后显示；`llm-models`（无入参）返回本地模型档位清单。
+  `season-new`（入参同 `anki_season_new`：`input` + 五个筛选值 + `tag` +
+  `commit`）跑每季生词提取；**默认只出清单**，`commit: true` 才写季标签。
 - API 方法中与卡片修正相关的两个：`card-lookup`（入参 `{ word }` 或 `{ ids }`，
   只读；`word` 路径在**整个收藏**里按 `Word:"…"` 字段搜索，再由 `cardLookupCards`
   按词形精确相等 + 三个字段齐备过滤，经 `anki_api.py notes --json --cards` 读回
@@ -209,6 +231,7 @@ node --test --test-isolation=none code\plugins\anki-workspace\test\logic.test.mj
 node --test --test-isolation=none code\plugins\anki-workspace\test\render.test.mjs
 node --test --test-isolation=none code\plugins\anki-workspace\test\locale.test.mjs
 python code\tests\test_cards_only.py
+python code\tests\test_season_new_words.py
 ```
 
 > Windows + DSH 沙箱下 `node --test` 默认会 spawn 子进程并触发 EPERM；

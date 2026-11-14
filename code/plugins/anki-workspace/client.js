@@ -59,7 +59,7 @@ window.__ModuleLoader__.load({
       'card.addExample.none': 'No Jisho candidates listed (the word may already have a second sentence, or Jisho has no usable example).',
       'llm.label': 'Local model',
       'llm.default': 'Default (config / endpoint pin)',
-      'llm.groupProfiles': 'Profiles',
+      'llm.groupProfiles': 'Profiles (pin off: use this profile\'s model)',
       'llm.groupModels': 'Endpoint models',
       'llm.active': 'serving now',
       'llm.endpoint': 'Endpoint',
@@ -73,6 +73,21 @@ window.__ModuleLoader__.load({
       'card.todayNew.fast': 'Skip sense check (fast)',
       'card.todayNew.run': 'Pick words',
       'card.todayNew.commit': 'Write tags (--commit)',
+      'card.seasonNew.title': 'Season new words',
+      'card.seasonNew.desc': 'Pick a whole season directory and extract 550–800 unlearned words: first Jiten ≤ 12000 common words, then 12001–24000 work words appearing ≥3 times. A list is always produced; tick "write season tag" to tag them 本季生词::<dir>.',
+      'card.seasonNew.jitenMax': 'Common Jiten ≤',
+      'card.seasonNew.workJitenMin': 'Work Jiten ≥',
+      'card.seasonNew.workJitenMax': 'Work Jiten ≤',
+      'card.seasonNew.workMinCount': 'Work min count',
+      'card.seasonNew.minWords': 'Min words',
+      'card.seasonNew.maxWords': 'Max words',
+      'card.seasonNew.tag': 'Tag (empty = 本季生词::<dir>)',
+      'card.seasonNew.includeNames': 'Keep proper names',
+      'card.seasonNew.writeTag': 'Write season tag',
+      'card.seasonNew.run': 'Extract season words',
+      'card.seasonNew.commonLayer': 'Common',
+      'card.seasonNew.workLayer': 'Work',
+      'card.seasonNew.relaxed': 'Relaxed',
       'card.cover.title': 'Vocabulary coverage',
       'card.cover.desc': 'Coverage, out-of-deck new words and understandable share for a Japanese text or subtitle.',
       'card.cover.text': 'Japanese text',
@@ -321,7 +336,7 @@ window.__ModuleLoader__.load({
       'card.addExample.none': '没有列出任何 Jisho 候选（该词可能已有第二句，或 Jisho 无可用例句）。',
       'llm.label': '本地模型',
       'llm.default': '默认（配置 / 跟随端点）',
-      'llm.groupProfiles': '档位 profile',
+      'llm.groupProfiles': '档位 profile（选定即用该档 model，不再跟随端点）',
       'llm.groupModels': '端点模型',
       'llm.active': '当前在服务',
       'llm.endpoint': '端点',
@@ -335,6 +350,21 @@ window.__ModuleLoader__.load({
       'card.todayNew.fast': '跳过义项核验（离线快跑）',
       'card.todayNew.run': '选词',
       'card.todayNew.commit': '真写标签（--commit）',
+      'card.seasonNew.title': '每季生词（选目录）',
+      'card.seasonNew.desc': '选一季字幕目录，按「先 Jiten ≤ 12000 通用词、再 12001–24000 且本季出现 ≥3 次的作品词」筛出 550–800 个未学词；始终出清单，勾选「写入季标签」才给这些词打 本季生词::<目录名>。',
+      'card.seasonNew.jitenMax': '通用层 Jiten ≤',
+      'card.seasonNew.workJitenMin': '作品层 Jiten ≥',
+      'card.seasonNew.workJitenMax': '作品层 Jiten ≤',
+      'card.seasonNew.workMinCount': '作品层最少出现',
+      'card.seasonNew.minWords': '每季下限',
+      'card.seasonNew.maxWords': '每季上限',
+      'card.seasonNew.tag': '标签（空 = 本季生词::<目录名>）',
+      'card.seasonNew.includeNames': '保留专有名词',
+      'card.seasonNew.writeTag': '写入季标签',
+      'card.seasonNew.run': '提取每季生词',
+      'card.seasonNew.commonLayer': '通用层',
+      'card.seasonNew.workLayer': '作品层',
+      'card.seasonNew.relaxed': '放宽',
       'card.cover.title': '词汇覆盖率',
       'card.cover.desc': '一段日文或一集字幕：卡组覆盖、卡组外新词、待激活词、可懂度。',
       'card.cover.text': '日文文本',
@@ -823,6 +853,34 @@ window.__ModuleLoader__.load({
       if (name === 'today-new') {
         return truncate([value.note || '', value.output || ''].filter(Boolean).join('\n\n'), 6000)
       }
+      if (name === 'season-new') {
+        const r = value.result
+        if (r == null) {
+          return truncate([value.note || '', value.output || ''].filter(Boolean).join('\n\n'), 6000)
+        }
+        const c = r.counts || {}
+        const p = r.params || {}
+        const m = r.meta || {}
+        const lines = [
+          '每季生词：' + (r.ok === false ? '失败' : '完成') +
+            '（收录 ' + (c.picked == null ? '?' : c.picked) + ' 词 / 通用 ' +
+            (c.common == null ? '?' : c.common) + ' + 作品 ' + (c.work == null ? '?' : c.work) + '）',
+          '口径：Jiten ≤ ' + (p.jitenMax == null ? '?' : p.jitenMax) +
+            '；作品层 ' + (p.workJitenMin == null ? '?' : p.workJitenMin) + '–' +
+            (m.workJitenMax == null ? (p.workJitenMax == null ? '?' : p.workJitenMax) : m.workJitenMax) +
+            ' 且出现 ≥ ' + (m.workMinCount == null ? (p.workMinCount == null ? '?' : p.workMinCount) : m.workMinCount),
+          '模式：' + (value.commit === true ? '已写季标签' : '只出清单'),
+        ]
+        if (r.tag) lines.push('季标签：' + r.tag)
+        if (Array.isArray(m.relaxed)) {
+          for (const row of m.relaxed) lines.push('放宽：' + (row.why || ''))
+        }
+        if (r.artifacts) {
+          lines.push('清单：' + (r.artifacts.report_md || '—'))
+          lines.push('数据：' + (r.artifacts.season_json || '—'))
+        }
+        return truncate(lines.join('\n'), 6000)
+      }
       if (name === 'vocab-cover') {
         const body = value.result == null ? (value.parseError || '') : coverSummary(value.result)
         return truncate([body, value.output || ''].filter(Boolean).join('\n\n'), 6000)
@@ -1090,6 +1148,94 @@ window.__ModuleLoader__.load({
           : null)
     }
 
+    function SeasonNewResult(props) {
+      const { t, value } = props
+      const r = value && value.result ? value.result : null
+      const [showAll, setShowAll] = React.useState(false)
+      if (r == null) return h('pre', { className: 'anki-out' }, formatValue('season-new', value))
+
+      const counts = r.counts || {}
+      const params = r.params || {}
+      const meta = r.meta || {}
+      const picked = Array.isArray(r.picked) ? r.picked : []
+      const visible = showAll ? picked : picked.slice(0, 20)
+      const committed = r.commit === true
+      const failed = value.ok === false || r.ok === false ||
+        (value.exitCode != null && value.exitCode !== 0)
+      const errorText = value.error || r.error || ''
+      const parts = []
+      if (r.generated_at) parts.push(t('result.generated') + ' ' + fmtTime(r.generated_at))
+      if (r.window) {
+        parts.push(t('result.window') + ' ' + numberText(r.window.episodes) + ' ' + t('result.episodes'))
+      }
+      parts.push('Jiten ≤ ' + numberText(params.jitenMax))
+      if (meta.workMinCount != null) parts.push('≥ ' + meta.workMinCount + ' ' + t('result.times'))
+      parts.push(numberText(params.minWords) + '–' + numberText(params.maxWords))
+      if (r.tag) parts.push(r.tag)
+
+      return h('div', { className: 'anki-result' },
+        h(ResultHead, {
+          title: baseName(r.source || '') || t('result.empty'),
+          sub: parts.join(' · '),
+          tone: failed ? 'error' : committed ? 'green' : 'warn',
+          badge: failed ? t('result.failed') : committed ? t('result.committed') : t('result.dryRun'),
+        }),
+        failed && errorText !== '' ? h('div', { className: 'anki-fail' }, errorText) : null,
+        h('div', { className: 'anki-kpis' },
+          h(Kpi, { label: t('card.seasonNew.commonLayer'), value: numberText(counts.common) }),
+          h(Kpi, { label: t('card.seasonNew.workLayer'), value: numberText(counts.work) }),
+          h(Kpi, { label: t('result.pickedWords'), value: numberText(counts.picked) }),
+          h(Kpi, { label: t('result.noteCount'), value: numberText(counts.notes) })),
+        picked.length === 0
+          ? h('div', { className: 'anki-result-sub' }, errorText || t('result.empty'))
+          : h('div', { className: 'anki-words' }, visible.map(function (word, index) {
+              const layerText = word.layer === 'work'
+                ? t('card.seasonNew.workLayer')
+                : t('card.seasonNew.commonLayer')
+              return h('div', { className: 'anki-word', key: (word.word || '') + '#' + index },
+                h('div', { className: 'anki-word-head' },
+                  h('span', { className: 'anki-word-index' }, String(index + 1).padStart(2, '0')),
+                  h('span', { className: 'anki-word-form' }, word.word),
+                  word.reading ? h('span', { className: 'anki-word-reading' }, word.reading) : null,
+                  h(Badge, { tone: word.layer === 'work' ? 'warn' : 'idle' }, layerText)),
+                h('div', { className: 'anki-word-meta' },
+                  ['JAR ' + numberText(word.jiten),
+                   numberText(word.occurrences) + ' ' + t('result.times'),
+                   numberText(word.episodes) + ' ' + t('result.episodesUnit'),
+                   (word.notes ? word.notes.length : 0) + ' ' + t('result.notesUnit')].join(' · ')),
+                word.first && word.first.text
+                  ? h('div', { className: 'anki-quote' }, word.first.text)
+                  : null)
+            })),
+        picked.length > 20
+          ? h('button', {
+              type: 'button',
+              className: 'anki-toggle',
+              onClick: function () { setShowAll(function (v) { return !v }) },
+            }, showAll ? t('result.showLess') : t('result.showAll') + ' (' + picked.length + ')')
+          : null,
+        Array.isArray(meta.relaxed) && meta.relaxed.length > 0
+          ? h(ResultSection, { title: t('card.seasonNew.relaxed') },
+              h('div', { className: 'anki-rows' }, meta.relaxed.map(function (row, index) {
+                return h('div', { className: 'anki-rowline', key: 'relax' + index }, row.why || '')
+              })))
+          : null,
+        r.plan
+          ? h(ResultSection, { title: t('result.plan.title') },
+              h('div', { className: 'anki-chiplist' },
+                h(Tag, { label: t('result.plan.old'), value: numberText(r.plan.old), dim: true }),
+                h(Tag, { label: t('result.plan.keep'), value: numberText(r.plan.keep) }),
+                h(Tag, { label: t('result.plan.remove'), value: numberText(r.plan.remove) }),
+                h(Tag, { label: t('result.plan.add'), value: numberText(r.plan.add) })))
+          : null,
+        r.artifacts
+          ? h(ResultSection, { title: t('result.artifacts') },
+              h('div', { className: 'anki-rows' },
+                h('div', { className: 'anki-rowline' }, r.artifacts.report_md || ''),
+                h('div', { className: 'anki-rowline' }, r.artifacts.season_json || '')))
+          : null)
+    }
+
     function CoverTable(props) {
       const { t, res } = props
       const buckets = [
@@ -1260,6 +1406,7 @@ window.__ModuleLoader__.load({
       const { t, name, value } = props
       if (value == null) return h('div', { className: 'anki-meta' }, t('common.noResult'))
       if (name === 'today-new' && value.result) return h(TodayNewResult, { t, value })
+      if (name === 'season-new' && value.result) return h(SeasonNewResult, { t, value })
       if (name === 'vocab-cover' && value.result) return h(CoverResult, { t, value })
       if (name === 'study-report') return h(ReportResult, { t, value })
       return h('pre', { className: 'anki-out' }, formatValue(name, value, t))
@@ -1638,6 +1785,8 @@ window.__ModuleLoader__.load({
      * 本地模型档位下拉（今日选词 / 增加例句共用）。
      * value：'' = 默认（不注入旗标，跟随 local-llm.json + pin_active）；
      *        'profile:<name>' → llmProfile；'model:<id>' → llmModel。
+     * 选了 profile 或 model 都会**关掉 pin**（llm_client.py 2026-11-14 口径）：
+     * 用你点名的档位，而不是端点当前在服务的模型。
      */
     function LlmModelSelect(props) {
       const { t, data, value, onChange } = props
@@ -1788,7 +1937,7 @@ window.__ModuleLoader__.load({
     }
 
     function TodayNewCard(props) {
-      const { t, call, busy, result, tabbed, llmModels, llmChoice, setLlmChoice } = props
+      const { t, call, busy, result, seasonResult, tabbed, llmModels, llmChoice, setLlmChoice } = props
       const [input, setInput] = React.useState('')
       const [picking, setPicking] = React.useState(false)
       const [n, setN] = React.useState('30')
@@ -1797,7 +1946,18 @@ window.__ModuleLoader__.load({
       const [fast, setFast] = React.useState(false)
       // 默认真写（用户 2026-11-10 定的规矩）：取消勾选才演练。
       const [commit, setCommit] = React.useState(true)
+      // 每季生词：默认值来自 2026-11-13 的 19 部 12–13 集实测结论。
+      const [jitenMax, setJitenMax] = React.useState('12000')
+      const [workJitenMin, setWorkJitenMin] = React.useState('12001')
+      const [workJitenMax, setWorkJitenMax] = React.useState('24000')
+      const [workMinCount, setWorkMinCount] = React.useState('3')
+      const [minWords, setMinWords] = React.useState('550')
+      const [maxWords, setMaxWords] = React.useState('800')
+      const [includeNames, setIncludeNames] = React.useState(false)
+      const [writeTag, setWriteTag] = React.useState(false)
+      const [tagName, setTagName] = React.useState('')
       const running = busy === 'today-new'
+      const runningSeason = busy === 'season-new'
       const submit = () => call('today-new', 'today-new', {
         input,
         n: n.trim() === '' ? undefined : Number(n),
@@ -1808,6 +1968,19 @@ window.__ModuleLoader__.load({
         // 默认真写：勾选=true，取消勾选才显式演练（false）。
         commit,
         ...llmArgsFrom(llmChoice),
+      })
+      const submitSeason = () => call('season-new', 'season-new', {
+        input,
+        jitenMax: jitenMax.trim() === '' ? undefined : Number(jitenMax),
+        workJitenMin: workJitenMin.trim() === '' ? undefined : Number(workJitenMin),
+        workJitenMax: workJitenMax.trim() === '' ? undefined : Number(workJitenMax),
+        workMinCount: workMinCount.trim() === '' ? undefined : Number(workMinCount),
+        minWords: minWords.trim() === '' ? undefined : Number(minWords),
+        maxWords: maxWords.trim() === '' ? undefined : Number(maxWords),
+        includeNames,
+        tag: tagName.trim(),
+        // 新功能默认只出清单；勾选后才写季标签。
+        commit: writeTag,
       })
       return h('section', { className: 'anki-card' },
         tabbed ? null : h('h3', null, t('card.todayNew.title')),
@@ -1865,6 +2038,84 @@ window.__ModuleLoader__.load({
             }, running ? t('common.working') : t('card.todayNew.run')),
           ),
           h(ResultBlock, { t, name: 'today-new', value: result }),
+          h('div', { className: 'anki-section' },
+            h('h5', null, t('card.seasonNew.title')),
+            h('p', null, t('card.seasonNew.desc')),
+            h('div', { className: 'anki-row' },
+              h('input', {
+                className: 'anki-input',
+                style: { width: '118px' },
+                placeholder: t('card.seasonNew.jitenMax'),
+                value: jitenMax,
+                inputMode: 'numeric',
+                onChange: (event) => setJitenMax(event.target.value),
+              }),
+              h('input', {
+                className: 'anki-input',
+                style: { width: '118px' },
+                placeholder: t('card.seasonNew.workJitenMax'),
+                value: workJitenMax,
+                inputMode: 'numeric',
+                onChange: (event) => setWorkJitenMax(event.target.value),
+              }),
+              h('input', {
+                className: 'anki-input',
+                style: { width: '118px' },
+                placeholder: t('card.seasonNew.workMinCount'),
+                value: workMinCount,
+                inputMode: 'numeric',
+                onChange: (event) => setWorkMinCount(event.target.value),
+              })),
+            h('div', { className: 'anki-row' },
+              h('input', {
+                className: 'anki-input',
+                style: { width: '96px' },
+                placeholder: t('card.seasonNew.workJitenMin'),
+                value: workJitenMin,
+                inputMode: 'numeric',
+                onChange: (event) => setWorkJitenMin(event.target.value),
+              }),
+              h('input', {
+                className: 'anki-input',
+                style: { width: '96px' },
+                placeholder: t('card.seasonNew.minWords'),
+                value: minWords,
+                inputMode: 'numeric',
+                onChange: (event) => setMinWords(event.target.value),
+              }),
+              h('input', {
+                className: 'anki-input',
+                style: { width: '96px' },
+                placeholder: t('card.seasonNew.maxWords'),
+                value: maxWords,
+                inputMode: 'numeric',
+                onChange: (event) => setMaxWords(event.target.value),
+              })),
+            h('div', { className: 'anki-row' },
+              h('input', {
+                className: 'anki-input',
+                style: { flex: '1', minWidth: '160px' },
+                placeholder: t('card.seasonNew.tag'),
+                value: tagName,
+                onChange: (event) => setTagName(event.target.value),
+              })),
+            h('div', { className: 'anki-row' },
+              h('label', { className: 'anki-check' },
+                h('input', { type: 'checkbox', checked: includeNames, onChange: (event) => setIncludeNames(event.target.checked) }),
+                t('card.seasonNew.includeNames'),
+              ),
+              h('label', { className: 'anki-check' },
+                h('input', { type: 'checkbox', checked: writeTag, onChange: (event) => setWriteTag(event.target.checked) }),
+                t('card.seasonNew.writeTag'),
+              )),
+            h('div', { className: 'anki-row' },
+              h('button', {
+                type: 'button',
+                className: 'anki-btn',
+                disabled: busy !== '' || input.trim() === '',
+                onClick: submitSeason,
+              }, runningSeason ? t('common.working') : t('card.seasonNew.run'))),
+            h(ResultBlock, { t, name: 'season-new', value: seasonResult })),
         ),
       )
     }
@@ -2852,6 +3103,7 @@ window.__ModuleLoader__.load({
             call,
             busy,
             result: results['today-new'],
+            seasonResult: results['season-new'],
             tabbed: true,
             llmModels,
             llmChoice,
@@ -2979,6 +3231,7 @@ window.__ModuleLoader__.load({
       __components: {
         AnkiPanel: AnkiPanel,
         TodayNewResult: TodayNewResult,
+        SeasonNewResult: SeasonNewResult,
         CoverResult: CoverResult,
         ReportResult: ReportResult,
         StatusCorner: StatusCorner,
